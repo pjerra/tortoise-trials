@@ -218,7 +218,9 @@ class HurtLoopTest(unittest.TestCase):
         world.advance = appear
         run_window(sit, clock)
         times = [row[0] for row in guard.sent if row[1] == "modify_hp"]
-        self.assertEqual(times[0], 5.0)     # not 20: the wait did not spend the tick
+        every, _wait = hurt_cadence()
+        self.assertEqual(times[0], 5.0)     # not `every` (the trial's hurt_every_s): the wait did not spend the tick
+        self.assertLess(times[0], every)
         self.assertTrue([line for line in logs if "hurt tick waits" in line])
 
     def test_a_victim_already_in_band_is_left_alone(self):
@@ -344,7 +346,7 @@ class OocHurtScoringTest(trh.RepMixin, unittest.TestCase):
         self.assertEqual(rules["PRI-PWS-DEF-ARMS-OOC-HEALS"]["verdict"], "FAIL")
 
     def test_too_little_in_band_time_is_inconclusive_not_a_pass(self):
-        events, samples = self.window(in_band_s=2)          # 8 hurts x ~2 s = 16 s < min_opportunity_s 60
+        events, samples = self.window(in_band_s=2)          # 8 hurts x ~2 s = 16 s < the rule's min_opportunity_s (30)
         rules, _ = self.score(DEF_ID, events, samples, secs=150)
         self.assertEqual(rules["PRI-PWS-DEF-ARMS-OOC"]["verdict"], "INCONCLUSIVE")
         self.assertIn("opportunity", rules["PRI-PWS-DEF-ARMS-OOC"]["reason"])
