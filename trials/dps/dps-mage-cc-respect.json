@@ -54,7 +54,7 @@
       "role": "humanoid",
       "count": 3,
       "level_delta": -1,
-      "refill": false
+      "refill": true
     },
     "hp_band": [
       40,
@@ -95,7 +95,7 @@
       "desc": "No damage from the mage (direct, periodic or splash) lands on the moon-marked mob while it carries Polymorph",
       "source": "ai/playerbot/strategy/values/PossibleAttackTargetsValue.cpp:53-108 (a mob in breakable CC leaves the target list unless nothing else is left), :131-173 (HasBreakableCC); ai/playerbot/strategy/triggers/GenericTriggers.cpp:830-860 (AoeTrigger: never AoE a pack holding a breakable CC); ai/playerbot/strategy/actions/GenericSpellActions.cpp:46-61 (BreaksCcInArea for Frost Nova, Blizzard, Cone of Cold); TortoiseBots upstream/dev abb91ff62",
       "expect_today": "PASS",
-      "why_expect": "the sheeped mob is only a target when nothing else is left, and every area spell path checks for a breakable CC in its radius (commits 180024d15, 9ccede38a). Three mobs (the moon mark and two others, refilled when one dies) so an unmarked mob is always up: with two, the gap between a kill and its refill leaves the sheep as the only target (PossibleAttackTargetsValue.cpp:97-107) and the mage would nuke it by design. dst_has_aura names only the Polymorph ranks: marked_has_cc now knows them too (trl/rules.py, commit 5fa9e61) but also matches other CC, and here only the sheep matters",
+      "why_expect": "the sheeped mob is only a target when nothing else is left, and every area spell path checks for a breakable CC in its radius (commits 180024d15, 9ccede38a). Three mobs (the moon mark and two others, refilled when one dies) so an unmarked mob is almost always up. When both unmarked mobs are dead and the refill has not yet engaged, the sheep is the only possible target (PossibleAttackTargetsValue.cpp:97-107) and the mage would nuke it by design, so the runner writes an excluded span (cc_gap) from the moment no unmarked summon is alive until the next one has been up for 3 s, and nothing in that span counts. dst_has_aura names only the Polymorph ranks: marked_has_cc now knows them too (trl/rules.py, commit 5fa9e61) but also matches other CC, and here only the sheep matters",
       "check": {
         "metric": "count",
         "where": {

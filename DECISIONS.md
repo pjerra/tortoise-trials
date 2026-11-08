@@ -87,7 +87,7 @@ each rescue-cap rep. A rep that ends on the cap with 12-21 rescues in a minute w
 |---|---|---|---|
 | `dps-mage-counterspell-caster` | capped (13 rescues, 125 s) | steps 1-2 capped too; only step 3 (-1, count 1, refill off) ran 180 s, 3 of 3 | `level_delta` -1, refill on, `max_rescues_per_min` 30 |
 | `dps-mage-threat-cap` | capped (21 rescues) | steps 1-2 capped; step 3 ran 180 s, but its mob died after 2-3 nukes | `level_delta` -1, refill on, `max_rescues_per_min` 30 |
-| `dps-mage-cc-respect` | 3 of 4 ran 180 s (13, 7, 3 rescues); rep 4 capped (16) | the ladder is off for `cc_target`; a live check at -1, refill off still capped at 64 s (12 rescues, three mobs on a gearless tank) | `level_delta` -1, refill off, `max_rescues_per_min` 30 |
+| `dps-mage-cc-respect` | 3 of 4 ran 180 s (13, 7, 3 rescues); rep 4 capped (16) | the ladder is off for `cc_target`; a live check at -1, refill off still capped at 64 s (12 rescues, three mobs on a gearless tank) | `level_delta` -1, count 3, refill ON, `max_rescues_per_min` 30 (refill off leaves the sheep the only target once both unmarked mobs die, and the mage then nukes it by design; the runner also excludes the span with no unmarked mob alive, `cc_gap`) |
 | `dps-rogue-kick-caster` | 4 of 4 ran 180 s, 0 rescues | - | unchanged |
 | `tank-paladin-righteous-fury` | 2 of 3 clean, rep 3 capped (14) | step 1 (0): 2 of 2 ran 180 s | `level_delta` 0 |
 | `tank-warrior-taunt-off-healer` | no fight in sweep-1b (arena) | same shape as the paladin trial | `level_delta` 0 (not measured) |
@@ -103,9 +103,9 @@ measured; the `level_delta` values come from the steps that survived above.
 
 Was: at least 15 nukes per repeat. At the ladder's easier steps one mob dies after 2-3 nukes and the rest of the
 repeat is empty (sweep-1b step 3: 2, 2, 3 nukes), so the rule could never pass and said nothing about the bot.
-Now: `metric: rate`, `per: mob_alive`, `min_alive_s: 15`, `pass_if >= 8`. The denominator is the seconds in which at
+Now: `metric: rate`, `per: mob_alive`, `min_alive_s: 45`, `pass_if >= 8`. The denominator is the seconds in which at
 least one `mob:` sample had hp > 0 (each second once). Threshold: an unvetoed fire mage casts a nuke every 3.5 s,
 about 15 a minute; 8 is a little over half of that. A back-off that holds the veto half the time or more (the wand
-fills in, #922) gives 7 or fewer, an idle mage about 0. Under 15 s of mob-alive time the rule is INCONCLUSIVE.
+fills in, #922) gives 7 or fewer, an idle mage about 0. Under 45 s of mob-alive time the rule is INCONCLUSIVE (a nuke every 3.5 s gives 13 casts in 45 s, enough to tell 8 a minute from 0; a 20 s mob gives 5 and says nothing).
 sweep-1b's step-3 reps would read about 5-6 a minute (2 nukes in 20 s with Frost Nova, Blink and Cone of Cold cast
 in between: the mob was on the mage), i.e. FAIL for a mage that is under attack, which is information, not an artefact.

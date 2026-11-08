@@ -271,11 +271,12 @@ class DpsRulesTest(RepMixin, unittest.TestCase):
             return samples + [{"t": float(t), "unit": "mob:" + MOB.lower(), "guid": MOB.lower(),
                                "hp": 500 if t < seconds else 0, "max_hp": 2000, "in_combat": t < seconds,
                                "auras": []} for t in range(0, 201)]
-        quick = [event(2 + 3.5 * i, "cast", BOT, MOB, 133) for i in range(6)]      # 6 nukes, mob dead at 22 s
-        self.assertEqual(self.verdict(tid, "DPS-MAG-THREAT-DAMAGE", quick, mob_alive(22)), "PASS")
-        # the same 6 nukes against a mob that lives the whole repeat: 2 a minute, the back-off held
+        quick = [event(2 + 3.5 * i, "cast", BOT, MOB, 133) for i in range(12)]     # 12 nukes in 44 s
+        self.assertEqual(self.verdict(tid, "DPS-MAG-THREAT-DAMAGE", quick, mob_alive(50)), "PASS")      # 14 a minute
+        # the same 12 nukes against a mob that lives the whole repeat: 3.6 a minute, the back-off held
         self.assertEqual(self.verdict(tid, "DPS-MAG-THREAT-DAMAGE", quick, mob_alive(200)), "FAIL")
-        self.assertEqual(self.verdict(tid, "DPS-MAG-THREAT-DAMAGE", quick, mob_alive(8)), "INCONCLUSIVE")
+        # a mob that lived under 45 s (the step-3 reps of sweep-1b: about 20 s) says nothing
+        self.assertEqual(self.verdict(tid, "DPS-MAG-THREAT-DAMAGE", quick[:6], mob_alive(22)), "INCONCLUSIVE")
         # wand shots are not nukes: an only-wanding mage fails the precondition
         wand = [event(10 + 2 * i, "cast", BOT, MOB, sid("Shoot")) for i in range(40)]
         self.assertEqual(self.verdict(tid, "DPS-MAG-THREAT-DAMAGE", wand, mob_alive(200)), "FAIL")
