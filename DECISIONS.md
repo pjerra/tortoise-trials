@@ -56,3 +56,23 @@ Effect on old numbers: the PR #1557 BEFORE/AFTER runs used the trial without the
 they are; only future runs of this trial use 12, so a future run is compared with those baselines at a
 looser cap (a rep that would have been cut at 6 rescues may now finish and score). `priest-holy-pws-bear-bal`
 and its 2tank twin carry no cap on either side and stay as they are; they still match each other.
+
+## 2026-11-08: teardown rc=14 on priest runs
+
+What the tool did wrong (fixed): `turtle-agent teardown` prints one line per step and a summary
+("teardown: 5 ok, 9 skipped, 2 failed"); the runner kept only the last line, so the log never said which
+steps failed. `slot_teardown` now adds every `FAIL`/`ending` step with its detail to the detail line, the
+`slot_teardown` ledger row (`failed_steps`) and the run warning.
+
+What the tool did wrong, second part (fixed): the per-repeat cleanup checked every summon in the slot ledger.
+From the second repeat on, an earlier repeat's summon had despawned, and the agent answers "unit ... is not
+in view" for it; that was read as UNKNOWN for the whole ledger, so `mobs_dead` failed (exit code 5), the
+kill loop never ran and the repeat's own summon stayed alive. That is the "one summon left behind" (it
+showed up as the only guid left in the run-level cleanup). The cleanup now checks only summons no earlier
+cleanup has proved dead or gone, and treats "not in view" as gone for them (the player stands in the arena).
+
+Not fixed (cause not visible offline): the two failed steps of the binary's own teardown. In the binary's
+logic, a failed game-side step (an RPC step, or the agent exiting) makes the lease step fail too ("kept:
+game-side teardown failed"), which fits "2 failed" with one real cause. Which game-side step it is will
+now be in the log of the next run. If it turns out to be server-side or in turtle-agent, it belongs in
+that project, not here.
