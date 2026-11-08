@@ -38,7 +38,7 @@ TEMPLATES = {
 CLASSIFY = [
     (re.compile(r"\.gm visible on"), "gm_visible_on"),
     (re.compile(r"\.gm off"), "gm_off"),
-    (re.compile(r"\.levelup (\d{1,2})"), "levelup"),
+    (re.compile(r"\.levelup (-?\d{1,2})"), "levelup"),
     (re.compile(r"\.reset talents"), "reset_talents"),
     (re.compile(r"\.learn (\d{1,6})"), "learn"),
     (re.compile(r"\.unaura (all|\d{1,6})"), "unaura"),
@@ -278,7 +278,9 @@ class GmGuard:
             raise GmRefused("%s is selection-based: give the target guid" % kind)
         if kind == "levelup":
             n = int(groups[0])
-            if not 1 <= n <= 60:
+            # a negative count lowers the level (the core's .levelup takes a signed count and stops at 1):
+            # a slot character that an earlier trial levelled above this trial's level is brought back down
+            if n == 0 or not -59 <= n <= 60:
                 raise GmRefused(".levelup %d out of range" % n)
         elif kind == "learn":
             spell = int(groups[0])

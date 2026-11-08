@@ -940,8 +940,11 @@ class Situation:
         echo = row.get("mark") if isinstance(row, dict) else None
         intent = "cc moon %s" % self.ctx.bot_name
         since = self.agent.tbm(intent)
-        line, _rows = self.agent.wait_reply(since, r"TBM:ACTION_ACK\|cc moon ", timeout=10)
-        ack = re.search(r"TBM:ACTION_ACK\|" + re.escape(intent) + r"\|[^|]*\|(\d+)\|", line or "")
+        # the build acks `TBM:ACTION_ACK|cc moon|bot:<name>|<count>|<name>`: the intent field is the command
+        # WITHOUT its argument (the sweep's cc_mark_set read "no TBM:ACTION_ACK" while the ack was there)
+        line, _rows = self.agent.wait_reply(since, r"TBM:ACTION_ACK\|cc moon[ |]", timeout=10)
+        ack = re.search(r"TBM:ACTION_ACK\|cc moon(?: " + re.escape(self.ctx.bot_name) + r")?\|[^|]*\|(\d+)\|",
+                        line or "")
         self.ledger.add({"kind": "cc_mark", "guid": guid, "mark": echo or "", "bot": self.ctx.bot_name,
                          "reply": line or ""})
         return {"id": "cc_mark_set", "ok": bool(echo) and bool(ack) and int(ack.group(1)) >= 1,

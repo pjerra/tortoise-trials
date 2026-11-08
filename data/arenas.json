@@ -1,6 +1,6 @@
 [
   {"id": "legacy-1553", "map": 0, "x": -12790, "y": -400, "z": 18.5, "o": 0, "faction": "any", "level_min": 1, "level_max": 60},
   {"id": "unga-ridge", "map": 0, "x": -11926.13, "y": -1283.2, "z": 85.45, "o": 0, "faction": "any", "level_min": 20, "level_max": 60},
-  {"id": "arathi-field", "map": 0, "x": 2859.73, "y": -824.91, "z": 162.08, "o": 0, "faction": "any", "level_min": 15, "level_max": 45},
-  {"id": "hillsbrad-field", "map": 0, "x": 4252.37, "y": 756.97, "z": -23.06, "o": 0, "faction": "any", "level_min": 15, "level_max": 40}
+  {"id": "arathi-field", "map": 0, "x": 2859.73, "y": -824.91, "z": 162.08, "o": 0, "faction": "any", "level_min": 15, "level_max": 60},
+  {"id": "hillsbrad-field", "map": 0, "x": 4252.37, "y": 756.97, "z": -23.06, "o": 0, "faction": "any", "level_min": 15, "level_max": 60}
 ]

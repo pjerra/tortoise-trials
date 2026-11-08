@@ -105,18 +105,25 @@ def check_gm_visible(agent, guard, ctx=None, reply_wait=1.5, aura_wait=3.0, poll
 
 
 def check_level(agent, trial, guard, timeout=8.0):
+    """Bring the player to the trial's level, up or down (`.levelup N` takes a signed count).
+
+    A slot's character is kept between trials, so a trial after a level-45 one met a level-45 player
+    ("character above trial level (45 > 40)": 16 reps of the first class sweep). The player never runs
+    a trial above its level now. The final level is read back; a level that does not move stays a failure.
+    """
     st = agent.status()
     if st.get("state") != "in_world":
         return row("player_level", False, st.get("state"), "not in world")
     want = int(trial["player"]["level"])
     have = int(st.get("level") or 0)
-    if have > want:
-        return row("player_level", False, have, "character above trial level (%d > %d)" % (have, want))
-    if have < want:
+    lowered = ""
+    if have != want:
         guard.send("levelup", guard.ctx.player_guid, want - have)
-        wait_until(lambda: int(agent.status().get("level") or 0) >= want, timeout=timeout, poll=0.5)
+        wait_until(lambda: int(agent.status().get("level") or 0) == want, timeout=timeout, poll=0.5)
+        if have > want:
+            lowered = "lowered from %d; " % have
         have = int(agent.status().get("level") or 0)
-    return row("player_level", have == want, have, "level %d (target %d)" % (have, want))
+    return row("player_level", have == want, have, "%slevel %d (target %d)" % (lowered, have, want))
 
 
 def check_talents(agent, trial, guard, ctx, settle=1.0):
@@ -135,6 +142,17 @@ def check_talents(agent, trial, guard, ctx, settle=1.0):
     lines, _rows = agent.read_lines(before, timeout=1.5)
     have = agent.spell_ids()
     missing = [sid for sid in spells if sid not in have]
+    if missing:
+        # a single `.learn` can answer "Player not found!" right after the reset (the selection raced the
+        # reset): learn only the missing ones again, once, with a fresh selection each
+        before = agent.snapshot()
+        for sid in missing:
+            guard.send("learn", ctx.player_guid, sid)
+        time.sleep(settle)
+        retry_lines, _rows = agent.read_lines(before, timeout=1.5)
+        lines = list(lines) + ["retry: %s" % l for l in retry_lines]
+        have = agent.spell_ids()
+        missing = [sid for sid in spells if sid not in have]
     if missing:
         return row("player_talents", False, missing,
                    "talents not learned: %s | server: %s" % (", ".join(str(x) for x in missing),
@@ -892,8 +910,8 @@ def _events_rows(rep_dir):
 def check_player_visible(rep_dir, trial, window_s=VISIBLE_WINDOW_S):
     """REQUIRED in-fight check `player_visible`, from the rep's events.jsonl (None for a raid trial).
 
-    Visible = within the first `window_s` s of the fight (t = 0 is fight_start) the hired bot cast
-    a spell at the player. A hired HEALER must do so: a mob hitting the player proves nothing
+    Visible = within the first `window_s` s of the fight (t = 0 is fight_start) a hired bot (the hire or
+    an extra_bots hire) cast a spell at the player. A hired HEALER must do so: a mob hitting the player proves nothing
     (live3: the hidden GM was hit by mobs in 6 of 9 reps and healed in none). For a bot that is not
     a healer, or when the player is not the trial's victim (victim extra1: it is a bystander), a mob
     attack on the player counts too (nothing obliges the bot to cast at a full-health player). An
@@ -911,8 +929,10 @@ def check_player_visible(rep_dir, trial, window_s=VISIBLE_WINDOW_S):
         return row("player_visible", False, None,
                    "%s: events.jsonl unreadable (%s)" % (REASON_NOT_VISIBLE, str(exc)[:80]))
     window = [r for r in rows if 0.0 <= float(r.get("t") or 0.0) <= float(window_s)]
+    # any hired bot counts: the main hire ("bot") and extra_bots hires ("extra") skip a hidden GM alike (a
+    # healer extra casting on the player proves the player is visible; the sweep's kick trial had 32 such casts)
     casts = [r for r in window if r.get("kind") in ("cast", "cast_start")
-             and r.get("src_role") == "bot" and r.get("dst_role") == "player"]
+             and r.get("src_role") in ("bot", "extra") and r.get("dst_role") == "player"]
     hits = [r for r in window if r.get("kind") == "damage"
             and r.get("src_role") == "mob" and r.get("dst_role") == "player"]
     # a healer must answer the player only when the player is the one being hurt (victim player);
