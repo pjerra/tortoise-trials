@@ -199,5 +199,54 @@ class PaladinHealLatencySituationTest(unittest.TestCase):
         self.assertGreaterEqual(len(inside), 3)
 
 
+class PacerDebugLineTest(unittest.TestCase):
+    """The pacer logged only when it waited: shared use across parallel workers was invisible."""
+
+    def pacer(self, **kw):
+        from trl.live import pacing
+        # 30 minutes past a UTC hour, well clear of the hour-start guard; sleep moves the clock
+        now = [1_700_000_000 - (1_700_000_000 % 3600) + 1800.0]
+
+        def sleep(seconds):
+            now[0] += seconds
+        return pacing.LoginPacer(clock=lambda: now[0], sleep=sleep, **kw)
+
+    def test_a_login_that_does_not_wait_writes_one_debug_line(self):
+        lines, logs = [], []
+        p = self.pacer(debug=lines.append, log=logs.append)
+        self.assertEqual(p.acquire("login 1", account="ACCA"), 0.0)
+        self.assertEqual(len(lines), 1)
+        self.assertIn("login 1 let through after 0 s wait", lines[0])
+        self.assertNotIn("ACCA", lines[0])                 # no account names in logs
+        self.assertEqual(logs, [])                         # the normal log stays quiet
+
+    def test_every_login_gets_its_own_line_and_a_waited_one_still_logs_the_wait(self):
+        lines, logs = [], []
+        p = self.pacer(debug=lines.append, log=logs.append, limit=2)
+        for i, acct in enumerate(("A", "B", "A"), start=1):
+            p.acquire("login %d" % i, account=acct)
+        self.assertEqual(len(lines), 3)
+        p.acquire("login 4", account="C")                  # a third distinct account must wait
+        self.assertEqual(len(lines), 4)
+        self.assertEqual(len(logs), 1)
+        self.assertIn("waiting", logs[0])
+
+    def test_without_a_debug_callback_it_goes_to_the_stdlib_debug_logger(self):
+        p = self.pacer()
+        with self.assertLogs("trl.live.pacing", level="DEBUG") as cm:
+            p.acquire("login 1", account="A")
+        self.assertEqual(len(cm.records), 1)
+
+    def test_the_runner_prints_debug_lines_only_when_trials_debug_is_set(self):
+        r = run.Run.__new__(run.Run)
+        seen = []
+        r.log = seen.append
+        with unittest.mock.patch.dict(os.environ, {"TRIALS_DEBUG": ""}):
+            r.debug("hidden")
+        with unittest.mock.patch.dict(os.environ, {"TRIALS_DEBUG": "1"}):
+            r.debug("shown")
+        self.assertEqual(seen, ["debug: shown"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -393,7 +393,7 @@ class Run:
         self.server_error = False
         self.errors = []
         self.sessions = []
-        self.pacer = pacing.LoginPacer(log=self.log)
+        self.pacer = pacing.LoginPacer(log=self.log, debug=self.debug)
         self.rep_log = []              # one row per rep: slot, step, valid (RUN.json "reps")
         self.slot_history = []         # every slot a session held, in order (RUN.json "slots")
         self.slot_swaps = []           # account-full moves
@@ -420,6 +420,11 @@ class Run:
 
     def log(self, line):
         print("[%s] %s" % (datetime.now().strftime("%H:%M:%S"), line), flush=True)
+
+    def debug(self, line):
+        """Debug-level lines are printed only when TRIALS_DEBUG is set (any non-empty value except 0)."""
+        if os.environ.get("TRIALS_DEBUG", "0") not in ("", "0"):
+            self.log("debug: " + line)
 
     # -- setup of the slots ------------------------------------------------
 
@@ -1241,7 +1246,7 @@ def main(args):
     run = Run(args, binary, run_dir, slots)
     run.run_stamp = stamp()
     # a real run shares realmd's login window with every other trials process on this machine
-    run.pacer = pacing.LoginPacer(log=run.log, state_path=pacing.DEFAULT_STATE)
+    run.pacer = pacing.LoginPacer(log=run.log, debug=run.debug, state_path=pacing.DEFAULT_STATE)
     try:
         rc = run.execute(trials)
     finally:

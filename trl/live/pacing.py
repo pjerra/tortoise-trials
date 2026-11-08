@@ -22,6 +22,7 @@ starts right after another one counts the other's logins too.
 
 import fcntl
 import json
+import logging
 import os
 import threading
 import time
@@ -57,13 +58,15 @@ def account_key(account):
 
 class LoginPacer:
     def __init__(self, limit=LOGIN_LIMIT, window=LOGIN_WINDOW_S, margin=WINDOW_MARGIN_S,
-                 clock=time.time, sleep=time.sleep, log=None, state_path=None):
+                 clock=time.time, sleep=time.sleep, log=None, state_path=None, debug=None):
         self.limit = int(limit)
         self.window = float(window)
         self.margin = float(margin)
         self.clock = clock
         self.sleep = sleep
         self.log = log or (lambda line: None)
+        # one debug line per login, waited or not (default: the stdlib logger "trl.live.pacing" at DEBUG)
+        self.debug = debug or logging.getLogger(__name__).debug
         self.state_path = state_path
         self.stamps = []          # (time, account) of the logins let through (this process, or the shared file's)
         self.waits = []           # (what, seconds) of every wait, for the ledger and the tests
@@ -145,6 +148,13 @@ class LoginPacer:
             while True:
                 need, why, distinct = self._try(account)
                 if need <= 0:
+                    # logins that were not held back used to leave no trace, so a pacer shared by
+                    # parallel workers (or by other processes through the state file) was invisible
+                    self.debug("login pacer: %s let through after %.0f s wait (%d distinct accounts in the "
+                               "last %.0f s before it, limit %d, %s, pid %d, thread %s)"
+                               % (what or "login", total, distinct, self.window, self.limit,
+                                  "shared state file" if self.state_path else "this process only",
+                                  os.getpid(), threading.current_thread().name))
                     return total
                 if why == "hour":
                     self.log("login pacer: waiting %.0f s for the hour-start realmd window" % need)
