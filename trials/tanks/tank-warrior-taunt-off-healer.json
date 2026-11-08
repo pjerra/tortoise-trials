@@ -112,7 +112,10 @@
         "response_dst": "$trigger.src",
         "within_s": 5,
         "trigger_debounce_s": 12,
-        "debounce_responder_s": 10
+        "debounce_responder_s": 10,
+        "debounce_responder_spells": [
+          "Taunt"
+        ]
       },
       "pass_if": ">= 0.7",
       "min_n": 5
