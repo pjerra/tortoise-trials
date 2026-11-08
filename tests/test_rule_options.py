@@ -76,6 +76,49 @@ class DebounceResponderTest(unittest.TestCase):
         res = self.run_rule(response={"kind": "heal", "src": "$bot"}, debounce_responder_s=30)
         self.assertEqual(res["n"], 2)
 
+    def test_a_cooldown_skipped_trigger_does_not_start_its_mobs_debounce_window(self):
+        # the reviewer's repro (counterspell): mob B casts at 10 and is answered at 11; mob A casts at 20
+        # (inside the 30 s cooldown: skipped) and again at 45 (the bot is free: a miss that must count).
+        # Before the fix the skipped t=20 trigger started mob A's 30 s debounce window and hid the t=45 miss.
+        mob_a, mob_b = MOB, "0xF13000000000BEEF"
+
+        def cast_start(t, guid):
+            return dict(mob_damage(t), src_guid=guid)
+        self.ROWS = [cast_start(10.0, mob_b), bot_heal(11.0), cast_start(20.0, mob_a), cast_start(45.0, mob_a)]
+        res = self.run_rule(debounce_responder_s=30, trigger_debounce_s=30)
+        self.assertEqual((res["k"], res["n"]), (1, 2))
+
+    def test_only_the_listed_response_spells_start_the_cooldown(self):
+        from trl import spells
+        taunt, mocking = min(spells.ids_for("Taunt")), min(spells.ids_for("Mocking Blow"))
+        rows = [mob_damage(10.0), dict(bot_heal(11.0), spell_id=mocking, spell="Mocking Blow"), mob_damage(16.0)]
+        resp = {"kind": "heal", "src": "$bot", "spell": ["Taunt", "Mocking Blow"]}
+        self.ROWS = rows
+        # every response spell starts the cooldown (the default): 16 is skipped
+        res = self.run_rule(response=resp, debounce_responder_s=10)
+        self.assertEqual(res["n"], 1)
+        # only Taunt does: the Mocking Blow at 11 does not, so 16 counts (a miss)
+        res = self.run_rule(response=resp, debounce_responder_s=10, debounce_responder_spells=["Taunt"])
+        self.assertEqual((res["k"], res["n"]), (1, 2))
+        # a Taunt at 11 does start it
+        self.ROWS = [mob_damage(10.0), dict(bot_heal(11.0), spell_id=taunt, spell="Taunt"), mob_damage(16.0)]
+        res = self.run_rule(response=resp, debounce_responder_s=10, debounce_responder_spells=["Taunt"])
+        self.assertEqual(res["n"], 1)
+
+    def test_spells_validator(self):
+        def errs(spells, cd=10):
+            trial = tt._trial()
+            rule = latency_rule(response={"kind": "heal", "src": "$bot", "spell": ["Taunt", "Mocking Blow"]},
+                                debounce_responder_spells=spells)
+            if cd is not None:
+                rule["check"]["debounce_responder_s"] = cd
+            trial["rules"] = [rule]
+            return [e for e in scenario.validate(trial) if "debounce_responder_spells" in e]
+        self.assertEqual(errs(["Taunt"]), [])
+        for bad in ([], "Taunt", [""], [3], ["Kick"]):
+            self.assertTrue(errs(bad), bad)
+        self.assertTrue(errs(["Taunt"], cd=None))             # needs debounce_responder_s
+
     def test_validator(self):
         def errs(value, metric="latency"):
             trial = tt._trial()

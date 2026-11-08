@@ -122,7 +122,10 @@ Shortened example (from `trials/healers/priest-holy-pws-def-arms-2tank.json`):
   responder's own cooldown. A trigger that arrives less than N s after the bot's last matching
   response (same `response` filter, any target) is skipped: it is not counted and not a miss. Use it
   with the cooldown of the answering ability (for example 10 for Taunt, 30 for Counterspell), so one
-  answer is not scored against two triggers. `trigger_debounce_s` is different: it thins the
+  answer is not scored against two triggers. A trigger skipped for the cooldown does not start its
+  source mob's `trigger_debounce_s` window. `check.debounce_responder_spells` (a list of response
+  spell names, each one of the `response` spells; needs `debounce_responder_s`) limits which responses
+  start the cooldown: Taunt has a 10 s cooldown, a Mocking Blow does not start it. `trigger_debounce_s` is different: it thins the
   triggers per source before anything is answered.
 - `check.where.not_within_s_after_mark` (`{"kind": "<mark kind>", "s": N}`, only in `check.where`,
   any metric, default off): drop the events and samples within N s after each runner mark of that

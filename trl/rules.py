@@ -600,25 +600,41 @@ def evaluate(rule, rows, samples, marks, ctx):
             debounce = float(debounce) if debounce is not None else None
         except (TypeError, ValueError):
             debounce = None
-        if debounce:
-            kept, last_by_src = [], {}
-            for trig in sorted(triggers, key=lambda r: r.get("t", 0.0)):
-                src = (trig.get("src_guid") or trig.get("src")
-                       or trig.get("guid") or trig.get("unit"))
-                last = last_by_src.get(src)
-                if last is None or trig.get("t", 0.0) - last >= debounce:
-                    kept.append(trig)
-                    last_by_src[src] = trig.get("t", 0.0)
-            triggers = kept
         within = float(check.get("within_s") or 0.0)
         # debounce_responder_s: the responder's own cooldown. A trigger that arrives less than N s after the
         # responder's last matching response is skipped (not a miss, not counted): the response to the
-        # trigger before it already used the ability. Default off.
+        # trigger before it already used the ability. Default off. debounce_responder_spells limits which of
+        # the response spells start the cooldown (default: every response spell).
         try:
             resp_cd = float(check.get("debounce_responder_s") or 0.0)
         except (TypeError, ValueError):
             resp_cd = 0.0
         cd_where = {k: v for k, v in resp_where.items() if k != "dst"}   # the cooldown is on the ability, any target
+        if check.get("debounce_responder_spells"):
+            cd_where["spell"] = check["debounce_responder_spells"]
+
+        def in_cooldown(trig):
+            t0 = trig.get("t", 0.0)
+            return resp_cd > 0 and any(
+                0.0 <= t0 - cand.get("t", 0.0) < resp_cd and cand is not trig
+                and not _in_excluded(excluded, cand.get("t", 0.0))
+                and _matches(cand, cd_where, samples_by_guid, ctx, trial)
+                for cand in rows)
+
+        if debounce or resp_cd > 0:
+            kept, last_by_src = [], {}
+            for trig in sorted(triggers, key=lambda r: r.get("t", 0.0)):
+                if in_cooldown(trig):
+                    # skipped for the responder's cooldown: it must not start its mob's debounce window,
+                    # or the same mob's next trigger (which the bot could answer) would be hidden
+                    continue
+                src = (trig.get("src_guid") or trig.get("src")
+                       or trig.get("guid") or trig.get("unit"))
+                last = last_by_src.get(src)
+                if not debounce or last is None or trig.get("t", 0.0) - last >= debounce:
+                    kept.append(trig)
+                    last_by_src[src] = trig.get("t", 0.0)
+            triggers = kept
         answered = 0
         counted = 0
         ev = []
@@ -636,12 +652,6 @@ def evaluate(rule, rows, samples, marks, ctx):
                 rw["dst"] = trig.get("dst_guid") or trig.get("dst") or trig.get("guid")
             if check.get("same_dst"):
                 rw["dst"] = trig.get("dst_guid") or trig.get("dst") or trig.get("guid") or trig.get("unit")
-            if resp_cd > 0 and any(
-                    0.0 <= t0 - cand.get("t", 0.0) < resp_cd and cand is not trig
-                    and not _in_excluded(excluded, cand.get("t", 0.0))
-                    and _matches(cand, cd_where, samples_by_guid, ctx, trial)
-                    for cand in rows):
-                continue
             counted += 1
             hit = None
             for cand in sorted(rows, key=lambda r: r.get("t", 0.0)):
