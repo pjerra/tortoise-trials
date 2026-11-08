@@ -248,5 +248,49 @@ class PacerDebugLineTest(unittest.TestCase):
         self.assertEqual(seen, ["debug: shown"])
 
 
+class MarkedHasCcTest(unittest.TestCase):
+    """DEFAULT_CC_AURAS had Hunter's Mark and other non-CC ids and only rank 1 of Polymorph, so a sheep
+    from a mage above level 19 was never seen as CC."""
+
+    MARKED = "0xf130000000000099"
+
+    def has_cc(self, aura_ids):
+        from trl import rules
+        samples = {self.MARKED: [(5.0, {"auras": list(aura_ids)})]}
+        ctx = {"guids": {"marked": self.MARKED}}
+        return rules._matches({"t": 5.0}, {"marked_has_cc": True}, samples, ctx, {})
+
+    def test_a_rank_4_polymorph_counts_as_cc(self):
+        self.assertTrue(self.has_cc([12826]))
+
+    def test_every_polymorph_rank_counts(self):
+        for sid in (118, 12824, 12825, 12826):
+            self.assertTrue(self.has_cc([sid]), sid)
+
+    def test_hunters_mark_is_not_cc(self):
+        # the failing case before the fix: 14325 (Hunter's Mark rank 4) was in the list
+        self.assertFalse(self.has_cc([14325]))
+
+    def test_the_old_non_cc_ids_are_gone(self):
+        from trl import rules
+        self.assertFalse({2108, 9035, 14325, 17826, 18651, 10956} & set(rules.DEFAULT_CC_AURAS))
+
+    def test_every_id_is_a_crowd_control_spell_by_name_and_every_rank_is_there(self):
+        from trl import rules
+        names = ("Polymorph", "Sap", "Hibernate", "Freezing Trap Effect", "Shackle Undead", "Banish",
+                 "Seduction", "Gouge", "Scare Beast", "Repentance", "Sleep", "Blind")
+        with open(str(ROOT / "data" / "spells.json")) as f:
+            by_id = json.load(f)["by_id"]
+        have = {}
+        for sid in rules.DEFAULT_CC_AURAS:
+            row = by_id[str(sid)]
+            self.assertTrue(row["name"].startswith(names), (sid, row["name"]))
+            have.setdefault(row["name"], set()).add(row["rank"])
+        for name, ranks in (("Polymorph", 4), ("Sap", 3), ("Hibernate", 3), ("Freezing Trap Effect", 3),
+                            ("Shackle Undead", 3), ("Banish", 2), ("Gouge", 5), ("Scare Beast", 3),
+                            ("Sleep", 4)):
+            self.assertEqual(len(have[name]), ranks, name)
+
+
 if __name__ == "__main__":
     unittest.main()

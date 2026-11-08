@@ -10,8 +10,40 @@ try:
 except ImportError:  # pragma: no cover - direct execution
     from trl import spells as _spells
 
-DEFAULT_CC_AURAS = {118, 6770, 14325, 28272, 28271, 9484, 9035, 2094, 2108,
-                    17826, 18651, 10955, 10956}
+# Crowd-control auras a mob can carry (marked_has_cc): the vanilla 1.12 player ranks, every rank.
+# Each id was read from the core's spell_template (effect 6 = apply aura, the aura and mechanic columns
+# below) and is the aura spell itself, not the trainer's learn spell (effect 36) of the same name.
+#   Polymorph        118, 12824, 12825, 12826 (aura 5 + 56, mechanic 17); Cow/Turtle/Pig 28270-28272
+#   Sap              6770, 2070, 11297        (aura 12, mechanic 14)
+#   Hibernate        2637, 18657, 18658       (aura 12, mechanic 10)
+#   Freezing Trap    3355, 14308, 14309       ("Freezing Trap Effect", aura 12, mechanic 13)
+#   Shackle Undead   9484, 9485, 10955        (aura 12, mechanic 20)
+#   Banish           710, 18647               (aura 12 + 39, mechanic 18)
+#   Seduction        6358                     (aura 12, mechanic 1)
+#   Gouge            1776, 1777, 8629, 11285, 11286 (aura 12, mechanic 14)
+#   Scare Beast      1513, 14326, 14327       (aura 7 fear, mechanic 5)
+#   Repentance       20066                    (aura 12, mechanic 14)
+#   Sleep            700, 1090, 2937, 10234   (aura 12, mechanic 10)
+#   Blind            2094                     (aura 33 + 5, mechanic 2; kept from the old list, verified)
+# Left out on purpose: Turtle-only ids (Repentance ranks 2-3: 51557, 51558; Polymorph: Rodent 57561 and
+# Homunculus 52923) and the unranked NPC/item copies of Banish, Sleep, Gouge and Polymorph (8994, 27565,
+# 8399, 9159, 12098, 12540, 13323, ...), which no player rank casts. The old list's 14325 (Hunter's Mark),
+# 9035 (Hex of Weakness), 2108 (Leatherworking), 17826 (a mob buff), 18651 (Multi-Shot) and 10956 (a
+# learn spell) are not crowd control.
+DEFAULT_CC_AURAS = frozenset({
+    118, 12824, 12825, 12826, 28270, 28271, 28272,
+    6770, 2070, 11297,
+    2637, 18657, 18658,
+    3355, 14308, 14309,
+    9484, 9485, 10955,
+    710, 18647,
+    6358,
+    1776, 1777, 8629, 11285, 11286,
+    1513, 14326, 14327,
+    20066,
+    700, 1090, 2937, 10234,
+    2094,
+})
 
 
 def _num(value, ctx, default=None):
