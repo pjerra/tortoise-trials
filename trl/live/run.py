@@ -1165,6 +1165,27 @@ def window_of(marks):
 
 # -- entry points ----------------------------------------------------------
 
+def score_and_card(run_dir, log=print):
+    """Score a finished run and write card.md/card.json (what `trials.py score <run-dir>` does).
+
+    The live runner used to stop after RUN.json, so every run needed a separate `score`. A run
+    that never got as far as RUN.json (setup refused) has nothing to score. A scoring error is
+    logged and never changes the run's exit code: the run dir stays re-scorable by hand.
+    """
+    if not os.path.isfile(os.path.join(run_dir, "RUN.json")):
+        return None
+    try:
+        from trl import score
+        scored = score.score_run(run_dir)
+    except Exception as exc:  # noqa: BLE001 - the run itself already finished
+        log("scoring failed (%s: %s); run `trials.py score %s` by hand" % (type(exc).__name__, exc, run_dir))
+        return None
+    verdicts = [v.get("verdict") for t in scored for v in (t.get("verdicts") or [])]
+    log("scored: %d FAIL, %d INVALID; card at %s" % (
+        verdicts.count("FAIL"), verdicts.count("INVALID"), os.path.join(run_dir, "card.md")))
+    return scored
+
+
 def _install_signals():
     def handler(signum, frame):
         STOP.set()
@@ -1213,11 +1234,13 @@ def main(args):
     # a real run shares realmd's login window with every other trials process on this machine
     run.pacer = pacing.LoginPacer(log=run.log, state_path=pacing.DEFAULT_STATE)
     try:
-        return run.execute(trials)
+        rc = run.execute(trials)
     finally:
         STOP.set()
         for session in run.sessions:
             run.stop_session(session)
+    score_and_card(run.run_dir, run.log)
+    return rc
 
 
 def cleanup(args):
