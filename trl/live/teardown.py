@@ -17,6 +17,7 @@ non-zero while anything is left.
 """
 
 import os
+import re
 import subprocess
 import tempfile
 import time
@@ -36,7 +37,16 @@ def _kill_error(exc):
     return str(exc)[:120]
 
 
-def repeat_cleanup(agent, guard, ledger, bot_name, player_guid, wait_s=20.0, extra_names=()):
+def repeat_cleanup(agent, guard, ledger, bot_name, player_guid, wait_s=20.0, extra_names=(),
+                   only=None, absent_is_gone=False):
+    """Per-repeat cleanup rows.
+
+    `only` limits the summon check and the kills to this repeat's own mobs (the slot ledger also
+    holds every earlier repeat's, and each of those was already verified by its own cleanup).
+    Without it an earlier repeat's despawned corpse answers "unit ... is not in view", which read
+    as UNKNOWN for the whole ledger: mobs_dead failed, nothing was killed, one summon stayed alive.
+    `absent_is_gone` is for the caller that stands in the arena (see situations.summon_states).
+    """
     rows = []
     try:
         agent.tbm("role self clear")
@@ -47,10 +57,13 @@ def repeat_cleanup(agent, guard, ledger, bot_name, player_guid, wait_s=20.0, ext
     except Exception:  # noqa: BLE001
         pass
     ids = [norm_guid(g) for g in ledger.summon_guids() if g]
+    if only is not None:
+        want = {norm_guid(g) for g in only if g}
+        ids = [g for g in ids if g in want]
     unknown = ""
     states = None
     try:
-        states = summon_states(agent, ledger)
+        states = summon_states(agent, ledger, only=only, absent_is_gone=absent_is_gone)
     except RpcError as exc:
         # an RPC error is UNKNOWN, not "none alive"
         unknown = str(exc)[:160]
@@ -72,7 +85,7 @@ def repeat_cleanup(agent, guard, ledger, bot_name, player_guid, wait_s=20.0, ext
                 kill_errors.append(_kill_error(exc))
         time.sleep(1.5)
         try:
-            states = summon_states(agent, ledger)
+            states = summon_states(agent, ledger, only=only, absent_is_gone=absent_is_gone)
         except RpcError as exc:
             states = None
             unknown = str(exc)[:160]
@@ -182,15 +195,38 @@ def pending_extra_hires(ledger):
                   key=lambda x: last_hire[x[0]][0])
 
 
+_FAILED_STEP = re.compile(r"^(?:FAIL|ending)\s+(\S+)\s*(.*)$")
+
+
+def failed_steps(output):
+    """["step: detail", ...] for every step line `turtle-agent teardown` marks FAIL or ending.
+
+    The text report prints one line per step (`FAIL lease  kept: game-side teardown failed ...`)
+    and a summary line (`teardown: 5 ok, 9 skipped, 2 failed`); the summary alone says how many
+    steps failed, never which.
+    """
+    out = []
+    for line in (output or "").splitlines():
+        m = _FAILED_STEP.match(line.strip())
+        if m:
+            step, detail = m.group(1), m.group(2).strip()
+            out.append("%s: %s" % (step, detail[:160]) if detail else step)
+    return out
+
+
 def slot_teardown(slot_dir, binary=None, timeout=180):
     binary = binary or os.path.join(slot_dir, "turtle-agent")
     try:
         res = subprocess.run([binary, "teardown", slot_dir], capture_output=True, text=True, timeout=timeout)
     except (OSError, subprocess.TimeoutExpired) as exc:
         return {"ok": False, "rc": None, "detail": str(exc)}
-    detail = (res.stdout + res.stderr).strip().splitlines()
-    return {"ok": res.returncode == 0, "rc": res.returncode,
-            "detail": detail[-1] if detail else "", "teardown_failed": res.returncode == 14}
+    lines = (res.stdout + res.stderr).strip().splitlines()
+    detail = lines[-1] if lines else ""
+    failed = failed_steps(res.stdout)
+    if failed:
+        detail += "; failed steps: " + " | ".join(failed)
+    return {"ok": res.returncode == 0, "rc": res.returncode, "detail": detail,
+            "failed_steps": failed, "teardown_failed": res.returncode == 14}
 
 
 # -- `trials cleanup` ------------------------------------------------------

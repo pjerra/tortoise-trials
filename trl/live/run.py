@@ -870,7 +870,8 @@ class Run:
                 self.log("lease release %s/%s after a failed teardown: %s"
                          % (self.args.server, session.slot_id, "ok" if released else "FAILED"))
             self.ledger.add({"kind": "slot_teardown", "dir": session.slot_dir,
-                             "rc": out.get("rc"), "detail": out.get("detail"), "ok": out.get("ok")})
+                             "rc": out.get("rc"), "detail": out.get("detail"), "ok": out.get("ok"),
+                             "failed_steps": out.get("failed_steps") or []})
             self.log("teardown %s: rc=%s %s" % (session.slot_dir, out.get("rc"), out.get("detail")))
             if out.get("teardown_failed"):
                 self.warnings.append({"teardown_failed": session.slot_dir, "detail": out.get("detail")})
@@ -884,6 +885,11 @@ class Run:
     def run_repeat(self, session, trial, rep_index):
         agent = session.agent
         ledger = getattr(session, "ledger", None) or self.ledger
+        # summons an earlier repeat's cleanup already proved dead or gone are not checked again: a
+        # despawned corpse answers "not in view", which used to make the whole check UNKNOWN
+        verified = getattr(session, "verified_summons", None)
+        if verified is None:
+            verified = session.verified_summons = set()
         rep_dir = os.path.join(self.run_dir, trial["id"], "rep%d" % rep_index)
         os.makedirs(rep_dir, exist_ok=True)
         marks = collect.Marks(os.path.join(rep_dir, "marks.jsonl"), self.log)
@@ -992,11 +998,14 @@ class Run:
             outcome = situation.run()
         finally:
             collector.stop()
+            # the summons no earlier cleanup has verified, checked from inside the arena (see repeat_cleanup)
+            checked = [g for g in ledger.summon_guids() if g not in verified]
+            kw = {"only": checked, "absent_is_gone": True}
             if extra_names:
-                rows = teardown.repeat_cleanup(agent, guard, ledger, bot_name, player_guid,
-                                               extra_names=extra_names)
-            else:
-                rows = teardown.repeat_cleanup(agent, guard, ledger, bot_name, player_guid)
+                kw["extra_names"] = extra_names
+            rows = teardown.repeat_cleanup(agent, guard, ledger, bot_name, player_guid, **kw)
+            if any(r.get("id") == "mobs_dead" and r.get("ok") for r in rows):
+                verified.update(checked)
             marks.add({"kind": "teardown", "rows": rows})
             self.note_teardown(rows)
             self.free_arenas(session)         # the arena goes back once this slot's summons are cleaned up
