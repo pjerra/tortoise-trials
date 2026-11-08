@@ -1,0 +1,929 @@
+"""One driver per situation kind, the HP governor, summons and the arena probe.
+
+Every GM line goes through the guard. A summon is ledgered the moment its guid
+is seen and before anything attacks it; teardown reads that ledger.
+"""
+
+import json
+import math
+import os
+import re
+import time
+from dataclasses import dataclass, field
+
+from . import ladder
+from .agent import RpcError, UnitGone, event_guid, norm_guid, wait_until
+
+TOOL_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+DATA = os.path.join(TOOL_ROOT, "data")
+
+THREAT_CAST = {71: 355, 2457: 7386, 9634: 6795, 5487: 6795}
+SUMMON_CAP = 20
+REFILL_CAP = 3
+# GM rescues (a heal after the victim fell under the floor) the governor allows per rolling
+# minute before it ends the repeat as "floor"; a trial may set situation.max_rescues_per_min
+MAX_RESCUES_PER_MIN = 6
+# a victim whose last fall would leave it at or under this many percent on the next sample is
+# rescued before it reaches the floor (live3: floor_pct 12 sits under a 22-point single-sample fall)
+DEATH_MARGIN_PCT = 3.0
+GM_FALL_SAMPLES = 2         # the governor's damage line lands a sample or two later: that fall is not a mob's
+MAX_DROP_CAP_PCT = 30.0
+DROP_WINDOW_S = 20.0        # only falls this recent drive an early rescue
+# ooc_hurt: the victim is set to a percent inside hp_band every this many seconds (scenario: 8-120)
+HURT_EVERY_S = 20.0
+STANCE_RECAST_GAP_S = 5.0
+
+
+def load_mobs(path=None):
+    path = path or os.path.join(DATA, "mobs.json")
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def bring_hire(agent, name, within=10.0, timeout=45.0):
+    """Party-chat `summon` (the #1553 way), then the named order; a unit out of view is not near."""
+    if not name:
+        return False
+
+    def near():
+        row = agent.unit(name=name) or {}
+        dist = row.get("distance", -1)
+        return 0 <= dist <= within
+
+    try:
+        agent.chat("party", "summon")
+        agent.say_to_bot(name, "summon")
+    except Exception:  # noqa: BLE001
+        return False
+    if wait_until(near, timeout=max(5.0, timeout / 2.0), poll=1.0):
+        return True
+    try:
+        agent.say_to_bot(name, "come")
+    except Exception:  # noqa: BLE001
+        return False
+    return bool(wait_until(near, timeout=max(5.0, timeout / 2.0), poll=1.0))
+
+
+def load_arenas(path=None):
+    path = path or os.path.join(DATA, "arenas.json")
+    try:
+        with open(path) as f:
+            rows = json.load(f)
+        return rows if isinstance(rows, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def extra_victim_index(victim):
+    """1-3 for a victim named extra1..extra3, else 0."""
+    m = re.fullmatch(r"extra([1-3])", str(victim or ""))
+    return int(m.group(1)) if m else 0
+
+
+def damage_step(hp, max_hp, band_low, band_top):
+    """The largest GM damage that keeps the victim above band_low; 0 when none is due."""
+    if not max_hp:
+        return 0
+    percent = 100.0 * float(hp) / float(max_hp)
+    if percent <= float(band_top):
+        return 0
+    middle = (float(band_low) + float(band_top)) / 2.0 * float(max_hp) / 100.0
+    cap = float(hp) - float(band_low) * float(max_hp) / 100.0
+    return max(0, int(min(float(hp) - middle, cap)))
+
+
+def pick_entry(mobs, role, window_low, window_high):
+    """Mob entries of this role; ranges fully inside the window first, then the closest."""
+    rows = list((mobs or {}).get(role) or [])
+    mid = (float(window_low) + float(window_high)) / 2.0
+
+    def rank(row):
+        lo, hi = int(row.get("level_min", 0)), int(row.get("level_max", 0))
+        inside = 0 if lo >= window_low and hi <= window_high else 1
+        gap = max(0, window_low - hi, lo - window_high)
+        return (inside, gap, abs((lo + hi) / 2.0 - mid))
+    rows.sort(key=rank)
+    return rows
+
+
+def _guid_words(text):
+    out = set()
+    for word in re.findall(r"0x[0-9A-Fa-f]{1,16}|(?<![0-9A-Za-z])[0-9A-Fa-f]{16}(?![0-9A-Za-z])",
+                           str(text or "")):
+        out.add(norm_guid(word))
+    return out
+
+
+def summon_mob(agent, guard, ledger, entry, within=3.0, timeout=5.0, poll=0.5, foreign=None):
+    """Summon one entry and claim it by the reply's guid, or by a NEW unit within 3 yd.
+
+    `within` is the claim radius for the fallback: a nearby same-entry unit that
+    was absent from the pre-summon list, never a distance match to any unit.
+    `foreign` (parallel runs) returns the guids the OTHER slots summoned: never claimed here.
+    """
+    known = {norm_guid(g) for g in ledger.summon_guids()}
+    if foreign is not None:
+        known |= {norm_guid(g) for g in (foreign() or ()) if g}
+    # the pre-list must not read an rpc error as "no unit was there before"
+    before = {norm_guid(u.get("guid")) for u in agent.units_must(entry=int(entry), within=30)
+              if u.get("guid")}
+    since = agent.snapshot()
+    guard.send("npc_summon", None, int(entry))
+    deadline = time.time() + timeout
+    while True:
+        reply_guids = set()
+        try:
+            lines, _rows = agent.read_lines(since, timeout=0.5, kinds=("system",))
+            for line in lines:
+                reply_guids |= _guid_words(line)
+        except Exception:  # noqa: BLE001 - the reply scan is only a hint
+            pass
+        units = [u for u in agent.units_must(entry=int(entry), within=30)
+                 if u.get("guid") and not u.get("dead")]
+        by_guid = {norm_guid(u.get("guid")): u for u in units}
+        for guid in reply_guids:
+            unit = by_guid.get(guid)
+            if unit and guid not in known:
+                ledger.add({"kind": "summon", "guid": guid, "entry": int(entry)})
+                return guid
+        for unit in units:
+            guid = norm_guid(unit.get("guid"))
+            if not guid or guid in known or guid in before:
+                continue
+            dist = unit.get("distance", -1)
+            # an unknown distance (-1) is not proof this is the new summon
+            if dist is None or dist < 0 or dist > within:
+                continue
+            ledger.add({"kind": "summon", "guid": guid, "entry": int(entry)})
+            return guid
+        if time.time() >= deadline:
+            return None
+        time.sleep(poll)
+
+
+def kill_summon(agent, guard, ledger, guid):
+    try:
+        guard.kill(guid)
+        return True
+    except Exception:  # noqa: BLE001 - refused kills are recorded, the caller moves on
+        return False
+
+
+NOT_IN_VIEW = re.compile(r"\bis not in view\b", re.I)
+
+
+def summon_states(agent, ledger, only=None, absent_is_gone=False):
+    """guid -> alive|dead|gone, from units_must first and unit_must for the missing.
+
+    A guid absent from the 60 yd list is not dead: only unit_must may confirm it
+    dead or gone. An rpc failure raises, so the caller records UNKNOWN, not zero.
+
+    `only` limits the states to those guids (one repeat's own mobs; the slot ledger also
+    holds every earlier repeat's). `absent_is_gone` is for a caller that stands where the
+    summons were made: the agent answers "unit <guid> is not in view" for a temp summon
+    whose corpse has despawned, and with the player in the arena that is gone, not UNKNOWN.
+    Without it (the player may be anywhere) "not in view" stays an rpc failure.
+    """
+    ids = [norm_guid(g) for g in ledger.summon_guids() if g]
+    if only is not None:
+        want = {norm_guid(g) for g in only if g}
+        ids = [g for g in ids if g in want]
+    if not ids:
+        return {}
+    rows = {norm_guid(u.get("guid")): u for u in agent.units_must(within=60) if u.get("guid")}
+    states = {}
+    for guid in ids:
+        row = rows.get(guid)
+        if row is not None:
+            states[guid] = "dead" if row.get("dead") else "alive"
+            continue
+        try:
+            one = agent.unit_must(guid=guid)
+        except UnitGone:
+            states[guid] = "gone"
+            continue
+        except RpcError as exc:
+            if absent_is_gone and NOT_IN_VIEW.search(str(exc)):
+                states[guid] = "gone"
+                continue
+            raise
+        states[guid] = "gone" if not one else ("dead" if one.get("dead") else "alive")
+    return states
+
+
+def alive_summons(agent, ledger, only=None, absent_is_gone=False):
+    """Ledger summons not confirmed dead/gone (UNKNOWN still counts as there)."""
+    return [g for g, state in summon_states(agent, ledger, only=only, absent_is_gone=absent_is_gone).items()
+            if state not in ("dead", "gone")]
+
+
+@dataclass
+class SitContext:
+    player_guid: str = ""
+    bot_name: str = ""
+    hire_guid: str = ""
+    guids: dict = field(default_factory=dict)
+    checks: list = field(default_factory=list)
+    cc_marked_guid: str = ""
+    extra_names: tuple = ()
+
+
+@dataclass
+class Governor:
+    agent: object
+    guard: object
+    marks: object
+    victim: str = "player"
+    band: tuple = (40, 90)
+    floor: int = 30
+    victim_guid: str = ""
+    now: object = time.time
+    last_damage: float = 0.0
+    rescues: list = field(default_factory=list)
+    max_rescues: int = MAX_RESCUES_PER_MIN
+    ended: str = ""
+    own_hp: int = 0
+    own_max: int = 0
+    stopped: object = None
+    log: object = None
+    # live3: the floor can sit below the critical band (floor_pct 12), where one big hit between two
+    # 1 Hz samples can pass the floor and the corpse line in a single step (run 050750 rep3: 47.4 ->
+    # 25.1 in 0.93 s). max_drop is the biggest fall between two samples in the last DROP_WINDOW_S
+    # seconds; a victim that the same fall would take to DEATH_MARGIN_PCT or less is rescued before it
+    # reaches the floor, and a spike older than the window stops mattering. Only the fall the
+    # governor's own `.damage` line makes is taken out (gm_fall_pending, for GM_FALL_SAMPLES samples,
+    # and only that many points of it): a rescue is a RISE and skips nothing, so a hit right after a
+    # rescue is recorded like any other.
+    prev_pct: object = None
+    max_drop: float = 0.0
+    falls: list = field(default_factory=list)     # (time, fall) of the last DROP_WINDOW_S seconds
+    gm_fall_pending: float = 0.0          # points the governor's own damage line is about to take
+    gm_fall_samples: int = 0
+    early_rescues: int = 0
+    # ooc_hurt: nothing should damage the victim out of combat, so a rescue there is logged loudly
+    ooc: bool = False
+
+    def _log(self, line):
+        if self.log:
+            self.log(line)
+
+    def tick(self, sample):
+        if self.stopped is not None and self.stopped.is_set():
+            # the sampler is stopping: no more lines go out
+            return None
+        sample = sample or {}
+        victim = sample if "hp" in sample else (sample.get(self.victim) or {})
+        hp = int(victim.get("hp") or 0)
+        max_hp = int(victim.get("max_hp") or 0)
+        if not max_hp:
+            return None
+        if hp <= 0 or victim.get("dead"):
+            self.ended = "player_dead" if self.victim == "player" else "victim_dead"
+            return self.ended
+        percent = 100.0 * hp / max_hp
+        now = self.now()
+        floor_hp = int(float(self.floor) * max_hp / 100.0)
+        # the fall since the last sample, less what the governor's own damage line took off
+        if self.prev_pct is not None and float(self.prev_pct) > percent:
+            fall = float(self.prev_pct) - percent
+            if self.gm_fall_samples > 0 and self.gm_fall_pending > 0:
+                if fall >= 0.5 * self.gm_fall_pending:       # the line has landed: take it out once
+                    fall = max(0.0, fall - self.gm_fall_pending)
+                    self.gm_fall_pending = 0.0
+            if fall > 0.05:                 # float residue of a GM line is not a hit
+                self.falls.append((now, min(MAX_DROP_CAP_PCT, fall)))
+        if self.gm_fall_samples > 0:
+            self.gm_fall_samples -= 1
+            if self.gm_fall_samples == 0:
+                self.gm_fall_pending = 0.0
+        self.falls = [(t, f) for (t, f) in self.falls if now - t <= DROP_WINDOW_S]
+        self.max_drop = max([f for (_t, f) in self.falls] or [0.0])
+        self.prev_pct = percent
+        early = (hp >= floor_hp and self.max_drop > 0.0
+                 and percent - self.max_drop <= DEATH_MARGIN_PCT)
+        if hp < floor_hp or early:
+            if early:
+                self.early_rescues += 1
+            self._floor(hp, max_hp, percent, now)
+            recent = [t for t in self.rescues if now - t <= 60.0]
+            self.rescues = recent
+            if len(recent) >= int(self.max_rescues):
+                self.ended = "floor"
+                return self.ended
+            return None
+        if percent > float(self.band[1]) and now - self.last_damage > 4.0 and victim.get("in_combat", True):
+            self._top_up(hp, max_hp)
+        return None
+
+    def _floor(self, hp, max_hp, percent, now):
+        # Heal to the middle of the band, never to the floor itself: a heal to exactly the
+        # floor leaves no headroom, so the next hit is another rescue (live1: three rescues
+        # in three seconds ended a repeat at 16 s). The middle is above the floor, so the next
+        # sample is not a rescue either.
+        heal = self.rescue_hp(max_hp)
+        try:
+            self.guard.send("modify_hp", self.victim_guid, heal, max_hp)
+        except Exception as exc:  # noqa: BLE001 - a refused heal must not kill the sampler
+            # a normal-flow skip (the victim is a corpse, the lease ended): log only
+            self._log("governor floor heal skipped: %s" % exc)
+            return
+        wall = self._wall()
+        self.marks.add({"kind": "gm_heal", "hp": hp, "max_hp": max_hp, "pct": round(percent, 1),
+                        "to": heal, "wall": wall})
+        self.marks.excluded(wall, self._wall(offset=3), "floor")
+        self.rescues.append(now)
+        self.last_damage = now
+        if self.ooc:
+            self._log("!!! OOC RESCUE FIRED: %s fell to %.1f%% (%d/%d) in an out-of-combat window, "
+                      "healed to %d; something is damaging it" % (self.victim, percent, hp, max_hp, heal))
+
+    def rescue_hp(self, max_hp):
+        middle = (float(self.band[0]) + float(self.band[1])) / 2.0
+        target = max(middle, float(self.floor))
+        return max(1, min(int(max_hp), int(target * max_hp / 100.0)))
+
+    def _top_up(self, hp, max_hp):
+        if self.victim == "player":
+            dmg = damage_step(hp, max_hp, self.band[0], self.band[1])
+            if dmg < 1:
+                return
+            try:
+                self.guard.send("damage", self.victim_guid, dmg)
+            except Exception as exc:  # noqa: BLE001
+                self._log("governor damage skipped: %s" % exc)
+                return
+        else:
+            middle = int((float(self.band[0]) + float(self.band[1])) / 2.0 * max_hp / 100.0)
+            if hp <= middle:
+                return
+            try:
+                self.guard.send("modify_hp", self.victim_guid, middle, max_hp)
+            except Exception as exc:  # noqa: BLE001
+                self._log("governor bot heal skipped: %s" % exc)
+                return
+        self.last_damage = self.now()
+        taken = (dmg if self.victim == "player" else hp - middle) * 100.0 / max(1, max_hp)
+        self.gm_fall_pending = max(0.0, taken)
+        self.gm_fall_samples = GM_FALL_SAMPLES
+
+    def _wall(self, offset=0.0):
+        stamp = getattr(self.marks, "now_iso", None)
+        if stamp is not None:
+            return stamp(offset)       # the rep's steady clock (see collect.Marks)
+        import datetime
+        return (datetime.datetime.now().astimezone()
+                + datetime.timedelta(seconds=offset)).isoformat(timespec="milliseconds")
+
+
+class Situation:
+    def __init__(self, agent, trial, guard, ledger, marks, collector, ctx, arenas=None, mobs=None,
+                 log=None, slot_index=0, abort=None, on_arena=None, arena_claim=None, arena_free=None,
+                 foreign_summons=None):
+        self.agent = agent
+        self.trial = trial
+        self.guard = guard
+        self.ledger = ledger
+        self.marks = marks
+        self.collector = collector
+        self.ctx = ctx
+        self.arenas = arenas if arenas is not None else load_arenas()
+        self.mobs = mobs if mobs is not None else load_mobs()
+        self.log = log or (lambda line: None)
+        self.on_arena = on_arena or (lambda arena: None)
+        # parallel slots: an arena another slot holds is skipped, a refused one is given back
+        self.arena_claim = arena_claim or (lambda arena: True)
+        self.arena_free = arena_free or (lambda arena: None)
+        self.foreign_summons = foreign_summons
+        self.sit = trial.get("situation") or {}
+        self.victim = self.sit.get("victim") or "player"
+        self.band = tuple(self.sit.get("hp_band") or (40, 90))
+        self.floor = int(self.sit.get("floor_pct") or 30)
+        self.max_rescues = int(self.sit.get("max_rescues_per_min") or MAX_RESCUES_PER_MIN)
+        self.slot_index = int(slot_index or 0)
+        self.abort = abort or (lambda: "")
+        self.extra_victim = extra_victim_index(self.victim)
+        self.summoned = []
+        self.mob_source = "summon"
+        self.fight_start = None
+        self.ended = ""
+
+    def player_pulls(self):
+        """The player pulls and fights unless the victim is the hired bot (the old bot-victim flow)."""
+        return self.victim != "bot"
+
+    def victim_target_guid(self):
+        """The guid the governor heals/damages: the player, the main hire, or extra_bots[n]."""
+        if self.victim == "player":
+            return self.ctx.player_guid
+        if self.extra_victim:
+            extras = list((self.ctx.guids or {}).get("extras") or [])
+            return norm_guid(extras[self.extra_victim - 1]) if self.extra_victim - 1 < len(extras) else ""
+        return self.ctx.hire_guid
+
+    # -- arena -------------------------------------------------------------
+
+    def eligible_arenas(self):
+        level = int(self.trial["player"].get("level") or 1)
+        out = []
+        for arena in self.arenas:
+            lo, hi = int(arena.get("level_min", 1)), int(arena.get("level_max", 60))
+            if lo <= level <= hi:
+                out.append(arena)
+        return out
+
+    def arena(self):
+        """The quiet arena for this slot: candidates rotated so parallel slots differ."""
+        rows = self.eligible_arenas()
+        if rows:
+            k = self.slot_index % len(rows)
+            rows = rows[k:] + rows[:k]
+        for arena in rows:
+            if not self.arena_claim(arena):
+                self.log("arena %s is held by another slot, next" % arena.get("id"))
+                continue
+            self.guard.send("go_xyz", None, int(arena["x"]), int(arena["y"]), int(arena["z"]), int(arena.get("map", 0)))
+            time.sleep(2.5)
+            reply = self.quiet_ok()
+            if reply:
+                self.log("arena %s quiet" % arena.get("id"))
+                self.on_arena(arena)
+                if self.ctx.bot_name:
+                    bring_hire(self.agent, self.ctx.bot_name)
+                for extra_name in self.ctx.extra_names:
+                    bring_hire(self.agent, extra_name)
+                return arena
+            self.arena_free(arena)
+            self.log("arena %s not quiet, next" % arena.get("id"))
+        return None
+
+    def quiet_ok(self):
+        try:
+            out = self.guard.tt("quiet 40 w=2")
+        except Exception:  # noqa: BLE001
+            return False
+        for reply in (out or {}).get("replies") or []:
+            if isinstance(reply, dict):
+                if reply.get("quiet") is True and reply.get("final", True):
+                    return True
+            elif isinstance(reply, str) and '"quiet":true' in reply.replace(" ", ""):
+                return True
+        return False
+
+    # -- summoning ---------------------------------------------------------
+
+    def level_window(self):
+        level = int(self.trial["player"].get("level") or 1)
+        difficulty = self.trial.get("_difficulty")
+        if difficulty:
+            delta = int(difficulty["level_delta"])       # the ladder step's own value (0 is a real 0)
+        else:
+            delta = ladder.base_delta(self.sit.get("mobs"))
+        target = level + delta
+        return max(1, target - 1), min(60, target + 1)
+
+    def summon(self, role, count, near_player=True):
+        lo, hi = self.level_window()
+        entries = pick_entry(self.mobs, role, lo, hi)
+        if not entries and role != "humanoid":
+            entries = pick_entry(self.mobs, "melee", lo, hi)
+        made = []
+        tries = 0
+        while len(made) < count and tries < min(5, max(1, len(entries)) * 2):
+            row = entries[tries % len(entries)] if entries else None
+            tries += 1
+            if not row:
+                break
+            guid = summon_mob(self.agent, self.guard, self.ledger, row["entry"],
+                              foreign=self.foreign_summons)
+            if not guid:
+                continue
+            unit = wait_until(lambda: self.agent.unit(guid=guid), timeout=3.0, poll=0.3) or {}
+            level = int(unit.get("level") or 0)
+            if not unit.get("hostile") or not (lo <= level <= hi):
+                kill_summon(self.agent, self.guard, self.ledger, guid)
+                continue
+            made.append(guid)
+            self.summoned.append(guid)
+            self.ctx.guids["mobs"] = [norm_guid(g) for g in self.summoned]
+            self.ledger.add({"kind": "mob_ready", "guid": guid, "entry": int(row["entry"]),
+                             "level": level, "hostile": True})
+        return made
+
+    def world_pull(self):
+        """Fallback when `.npc summon` is refused: the nearest hostile in the level window."""
+        lo, hi = self.level_window()
+        candidates = [u for u in self.agent.units(within=70)
+                      if u.get("hostile") and not u.get("dead") and lo <= int(u.get("level") or 0) <= hi
+                      and (u.get("distance", 999) >= 0)]
+        if not candidates:
+            return None
+        candidates.sort(key=lambda u: u.get("distance", 999))
+        guid = norm_guid(candidates[0]["guid"])
+        self.ledger.add({"kind": "world_mob", "guid": guid, "entry": candidates[0].get("entry"),
+                         "level": candidates[0].get("level")})
+        self.summoned.append(guid)
+        self.mob_source = "world"
+        return guid
+
+    # -- pulling -----------------------------------------------------------
+
+    def target(self, guid):
+        # moving the shared selection is a new generation: the guard must not restore
+        # a captured previous target over it
+        with self.agent.action_lock:
+            self.agent.selection_gen += 1
+            self.agent.rpc("target", {"guid": guid})
+
+    def attack(self, guid):
+        # the same lock the guard takes around select+send: the selection is shared
+        with self.agent.action_lock:
+            self.target(guid)
+            self.agent.rpc("attack", {})
+
+    def pull(self):
+        for guid in self.summoned:
+            self.walk_near(guid, 5.0)
+            self.attack(guid)
+
+    def walk_near(self, guid, want=25.0):
+        unit = self.agent.unit(guid=guid) or {}
+        st = self.agent.status()
+        dx = float(unit.get("x", 0)) - float(st.get("x", 0))
+        dy = float(unit.get("y", 0)) - float(st.get("y", 0))
+        dist = math.hypot(dx, dy)
+        if dist <= want or dist <= 0:
+            return True
+        k = max(0.0, dist - want) / dist
+        self.agent.rpc("walk_to", {"x": float(st.get("x", 0)) + dx * k,
+                                   "y": float(st.get("y", 0)) + dy * k,
+                                   "z": unit.get("z", st.get("z", 0))}, timeout="40s")
+        return True
+
+    def threat(self):
+        stance = self.trial["player"].get("stance")
+        spell = THREAT_CAST.get(int(stance)) if stance else None
+        if spell:
+            # cast(target=0) uses the shared selection: same lock as select+send
+            with self.agent.action_lock:
+                self.agent.cast(spell, target=0)
+
+    # -- drivers -----------------------------------------------------------
+
+    def abort_reason(self):
+        """A lost session or lease ends the repeat at once (checked every second)."""
+        reason = self.abort() or ""
+        if not reason:
+            reason = str(getattr(self.collector, "lost", "") or "")
+        return reason
+
+    def run(self):
+        kind = self.sit.get("kind") or "tank_damage"
+        if kind == "ooc_buffs":
+            return self.run_ooc()
+        if kind == "ooc_hurt":
+            return self.run_ooc_hurt()
+        arena = self.arena()
+        if not arena:
+            return {"ok": False, "ended": "no arena", "invalid_reason": "no quiet arena"}
+        mobs = self.sit.get("mobs") or {}
+        role = mobs.get("role") or "melee"
+        count = int(mobs.get("count") or 1)
+        made = self.summon(role, count)
+        if not made:
+            guid = self.world_pull()
+            if not guid:
+                return {"ok": False, "ended": "no mobs", "invalid_reason": "no mobs (summon refused and no world mob)"}
+            made = [guid]
+        self.ctx.guids["mobs"] = [norm_guid(g) for g in self.summoned]
+        lo, hi = self.level_window()
+        self.ctx.checks.append(mobs_ready_row(self.agent, self.ledger, (lo, hi), self.summoned))
+        if self.victim == "bot" and self.ctx.bot_name:
+            self.bring_hire_near()
+
+        if kind == "cc_target" and len(self.summoned) >= 2:
+            marked = self.summoned[1]
+            mark_row = self.mark_and_cc(marked)
+            self.ctx.checks.append(mark_row)
+            self.ctx.guids["marked"] = marked
+        elif kind == "cc_target" and len(self.summoned) == 1:
+            self.ctx.checks.append({"id": "cc_mark_set", "ok": False, "value": None,
+                                    "evidence": "cc_target wants two humanoid mobs, got 1"})
+
+        if kind == "debuff":
+            debuff = (self.sit.get("debuff") or {}).get("spell_id")
+            if debuff:
+                self.apply_debuff(int(debuff))
+
+        wait = float(self.sit.get("pull_after_s") or self.sit.get("ooc_wait_s") or 0)
+        if wait:
+            time.sleep(wait)
+
+        if kind == "cc_target" and self.summoned:
+            self.walk_near(self.summoned[0], 25.0)
+            self.attack(self.summoned[0])
+        elif self.player_pulls():
+            self.pull()
+        if kind == "pack":
+            for guid in self.summoned[1:]:
+                self.attack(guid)
+
+        governor = Governor(self.agent, self.guard, self.marks, victim=self.victim,
+                            band=self.band, floor=self.floor,
+                            max_rescues=self.max_rescues,
+                            victim_guid=self.victim_target_guid(),
+                            stopped=getattr(self.collector, "_stop", None), log=self.log)
+        self.collector.tick_hooks.append(governor.tick)
+        # an extra_bots victim leaves the player fighting ungoverned: a floor-only governor
+        # (band top above 100: never a top-up) keeps the player from dying
+        guard_gov = None
+        if self.extra_victim:
+            guard_gov = Governor(self.agent, self.guard, self.marks, victim="player",
+                                 band=(float(self.band[0]), 101.0), floor=self.floor,
+                                 max_rescues=self.max_rescues, victim_guid=self.ctx.player_guid,
+                                 stopped=getattr(self.collector, "_stop", None), log=self.log)
+            self.collector.tick_hooks.append(guard_gov.tick)
+
+        deadline = None
+        duration = float(self.trial.get("duration_s") or 60)
+        refill_every = float(mobs.get("refill_every_s") or 0)
+        next_refill = time.time() + refill_every if refill_every else 0.0
+        last_threat = 0.0
+        debuff_spell = (self.sit.get("debuff") or {}).get("spell_id") if kind == "debuff" else None
+        debuff_gone_at = None
+        ended = ""
+        invalid = ""
+        try:
+            entered = time.time()
+            while True:
+                reason = self.abort_reason()
+                if reason:
+                    ended = "disconnected" if "disconnect" in reason.lower() else reason
+                    invalid = reason
+                    break
+                now = time.time()
+                if not self.fight_start and self.fighting(self.summoned):
+                    self.fight_start = now
+                    self.marks.add({"kind": "fight_start", "mobs": [norm_guid(g) for g in self.summoned]})
+                    deadline = now + duration
+                if not self.fight_start and now - entered > 60.0:
+                    ended = "no_fight"
+                    break
+                if governor.ended:
+                    ended = governor.ended
+                    break
+                if guard_gov is not None and guard_gov.ended:
+                    ended = guard_gov.ended
+                    break
+                if deadline and now >= deadline:
+                    break
+                if mobs.get("refill", True) and now - getattr(self, "_last_refill", 0) > 3:
+                    try:
+                        alive = len(self.alive_now())
+                    except RpcError as exc:
+                        # an unreadable unit list is not "0 alive": skip this tick
+                        self.log("refill skipped: alive count unknown (%s)" % exc)
+                        alive = None
+                    if alive is not None and alive < count and len(self.summoned) < SUMMON_CAP:
+                        self._last_refill = now
+                        added = self.summon(role, 1)
+                        if added:
+                            self.marks.add({"kind": "refill", "guid": added[0]})
+                            if self.player_pulls():
+                                self.attack(added[0])
+                if next_refill and now >= next_refill:
+                    next_refill = now + refill_every
+                    try:
+                        alive = len(self.alive_now())
+                    except RpcError as exc:
+                        self.log("refill_every skipped: alive count unknown (%s)" % exc)
+                        alive = None
+                    if alive is not None and alive < REFILL_CAP:
+                        added = self.summon((self.sit.get("mobs") or {}).get("role") or "melee", 1)
+                        if added:
+                            self.marks.add({"kind": "refill", "guid": added[0], "every": refill_every})
+                            if self.player_pulls():
+                                self.attack(added[0])
+                if self.player_pulls() and now - last_threat > 6.0 and self.summoned:
+                    last_threat = now
+                    self.threat()
+                if debuff_spell:
+                    sample = self.collector.last_sample or {}
+                    victim_auras = (sample.get(self.victim) or {}).get("auras") or []
+                    if debuff_spell in victim_auras:
+                        debuff_gone_at = None
+                    elif debuff_gone_at is None:
+                        debuff_gone_at = now + 10.0
+                    elif now >= debuff_gone_at:
+                        self.apply_debuff(int(debuff_spell))
+                        debuff_gone_at = None
+                time.sleep(1.0)
+        finally:
+            self.collector.tick_hooks.remove(governor.tick)
+            if guard_gov is not None:
+                self.collector.tick_hooks.remove(guard_gov.tick)
+            self.marks.add({"kind": "fight_end", "ended": ended or "duration"})
+        out = {"ok": not invalid, "ended": ended or "duration", "mob_source": self.mob_source,
+               "fight_start": self.fight_start}
+        if invalid:
+            out["invalid_reason"] = invalid
+        return out
+
+    def alive_now(self):
+        """This repeat's own summons that are still up.
+
+        Not the slot ledger's whole history: a leftover of an earlier repeat (live2: a mob a
+        misdirected `.modify hp` had revived) counted as alive for ever, so nothing was refilled
+        and the fight ended with the first mob after 20 s. The player stands in the arena
+        for the fight, so a despawned corpse ("not in view") is gone.
+        """
+        return alive_summons(self.agent, self.ledger, only=self.summoned, absent_is_gone=True)
+
+    def run_ooc(self):
+        wait = float(self.sit.get("ooc_wait_s") or 60)
+        for target in (self.ctx.player_guid, self.ctx.hire_guid):
+            if target:
+                try:
+                    self.guard.send("unaura", target, "all")
+                except Exception:  # noqa: BLE001 - a refused cleanup must not stop the window
+                    pass
+        self.marks.add({"kind": "fight_start", "mobs": [], "ooc": True})
+        deadline = time.time() + wait
+        invalid = ""
+        while time.time() < deadline:
+            invalid = self.abort_reason()
+            if invalid:
+                break
+            time.sleep(1.0)
+        self.marks.add({"kind": "fight_end", "ended": "ooc" if not invalid else "disconnected"})
+        if invalid:
+            return {"ok": False, "ended": "disconnected", "invalid_reason": invalid}
+        return {"ok": True, "ended": "ooc"}
+
+    # -- ooc_hurt ----------------------------------------------------------
+
+    def sample_key(self):
+        """The collector sample key of the victim: player, bot, or extraN."""
+        if self.extra_victim:
+            return "extra%d" % self.extra_victim
+        return "bot" if self.victim == "bot" else "player"
+
+    def hurt_target_pct(self):
+        low, high = float(self.band[0]), float(self.band[1])
+        return (low + high) / 2.0
+
+    def hurt_tick(self, sample):
+        """One hurt attempt: ("set", pct) | ("in_band", pct) | ("skip", why) | ("wait", why).
+
+        "wait" = no usable sample yet (retry next second, do not spend the tick); "skip" = the tick is
+        spent and logged (a unit is in combat). The victim is set with the governor's own GM line
+        (`.modify hp`, the guard's modify_hp) to the middle of hp_band.
+        """
+        sample = sample or {}
+        victim = sample.get(self.sample_key()) or {}
+        hire = sample.get("bot") or {}
+        if not victim or not hire:
+            return "wait", "no sample for the %s" % ("victim" if not victim else "hire")
+        for who, row in (("victim", victim), ("hire", hire)):
+            if row.get("in_combat"):
+                return "skip", "%s in combat" % who
+        max_hp = int(victim.get("max_hp") or 0)
+        hp = int(victim.get("hp") or 0)
+        if not max_hp or hp <= 0:
+            return "wait", "victim hp unreadable"
+        pct = self.hurt_target_pct()
+        if float(self.band[0]) <= 100.0 * hp / max_hp <= float(self.band[1]):
+            return "in_band", round(100.0 * hp / max_hp, 1)
+        target = max(1, min(max_hp, int(pct * max_hp / 100.0)))
+        self.guard.send("modify_hp", self.victim_target_guid(), target, max_hp)
+        return "set", round(100.0 * target / max_hp, 1)
+
+    def keep_stance(self, sample, state):
+        """Out of combat nothing re-casts the stance (threat() only runs in a fight): do it here."""
+        stance = self.trial["player"].get("stance")
+        if not stance:
+            return False
+        have = ((sample or {}).get("player") or {}).get("auras")
+        if have is None or int(stance) in have:
+            return False
+        now = time.time()
+        if now - state.get("last", 0.0) < STANCE_RECAST_GAP_S:
+            return False
+        state["last"] = now
+        try:
+            with self.agent.action_lock:
+                self.agent.cast(int(stance), target=norm_guid(self.ctx.player_guid) or 0)
+        except Exception as exc:  # noqa: BLE001 - the stance uptime rule still scores it
+            self.log("stance %s re-cast failed: %s" % (stance, exc))
+            return False
+        self.log("stance %s was down out of combat: re-cast" % stance)
+        return True
+
+    def run_ooc_hurt(self):
+        """No mobs: the player and the hire stand in the quiet arena out of combat and the victim is
+        set to a percent inside hp_band at the window start and every hurt_every_s seconds after.
+
+        A tick is skipped (and logged) while the victim or the hire reads in combat in the
+        collector's last sample. The floor governor stays on, floor-only, and logs loudly if it
+        ever fires (out of combat nothing should damage the victim). No `unaura all`: the stance
+        set up by the setup checks must stay up.
+        """
+        arena = self.arena()
+        if not arena:
+            return {"ok": False, "ended": "no arena", "invalid_reason": "no quiet arena"}
+        wait = float(self.sit.get("ooc_wait_s") or 60)
+        every = float(self.sit.get("hurt_every_s") or HURT_EVERY_S)
+        governor = Governor(self.agent, self.guard, self.marks, victim=self.sample_key(),
+                            band=(float(self.band[0]), 101.0), floor=self.floor,
+                            max_rescues=self.max_rescues, victim_guid=self.victim_target_guid(),
+                            stopped=getattr(self.collector, "_stop", None), log=self.log, ooc=True)
+        self.collector.tick_hooks.append(governor.tick)
+        self.marks.add({"kind": "fight_start", "mobs": [], "ooc": True})
+        start = time.time()
+        deadline = start + wait
+        next_hurt = start
+        invalid = ""
+        ended = "ooc"
+        stance_state = {}
+        try:
+            while time.time() < deadline:
+                invalid = self.abort_reason()
+                if invalid:
+                    break
+                if governor.ended:
+                    ended = governor.ended
+                    break
+                sample = self.collector.last_sample or {}
+                self.keep_stance(sample, stance_state)
+                now = time.time()
+                if now >= next_hurt:
+                    try:
+                        what, detail = self.hurt_tick(sample)
+                    except Exception as exc:  # noqa: BLE001 - a refused line spends the tick
+                        what, detail = "skip", "hurt line refused: %s" % exc
+                    if what == "set":
+                        self.marks.add({"kind": "hurt", "hp": detail})
+                        next_hurt = now + every
+                    elif what == "wait":
+                        self.log("hurt tick waits: %s" % detail)
+                    else:
+                        self.log("hurt tick skipped: %s" % (detail if what == "skip"
+                                                           else "victim already at %s%%, inside the band" % detail))
+                        next_hurt = now + every
+                time.sleep(1.0)
+        finally:
+            if governor.tick in self.collector.tick_hooks:
+                self.collector.tick_hooks.remove(governor.tick)
+            self.marks.add({"kind": "fight_end", "ended": ended if not invalid else "disconnected"})
+        if invalid:
+            return {"ok": False, "ended": "disconnected", "invalid_reason": invalid}
+        return {"ok": True, "ended": ended}
+
+    def fighting(self, mobs):
+        ids = {norm_guid(g) for g in mobs}
+        for unit in self.agent.units(within=40):
+            if norm_guid(unit.get("guid")) in ids and unit.get("in_combat") and not unit.get("dead"):
+                return True
+        return False
+
+    def bring_hire_near(self):
+        agent = self.agent
+        wait_until(lambda: (agent.unit(name=self.ctx.bot_name) or {}).get("distance", 999) <= 10,
+                   timeout=30.0, poll=1.0)
+
+    def mark_and_cc(self, guid):
+        # mark reads and moves the shared raid marks: same lock as the GM selection
+        with self.agent.action_lock:
+            row = self.agent.rpc("mark", {"guid": guid, "icon": "moon"})
+        echo = row.get("mark") if isinstance(row, dict) else None
+        intent = "cc moon %s" % self.ctx.bot_name
+        since = self.agent.tbm(intent)
+        line, _rows = self.agent.wait_reply(since, r"TBM:ACTION_ACK\|cc moon ", timeout=10)
+        ack = re.search(r"TBM:ACTION_ACK\|" + re.escape(intent) + r"\|[^|]*\|(\d+)\|", line or "")
+        self.ledger.add({"kind": "cc_mark", "guid": guid, "mark": echo or "", "bot": self.ctx.bot_name,
+                         "reply": line or ""})
+        return {"id": "cc_mark_set", "ok": bool(echo) and bool(ack) and int(ack.group(1)) >= 1,
+                "value": echo or line,
+                "evidence": "mark %s; .bot %s -> %s" % (echo, intent, line or "no TBM:ACTION_ACK")}
+
+    def apply_debuff(self, spell_id):
+        target = self.victim_target_guid()
+        try:
+            self.guard.send("aura", target, int(spell_id))
+        except Exception as exc:  # noqa: BLE001
+            self.log("debuff refused: %s" % exc)
+
+
+def mobs_ready_row(agent, ledger, window, guids):
+    lo, hi = window
+    alive = []
+    for guid in guids:
+        unit = agent.unit(guid=guid) or {}
+        if unit and unit.get("hostile") and not unit.get("dead") and lo <= int(unit.get("level") or 0) <= hi:
+            alive.append(guid)
+    ok = bool(alive)
+    return {"id": "mobs_ready", "ok": ok, "value": [norm_guid(g) for g in alive],
+            "evidence": "%d/%d summons hostile, alive, level %d-%d" % (len(alive), len(guids), lo, hi)}
+

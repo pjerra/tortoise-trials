@@ -1,0 +1,142 @@
+{
+  "id": "priest-holy-pws-def-arms-ooc",
+  "title": "Holy priest: no out-of-combat shield on a hurt Arms warrior in Defensive Stance between pulls",
+  "group": "healers",
+  "class": "priest",
+  "spec": "holy",
+  "player": {
+    "class": "warrior",
+    "level": 40,
+    "talents": {
+      "tree": "arms",
+      "spells": [
+        16462,
+        12286
+      ]
+    },
+    "stance": 71,
+    "forced_role": null,
+    "auras": [],
+    "items": []
+  },
+  "bot": {
+    "class": "priest",
+    "spec": "holy",
+    "role": "healer",
+    "level": 40,
+    "gear": "blue",
+    "items": [
+      {
+        "name": "Sweet Nectar",
+        "count": 20
+      }
+    ],
+    "mana_pct": null,
+    "cc_mark": null
+  },
+  "situation": {
+    "kind": "ooc_hurt",
+    "mobs": {
+      "role": "melee",
+      "count": 0,
+      "level_delta": 0
+    },
+    "hp_band": [
+      30,
+      40
+    ],
+    "floor_pct": 12,
+    "victim": "player",
+    "pull_after_s": 0,
+    "ooc_wait_s": 150,
+    "hurt_every_s": 12,
+    "debuff": null,
+    "max_rescues_per_min": 12
+  },
+  "setup_checks": [
+    "player_level",
+    "player_visible",
+    "player_talents",
+    "player_stance",
+    "player_forced_role",
+    "player_no_shield",
+    "bot_present",
+    "bot_level",
+    "bot_role",
+    "bot_spec",
+    "bot_items",
+    "grouped",
+    "config_read"
+  ],
+  "duration_s": 150,
+  "repeats": 4,
+  "min_valid_s": 120,
+  "opportunity": {
+    "unit": "$player",
+    "hp_lt": "$low",
+    "hp_gt": "$critical",
+    "in_combat": false
+  },
+  "rules": [
+    {
+      "id": "PRI-PWS-DEF-ARMS-OOC",
+      "desc": "Between pulls, with the priest and the Defensive-Stance Arms warrior both out of combat and the warrior in the low band above critical, the holy priest casts no Power Word: Shield on it",
+      "source": "ai/playerbot/strategy/priest/HolyPriestStrategy.cpp:89-102 (InitNonCombatTriggers: party member low health, shield first at ACTION_HIGH+2); ai/playerbot/strategy/priest/PriestActions.h:42; ai/playerbot/policy/heal/ShieldTargetPolicy.h:16; ai/playerbot/AiFactory.cpp:491-504,580-611; issue #1553 round 3",
+      "expect_today": "FAIL",
+      "why_expect": "before-case for the round-3 fix of #1553. Round 2 (t1106j) holds the shield above the critical band only while the tank or the priest is in combat. Out of combat the priest's non-combat row 'party member low health' (HolyPriestStrategy.cpp InitNonCombatTriggers, :98-102) still casts power word: shield on party first (ACTION_HIGH+2), so a stance tank at 30-40 % between pulls gets a 30 s shield that eats the next pull's opening hits (rage). The round-3 code fix holds the shield above critical in or out of combat, so the rule is expected to PASS after it. The player must be visible to the bots (setup check player_visible) or the priest never answers and the rule passes for the wrong reason; PRI-PWS-DEF-ARMS-OOC-HEALS proves the priest did answer",
+      "check": {
+        "metric": "count",
+        "where": {
+          "kind": "cast",
+          "src": "$bot",
+          "dst": "$player",
+          "spell": "Power Word: Shield",
+          "dst_hp_gt": "$critical",
+          "in_combat": false
+        }
+      },
+      "pass_if": "== 0",
+      "min_opportunity_s": 30
+    },
+    {
+      "id": "PRI-PWS-DEF-ARMS-OOC-HEALS",
+      "desc": "Control: the opportunity was real, the holy priest heals the hurt warrior out of combat (Lesser Heal, Heal, Greater Heal, Flash Heal or Renew)",
+      "source": "ai/playerbot/strategy/priest/HolyPriestStrategy.cpp:89-110 (non-combat rows: party member low health -> heal on party / lesser heal on party, medium health -> heal on party, almost full health -> renew on party)",
+      "expect_today": "PASS",
+      "why_expect": "the non-combat low and medium health rows heal a party member under the low/medium band; this proves the priest saw and answered the player, so a zero shield count above is about the shield and not a blind priest",
+      "check": {
+        "metric": "count",
+        "where": {
+          "kind": "cast",
+          "src": "$bot",
+          "dst": "$player",
+          "spell": [
+            "Lesser Heal",
+            "Heal",
+            "Greater Heal",
+            "Flash Heal",
+            "Renew"
+          ],
+          "in_combat": false
+        }
+      },
+      "pass_if": ">= 1"
+    },
+    {
+      "id": "PRI-PWS-DEF-ARMS-OOC-STANCE",
+      "desc": "Precondition: Defensive Stance (aura 71) stays on the player through the out-of-combat window, so the shield rule above is about this stance",
+      "source": "precondition, no bot code: the stance is read by ai/playerbot/AiFactory.cpp:491-504 (GetRoleFromStanceOrGear); setup check player_stance proves it at the start, this proves it through the window",
+      "expect_today": "PASS",
+      "why_expect": "the ooc_hurt runner never clears auras and re-casts the stance when it reads down",
+      "check": {
+        "metric": "uptime",
+        "unit": "$player",
+        "aura": [
+          71
+        ],
+        "phase": "out_of_combat"
+      },
+      "pass_if": ">= 0.9"
+    }
+  ]
+}

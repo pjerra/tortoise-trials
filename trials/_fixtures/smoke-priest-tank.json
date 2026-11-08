@@ -1,0 +1,98 @@
+{
+  "id": "smoke-priest-tank",
+  "title": "Smoke: holy priest with an Arms warrior tanking in Defensive Stance",
+  "group": "healers",
+  "class": "priest",
+  "spec": "holy",
+  "player": {
+    "class": "warrior",
+    "level": 35,
+    "talents": {
+      "tree": "arms",
+      "spells": [
+        12285,
+        12295
+      ]
+    },
+    "stance": 71,
+    "forced_role": null,
+    "auras": [],
+    "items": []
+  },
+  "bot": {
+    "class": "priest",
+    "spec": "holy",
+    "role": "healer",
+    "level": 35,
+    "gear": "blue",
+    "items": [
+      {
+        "name": "Morning Glory Dew",
+        "count": 20
+      }
+    ],
+    "mana_pct": null,
+    "cc_mark": null
+  },
+  "situation": {
+    "kind": "tank_damage",
+    "mobs": {
+      "role": "melee",
+      "count": 1,
+      "level_delta": -2,
+      "refill": true
+    },
+    "hp_band": [
+      50,
+      90
+    ],
+    "floor_pct": 50,
+    "victim": "player",
+    "pull_after_s": 0,
+    "ooc_wait_s": 0,
+    "debuff": null
+  },
+  "setup_checks": [
+    "player_level",
+    "player_talents",
+    "player_stance",
+    "player_forced_role",
+    "bot_present",
+    "bot_level",
+    "bot_spec",
+    "bot_role",
+    "bot_items",
+    "grouped",
+    "mobs_ready",
+    "config_read"
+  ],
+  "duration_s": 60,
+  "repeats": 1,
+  "min_valid_s": 40,
+  "opportunity": {
+    "unit": "$player",
+    "hp_lt": 90,
+    "hp_gt": "$critical",
+    "in_combat": true
+  },
+  "rules": [
+    {
+      "id": "SMOKE-PWS-PLAYER",
+      "desc": "Power Word: Shield casts at the player (smoke: proves the pipeline, not a bug claim)",
+      "source": "briefs-omp/trials-1-runner.md (smoke fixture)",
+      "expect_today": "?",
+      "why_expect": "smoke only",
+      "check": {
+        "metric": "count",
+        "where": {
+          "kind": "cast",
+          "src": "$bot",
+          "dst": "$player",
+          "spell": "Power Word: Shield"
+        }
+      },
+      "pass_if": ">= 0",
+      "min_opportunity_s": 0
+    }
+  ]
+}

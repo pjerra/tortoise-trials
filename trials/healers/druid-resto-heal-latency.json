@@ -1,0 +1,105 @@
+{
+  "id": "druid-resto-heal-latency",
+  "title": "Resto druid: a heal on the tanking player within 4 s of him dropping below 50 percent",
+  "group": "healers",
+  "class": "druid",
+  "spec": "restoration",
+  "player": {
+    "class": "warrior",
+    "level": 40,
+    "talents": {
+      "tree": "arms",
+      "spells": [
+        16462,
+        12286
+      ]
+    },
+    "stance": 71,
+    "forced_role": null,
+    "auras": [],
+    "items": []
+  },
+  "bot": {
+    "class": "druid",
+    "spec": "restoration",
+    "role": "healer",
+    "level": 40,
+    "gear": "blue",
+    "items": [
+      {
+        "name": "Sweet Nectar",
+        "count": 20
+      }
+    ],
+    "mana_pct": null,
+    "cc_mark": null
+  },
+  "situation": {
+    "kind": "tank_damage",
+    "mobs": {
+      "role": "melee",
+      "count": 1,
+      "level_delta": 1,
+      "refill": true
+    },
+    "hp_band": [
+      40,
+      90
+    ],
+    "floor_pct": 30,
+    "victim": "player",
+    "pull_after_s": 0,
+    "ooc_wait_s": 0,
+    "debuff": null
+  },
+  "setup_checks": [
+    "player_level",
+    "player_visible",
+    "player_talents",
+    "player_stance",
+    "player_forced_role",
+    "bot_present",
+    "bot_level",
+    "bot_role",
+    "bot_spec",
+    "bot_items",
+    "grouped",
+    "mobs_ready",
+    "config_read"
+  ],
+  "duration_s": 180,
+  "repeats": 2,
+  "min_valid_s": 120,
+  "rules": [
+    {
+      "id": "DRU-RESTO-HEAL-LATENCY",
+      "desc": "Resto druid answers the player crossing below 50 percent with a heal or Nature's Swiftness within 4 s, at least 80 percent of the time",
+      "source": "ai/playerbot/strategy/druid/RestorationDruidStrategy.cpp:47-65,78-82 (party member critical/low rows)",
+      "expect_today": "PASS",
+      "why_expect": "party member critical/low health rows queue regrowth, healing touch, rejuvenation, swiftmend, nature's swiftness on party",
+      "check": {
+        "metric": "latency",
+        "trigger": {
+          "kind": "cross",
+          "unit": "$player",
+          "below": 50
+        },
+        "response": {
+          "kind": "cast",
+          "src": "$bot",
+          "dst": "$player",
+          "spell": [
+            "Regrowth",
+            "Healing Touch",
+            "Rejuvenation",
+            "Swiftmend",
+            "Nature''s Swiftness"
+          ]
+        },
+        "within_s": 4
+      },
+      "pass_if": ">= 0.8",
+      "min_n": 5
+    }
+  ]
+}

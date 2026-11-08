@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.bak*
+*.log
+runs/
+run-output/
+local/
+config.json
+*.local.json
+.env
+*.key
+*.pass
+*.token
+slots.json
+tortoise-trials-logins.json
+PUBLISH-SCAN.md

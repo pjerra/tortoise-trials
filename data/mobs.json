@@ -1,0 +1,1093 @@
+{
+ "caster": [
+  {
+   "entry": 3130,
+   "faction": 14,
+   "level_max": 10,
+   "level_min": 9,
+   "name": "Thunder Lizard"
+  },
+  {
+   "entry": 3131,
+   "faction": 14,
+   "level_max": 11,
+   "level_min": 10,
+   "name": "Lightning Hide"
+  },
+  {
+   "entry": 3228,
+   "faction": 14,
+   "level_max": 11,
+   "level_min": 10,
+   "name": "Corrupted Surf Crawler"
+  },
+  {
+   "entry": 3231,
+   "faction": 14,
+   "level_max": 12,
+   "level_min": 11,
+   "name": "Corrupted Dreadmaw Crocolisk"
+  },
+  {
+   "entry": 3239,
+   "faction": 16,
+   "level_max": 21,
+   "level_min": 20,
+   "name": "Thunderhead"
+  },
+  {
+   "entry": 3240,
+   "faction": 14,
+   "level_max": 19,
+   "level_min": 18,
+   "name": "Stormsnout"
+  },
+  {
+   "entry": 3473,
+   "faction": 14,
+   "level_max": 24,
+   "level_min": 24,
+   "name": "Owatanka"
+  },
+  {
+   "entry": 4008,
+   "faction": 14,
+   "level_max": 17,
+   "level_min": 15,
+   "name": "Cliff Stormer"
+  },
+  {
+   "entry": 4032,
+   "faction": 16,
+   "level_max": 25,
+   "level_min": 23,
+   "name": "Young Chimaera"
+  },
+  {
+   "entry": 5305,
+   "faction": 16,
+   "level_max": 46,
+   "level_min": 45,
+   "name": "Frayfeather Skystormer"
+  },
+  {
+   "entry": 8601,
+   "faction": 14,
+   "level_max": 56,
+   "level_min": 54,
+   "name": "Noxious Plaguebat"
+  },
+  {
+   "entry": 8763,
+   "faction": 14,
+   "level_max": 50,
+   "level_min": 49,
+   "name": "Mistwing Rogue"
+  },
+  {
+   "entry": 4117,
+   "faction": 14,
+   "level_max": 26,
+   "level_min": 25,
+   "name": "Cloud Serpent"
+  },
+  {
+   "entry": 4119,
+   "faction": 14,
+   "level_max": 29,
+   "level_min": 27,
+   "name": "Elder Cloud Serpent"
+  },
+  {
+   "entry": 91966,
+   "faction": 16,
+   "level_max": 53,
+   "level_min": 51,
+   "name": "Venomous Jungle Serpent"
+  },
+  {
+   "entry": 60942,
+   "faction": 16,
+   "level_max": 37,
+   "level_min": 36,
+   "name": "Blackhorn Mystic"
+  },
+  {
+   "entry": 60981,
+   "faction": 16,
+   "level_max": 17,
+   "level_min": 16,
+   "name": "Bramblethorn Thornweaver"
+  },
+  {
+   "entry": 60987,
+   "faction": 16,
+   "level_max": 20,
+   "level_min": 20,
+   "name": "Hemnock the Wise"
+  },
+  {
+   "entry": 61020,
+   "faction": 16,
+   "level_max": 42,
+   "level_min": 42,
+   "name": "Bar'thog the Wicked"
+  },
+  {
+   "entry": 61096,
+   "faction": 14,
+   "level_max": 58,
+   "level_min": 57,
+   "name": "Venomflayer Serpent"
+  },
+  {
+   "entry": 61162,
+   "faction": 16,
+   "level_max": 54,
+   "level_min": 52,
+   "name": "Blood Elf Loyalist"
+  },
+  {
+   "entry": 61233,
+   "faction": 16,
+   "level_max": 45,
+   "level_min": 42,
+   "name": "Hollow Web Venomspitter"
+  },
+  {
+   "entry": 61662,
+   "faction": 16,
+   "level_max": 8,
+   "level_min": 7,
+   "name": "Blackvenom Scorpid"
+  },
+  {
+   "entry": 61775,
+   "faction": 14,
+   "level_max": 7,
+   "level_min": 6,
+   "name": "Emerald Mana Wyrm"
+  },
+  {
+   "entry": 61781,
+   "faction": 16,
+   "level_max": 10,
+   "level_min": 8,
+   "name": "Blood Elf Darkcaster"
+  },
+  {
+   "entry": 61784,
+   "faction": 16,
+   "level_max": 10,
+   "level_min": 10,
+   "name": "Gilaras Sunfury"
+  },
+  {
+   "entry": 61787,
+   "faction": 16,
+   "level_max": 5,
+   "level_min": 5,
+   "name": "Veloren Brightstar"
+  }
+ ],
+ "humanoid": [
+  {
+   "entry": 2248,
+   "faction": 16,
+   "level_max": 31,
+   "level_min": 30,
+   "name": "Cave Yeti"
+  },
+  {
+   "entry": 2320,
+   "faction": 16,
+   "level_max": 40,
+   "level_min": 40,
+   "name": "Nagaz"
+  },
+  {
+   "entry": 2929,
+   "faction": 14,
+   "level_max": 47,
+   "level_min": 46,
+   "name": "Savage Owlbeast"
+  },
+  {
+   "entry": 3229,
+   "faction": 14,
+   "level_max": 5,
+   "level_min": 5,
+   "name": "\\\"Squealer\\\" Thornmantle"
+  },
+  {
+   "entry": 4504,
+   "faction": 16,
+   "level_max": 37,
+   "level_min": 37,
+   "name": "Frostmaw"
+  },
+  {
+   "entry": 5292,
+   "faction": 16,
+   "level_max": 44,
+   "level_min": 43,
+   "name": "Feral Scar Yeti"
+  },
+  {
+   "entry": 5293,
+   "faction": 16,
+   "level_max": 46,
+   "level_min": 45,
+   "name": "Hulking Feral Scar"
+  },
+  {
+   "entry": 5763,
+   "faction": 14,
+   "level_max": 21,
+   "level_min": 20,
+   "name": "Nightmare Ectoplasm"
+  },
+  {
+   "entry": 6135,
+   "faction": 16,
+   "level_max": 54,
+   "level_min": 53,
+   "name": "Arkkoran Clacker"
+  },
+  {
+   "entry": 6136,
+   "faction": 16,
+   "level_max": 54,
+   "level_min": 53,
+   "name": "Arkkoran Muckdweller"
+  },
+  {
+   "entry": 6390,
+   "faction": 14,
+   "level_max": 11,
+   "level_min": 11,
+   "name": "Ulag the Cleaver"
+  },
+  {
+   "entry": 6606,
+   "faction": 16,
+   "level_max": 16,
+   "level_min": 16,
+   "name": "Overseer Glibby"
+  },
+  {
+   "entry": 6911,
+   "faction": 14,
+   "level_max": 9,
+   "level_min": 8,
+   "name": "Minion of Sethir"
+  },
+  {
+   "entry": 7287,
+   "faction": 14,
+   "level_max": 22,
+   "level_min": 22,
+   "name": "Foreman Silixiz"
+  },
+  {
+   "entry": 7401,
+   "faction": 14,
+   "level_max": 45,
+   "level_min": 45,
+   "name": "Draenei Refugee"
+  },
+  {
+   "entry": 7452,
+   "faction": 16,
+   "level_max": 57,
+   "level_min": 56,
+   "name": "Crazed Owlbeast"
+  },
+  {
+   "entry": 7848,
+   "faction": 16,
+   "level_max": 46,
+   "level_min": 46,
+   "name": "Lurking Feral Scar"
+  },
+  {
+   "entry": 8554,
+   "faction": 14,
+   "level_max": 5,
+   "level_min": 5,
+   "name": "Chief Sharptusk Thornmantle"
+  },
+  {
+   "entry": 8980,
+   "faction": 14,
+   "level_max": 53,
+   "level_min": 53,
+   "name": "Firegut Captain"
+  },
+  {
+   "entry": 10159,
+   "faction": 16,
+   "level_max": 12,
+   "level_min": 11,
+   "name": "Young Moonkin"
+  },
+  {
+   "entry": 10896,
+   "faction": 16,
+   "level_max": 29,
+   "level_min": 29,
+   "name": "Arnak Grimtotem"
+  },
+  {
+   "entry": 11858,
+   "faction": 16,
+   "level_max": 18,
+   "level_min": 18,
+   "name": "Grundig Darkcloud"
+  },
+  {
+   "entry": 11887,
+   "faction": 16,
+   "level_max": 55,
+   "level_min": 54,
+   "name": "Crypt Robber"
+  },
+  {
+   "entry": 12276,
+   "faction": 14,
+   "level_max": 20,
+   "level_min": 20,
+   "name": "Hive'Zora Egg"
+  },
+  {
+   "entry": 13157,
+   "faction": 16,
+   "level_max": 10,
+   "level_min": 9,
+   "name": "Makasgar"
+  },
+  {
+   "entry": 60404,
+   "faction": 16,
+   "level_max": 60,
+   "level_min": 60,
+   "name": "Dietmar Onlooker"
+  },
+  {
+   "entry": 60405,
+   "faction": 16,
+   "level_max": 60,
+   "level_min": 60,
+   "name": "Zokk Flamefist"
+  },
+  {
+   "entry": 60406,
+   "faction": 16,
+   "level_max": 60,
+   "level_min": 60,
+   "name": "Wahjez'fon"
+  },
+  {
+   "entry": 60407,
+   "faction": 16,
+   "level_max": 60,
+   "level_min": 60,
+   "name": "Jovany Staunch"
+  },
+  {
+   "entry": 91958,
+   "faction": 16,
+   "level_max": 50,
+   "level_min": 50,
+   "name": "Salty' O'Keef"
+  },
+  {
+   "entry": 62060,
+   "faction": 16,
+   "level_max": 61,
+   "level_min": 61,
+   "name": "Bloodborn Invader"
+  }
+ ],
+ "melee": [
+  {
+   "entry": 659,
+   "faction": 16,
+   "level_max": 50,
+   "level_min": 50,
+   "name": "El Pollo Grande"
+  },
+  {
+   "entry": 681,
+   "faction": 16,
+   "level_max": 31,
+   "level_min": 30,
+   "name": "Young Stranglethorn Tiger"
+  },
+  {
+   "entry": 682,
+   "faction": 16,
+   "level_max": 33,
+   "level_min": 32,
+   "name": "Stranglethorn Tiger"
+  },
+  {
+   "entry": 683,
+   "faction": 16,
+   "level_max": 31,
+   "level_min": 30,
+   "name": "Young Panther"
+  },
+  {
+   "entry": 729,
+   "faction": 16,
+   "level_max": 37,
+   "level_min": 37,
+   "name": "Sin'Dall"
+  },
+  {
+   "entry": 736,
+   "faction": 16,
+   "level_max": 33,
+   "level_min": 32,
+   "name": "Panther"
+  },
+  {
+   "entry": 767,
+   "faction": 14,
+   "level_max": 37,
+   "level_min": 36,
+   "name": "Swamp Jaguar"
+  },
+  {
+   "entry": 772,
+   "faction": 16,
+   "level_max": 38,
+   "level_min": 37,
+   "name": "Stranglethorn Tigress"
+  },
+  {
+   "entry": 905,
+   "faction": 16,
+   "level_max": 32,
+   "level_min": 31,
+   "name": "Sharptooth Frenzy"
+  },
+  {
+   "entry": 1082,
+   "faction": 16,
+   "level_max": 39,
+   "level_min": 38,
+   "name": "Sawtooth Crocolisk"
+  },
+  {
+   "entry": 1084,
+   "faction": 16,
+   "level_max": 36,
+   "level_min": 35,
+   "name": "Young Sawtooth Crocolisk"
+  },
+  {
+   "entry": 1193,
+   "faction": 16,
+   "level_max": 13,
+   "level_min": 12,
+   "name": "Loch Frenzy"
+  },
+  {
+   "entry": 1400,
+   "faction": 14,
+   "level_max": 24,
+   "level_min": 23,
+   "name": "Wetlands Crocolisk"
+  },
+  {
+   "entry": 1417,
+   "faction": 14,
+   "level_max": 22,
+   "level_min": 21,
+   "name": "Young Wetlands Crocolisk"
+  },
+  {
+   "entry": 1713,
+   "faction": 16,
+   "level_max": 43,
+   "level_min": 42,
+   "name": "Elder Shadowmaw Panther"
+  },
+  {
+   "entry": 2069,
+   "faction": 14,
+   "level_max": 15,
+   "level_min": 14,
+   "name": "Moonstalker"
+  },
+  {
+   "entry": 2173,
+   "faction": 14,
+   "level_max": 15,
+   "level_min": 14,
+   "name": "Reef Frenzy"
+  },
+  {
+   "entry": 2174,
+   "faction": 16,
+   "level_max": 16,
+   "level_min": 14,
+   "name": "Coastal Frenzy"
+  },
+  {
+   "entry": 2188,
+   "faction": 14,
+   "level_max": 25,
+   "level_min": 25,
+   "name": "Deep Sea Threshadon"
+  },
+  {
+   "entry": 2248,
+   "faction": 16,
+   "level_max": 31,
+   "level_min": 30,
+   "name": "Cave Yeti"
+  },
+  {
+   "entry": 2275,
+   "faction": 14,
+   "level_max": 24,
+   "level_min": 24,
+   "name": "Enraged Stanley"
+  },
+  {
+   "entry": 2320,
+   "faction": 16,
+   "level_max": 40,
+   "level_min": 40,
+   "name": "Nagaz"
+  },
+  {
+   "entry": 2351,
+   "faction": 14,
+   "level_max": 22,
+   "level_min": 21,
+   "name": "Gray Bear"
+  },
+  {
+   "entry": 2384,
+   "faction": 14,
+   "level_max": 24,
+   "level_min": 23,
+   "name": "Starving Mountain Lion"
+  },
+  {
+   "entry": 2385,
+   "faction": 14,
+   "level_max": 28,
+   "level_min": 27,
+   "name": "Feral Mountain Lion"
+  },
+  {
+   "entry": 2407,
+   "faction": 14,
+   "level_max": 34,
+   "level_min": 33,
+   "name": "Hulking Mountain Lion"
+  },
+  {
+   "entry": 2732,
+   "faction": 16,
+   "level_max": 39,
+   "level_min": 38,
+   "name": "Ridge Huntress"
+  },
+  {
+   "entry": 2734,
+   "faction": 16,
+   "level_max": 41,
+   "level_min": 40,
+   "name": "Ridge Stalker Patriarch"
+  },
+  {
+   "entry": 2929,
+   "faction": 14,
+   "level_max": 47,
+   "level_min": 46,
+   "name": "Savage Owlbeast"
+  },
+  {
+   "entry": 3035,
+   "faction": 14,
+   "level_max": 8,
+   "level_min": 7,
+   "name": "Flatland Cougar"
+  },
+  {
+   "entry": 3121,
+   "faction": 14,
+   "level_max": 8,
+   "level_min": 7,
+   "name": "Durotar Tiger"
+  },
+  {
+   "entry": 3229,
+   "faction": 14,
+   "level_max": 5,
+   "level_min": 5,
+   "name": "\\\"Squealer\\\" Thornmantle"
+  },
+  {
+   "entry": 3241,
+   "faction": 16,
+   "level_max": 16,
+   "level_min": 15,
+   "name": "Savannah Patriarch"
+  },
+  {
+   "entry": 3243,
+   "faction": 16,
+   "level_max": 13,
+   "level_min": 12,
+   "name": "Savannah Highmane"
+  },
+  {
+   "entry": 3415,
+   "faction": 16,
+   "level_max": 12,
+   "level_min": 11,
+   "name": "Savannah Huntress"
+  },
+  {
+   "entry": 3425,
+   "faction": 16,
+   "level_max": 15,
+   "level_min": 14,
+   "name": "Savannah Prowler"
+  },
+  {
+   "entry": 3475,
+   "faction": 16,
+   "level_max": 16,
+   "level_min": 16,
+   "name": "Echeyakee"
+  },
+  {
+   "entry": 3476,
+   "faction": 16,
+   "level_max": 27,
+   "level_min": 27,
+   "name": "Isha Awak"
+  },
+  {
+   "entry": 3503,
+   "faction": 16,
+   "level_max": 19,
+   "level_min": 18,
+   "name": "Silithid Protector"
+  },
+  {
+   "entry": 3566,
+   "faction": 16,
+   "level_max": 9,
+   "level_min": 9,
+   "name": "Flatland Prowler"
+  },
+  {
+   "entry": 4014,
+   "faction": 16,
+   "level_max": 23,
+   "level_min": 22,
+   "name": "Pridewing Consort"
+  },
+  {
+   "entry": 4067,
+   "faction": 16,
+   "level_max": 24,
+   "level_min": 23,
+   "name": "Twilight Runner"
+  },
+  {
+   "entry": 4124,
+   "faction": 14,
+   "level_max": 28,
+   "level_min": 27,
+   "name": "Needles Cougar"
+  },
+  {
+   "entry": 4341,
+   "faction": 16,
+   "level_max": 36,
+   "level_min": 35,
+   "name": "Drywallow Crocolisk"
+  },
+  {
+   "entry": 4342,
+   "faction": 16,
+   "level_max": 37,
+   "level_min": 36,
+   "name": "Drywallow Vicejaw"
+  },
+  {
+   "entry": 4344,
+   "faction": 16,
+   "level_max": 39,
+   "level_min": 38,
+   "name": "Mottled Drywallow Crocolisk"
+  },
+  {
+   "entry": 4388,
+   "faction": 16,
+   "level_max": 41,
+   "level_min": 39,
+   "name": "Young Murk Thresher"
+  },
+  {
+   "entry": 4504,
+   "faction": 16,
+   "level_max": 37,
+   "level_min": 37,
+   "name": "Frostmaw"
+  },
+  {
+   "entry": 684,
+   "faction": 16,
+   "level_max": 38,
+   "level_min": 37,
+   "name": "Shadowmaw Panther"
+  },
+  {
+   "entry": 4841,
+   "faction": 16,
+   "level_max": 45,
+   "level_min": 45,
+   "name": "Deadmire"
+  },
+  {
+   "entry": 5292,
+   "faction": 16,
+   "level_max": 44,
+   "level_min": 43,
+   "name": "Feral Scar Yeti"
+  },
+  {
+   "entry": 5293,
+   "faction": 16,
+   "level_max": 46,
+   "level_min": 45,
+   "name": "Hulking Feral Scar"
+  },
+  {
+   "entry": 5300,
+   "faction": 16,
+   "level_max": 44,
+   "level_min": 43,
+   "name": "Frayfeather Hippogryph"
+  },
+  {
+   "entry": 5306,
+   "faction": 16,
+   "level_max": 47,
+   "level_min": 46,
+   "name": "Frayfeather Patriarch"
+  },
+  {
+   "entry": 5431,
+   "faction": 14,
+   "level_max": 50,
+   "level_min": 48,
+   "name": "Surf Glider"
+  },
+  {
+   "entry": 5763,
+   "faction": 14,
+   "level_max": 21,
+   "level_min": 20,
+   "name": "Nightmare Ectoplasm"
+  },
+  {
+   "entry": 5766,
+   "faction": 16,
+   "level_max": 5,
+   "level_min": 4,
+   "name": "Savannah Cub"
+  },
+  {
+   "entry": 6135,
+   "faction": 16,
+   "level_max": 54,
+   "level_min": 53,
+   "name": "Arkkoran Clacker"
+  },
+  {
+   "entry": 6136,
+   "faction": 16,
+   "level_max": 54,
+   "level_min": 53,
+   "name": "Arkkoran Muckdweller"
+  },
+  {
+   "entry": 6390,
+   "faction": 14,
+   "level_max": 11,
+   "level_min": 11,
+   "name": "Ulag the Cleaver"
+  },
+  {
+   "entry": 6606,
+   "faction": 16,
+   "level_max": 16,
+   "level_min": 16,
+   "name": "Overseer Glibby"
+  },
+  {
+   "entry": 6911,
+   "faction": 14,
+   "level_max": 9,
+   "level_min": 8,
+   "name": "Minion of Sethir"
+  },
+  {
+   "entry": 7287,
+   "faction": 14,
+   "level_max": 22,
+   "level_min": 22,
+   "name": "Foreman Silixiz"
+  },
+  {
+   "entry": 7401,
+   "faction": 14,
+   "level_max": 45,
+   "level_min": 45,
+   "name": "Draenei Refugee"
+  },
+  {
+   "entry": 7431,
+   "faction": 16,
+   "level_max": 57,
+   "level_min": 56,
+   "name": "Frostsaber"
+  },
+  {
+   "entry": 7432,
+   "faction": 16,
+   "level_max": 60,
+   "level_min": 59,
+   "name": "Frostsaber Stalker"
+  },
+  {
+   "entry": 7452,
+   "faction": 16,
+   "level_max": 57,
+   "level_min": 56,
+   "name": "Crazed Owlbeast"
+  },
+  {
+   "entry": 7568,
+   "faction": 14,
+   "level_max": 1,
+   "level_min": 1,
+   "name": "Ribbon Snake"
+  },
+  {
+   "entry": 7569,
+   "faction": 14,
+   "level_max": 1,
+   "level_min": 1,
+   "name": "Green Water Snake"
+  },
+  {
+   "entry": 7848,
+   "faction": 16,
+   "level_max": 46,
+   "level_min": 46,
+   "name": "Lurking Feral Scar"
+  },
+  {
+   "entry": 8236,
+   "faction": 16,
+   "level_max": 15,
+   "level_min": 14,
+   "name": "Muck Frenzy"
+  },
+  {
+   "entry": 8554,
+   "faction": 14,
+   "level_max": 5,
+   "level_min": 5,
+   "name": "Chief Sharptusk Thornmantle"
+  },
+  {
+   "entry": 8980,
+   "faction": 14,
+   "level_max": 53,
+   "level_min": 53,
+   "name": "Firegut Captain"
+  },
+  {
+   "entry": 10159,
+   "faction": 16,
+   "level_max": 12,
+   "level_min": 11,
+   "name": "Young Moonkin"
+  },
+  {
+   "entry": 10177,
+   "faction": 16,
+   "level_max": 58,
+   "level_min": 58,
+   "name": "Spire Scarab"
+  },
+  {
+   "entry": 10896,
+   "faction": 16,
+   "level_max": 29,
+   "level_min": 29,
+   "name": "Arnak Grimtotem"
+  },
+  {
+   "entry": 11521,
+   "faction": 14,
+   "level_max": 38,
+   "level_min": 37,
+   "name": "Kodo Apparition"
+  },
+  {
+   "entry": 11858,
+   "faction": 16,
+   "level_max": 18,
+   "level_min": 18,
+   "name": "Grundig Darkcloud"
+  },
+  {
+   "entry": 11887,
+   "faction": 16,
+   "level_max": 55,
+   "level_min": 54,
+   "name": "Crypt Robber"
+  },
+  {
+   "entry": 12276,
+   "faction": 14,
+   "level_max": 20,
+   "level_min": 20,
+   "name": "Hive'Zora Egg"
+  },
+  {
+   "entry": 13157,
+   "faction": 16,
+   "level_max": 10,
+   "level_min": 9,
+   "name": "Makasgar"
+  },
+  {
+   "entry": 14356,
+   "faction": 16,
+   "level_max": 40,
+   "level_min": 38,
+   "name": "Sawfin Frenzy"
+  },
+  {
+   "entry": 17055,
+   "faction": 16,
+   "level_max": 60,
+   "level_min": 60,
+   "name": "Maexxna Spiderling"
+  },
+  {
+   "entry": 10375,
+   "faction": 16,
+   "level_max": 56,
+   "level_min": 55,
+   "name": "Spire Spiderling"
+  },
+  {
+   "entry": 2966,
+   "faction": 14,
+   "level_max": 4,
+   "level_min": 3,
+   "name": "Battleboar"
+  },
+  {
+   "entry": 3472,
+   "faction": 14,
+   "level_max": 25,
+   "level_min": 25,
+   "name": "Washte Pawne"
+  },
+  {
+   "entry": 60404,
+   "faction": 16,
+   "level_max": 60,
+   "level_min": 60,
+   "name": "Dietmar Onlooker"
+  },
+  {
+   "entry": 60405,
+   "faction": 16,
+   "level_max": 60,
+   "level_min": 60,
+   "name": "Zokk Flamefist"
+  },
+  {
+   "entry": 60406,
+   "faction": 16,
+   "level_max": 60,
+   "level_min": 60,
+   "name": "Wahjez'fon"
+  },
+  {
+   "entry": 60407,
+   "faction": 16,
+   "level_max": 60,
+   "level_min": 60,
+   "name": "Jovany Staunch"
+  },
+  {
+   "entry": 91864,
+   "faction": 16,
+   "level_max": 55,
+   "level_min": 55,
+   "name": "Deepwater Shark"
+  },
+  {
+   "entry": 91958,
+   "faction": 16,
+   "level_max": 50,
+   "level_min": 50,
+   "name": "Salty' O'Keef"
+  },
+  {
+   "entry": 91962,
+   "faction": 16,
+   "level_max": 51,
+   "level_min": 49,
+   "name": "Saltsnap Crocolisk"
+  },
+  {
+   "entry": 91963,
+   "faction": 16,
+   "level_max": 53,
+   "level_min": 51,
+   "name": "Deepstone Basilisk"
+  },
+  {
+   "entry": 91964,
+   "faction": 16,
+   "level_max": 51,
+   "level_min": 49,
+   "name": "Saltjaw Basilisk"
+  },
+  {
+   "entry": 161212,
+   "faction": 14,
+   "level_max": 60,
+   "level_min": 60,
+   "name": "Spiderling"
+  },
+  {
+   "entry": 62060,
+   "faction": 16,
+   "level_max": 61,
+   "level_min": 61,
+   "name": "Bloodborn Invader"
+  }
+ ]
+}

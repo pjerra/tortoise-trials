@@ -1,0 +1,24 @@
+{
+  "alliance": {
+    "warrior": {"name": "Trlwarriora", "race": 1, "class": 1},
+    "paladin": {"name": "Trlpaladina", "race": 1, "class": 2},
+    "hunter": {"name": "Trlhuntera", "race": 4, "class": 3},
+    "rogue": {"name": "Trlroguea", "race": 1, "class": 4},
+    "priest": {"name": "Trlpriesta", "race": 1, "class": 5},
+    "shaman": {"name": "Trlshamana", "race": 3, "class": 7},
+    "mage": {"name": "Trlmagea", "race": 7, "class": 8},
+    "warlock": {"name": "Trlwarlocka", "race": 1, "class": 9},
+    "druid": {"name": "Trldruida", "race": 4, "class": 11}
+  },
+  "horde": {
+    "warrior": {"name": "Trlwarriorh", "race": 2, "class": 1},
+    "paladin": {"name": "Trlpaladinh", "race": 6, "class": 2},
+    "hunter": {"name": "Trlhunterh", "race": 8, "class": 3},
+    "rogue": {"name": "Trlrogueh", "race": 5, "class": 4},
+    "priest": {"name": "Trlpriesth", "race": 5, "class": 5},
+    "shaman": {"name": "Trlshamanh", "race": 2, "class": 7},
+    "mage": {"name": "Trlmageh", "race": 5, "class": 8},
+    "warlock": {"name": "Trlwarlockh", "race": 5, "class": 9},
+    "druid": {"name": "Trldruidh", "race": 6, "class": 11}
+  }
+}

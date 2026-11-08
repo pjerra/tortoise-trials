@@ -1,0 +1,102 @@
+{
+  "id": "priest-shadow-form-prepull",
+  "title": "Shadow priest: Shadowform already up when the pull starts",
+  "group": "healers",
+  "class": "priest",
+  "spec": "shadow",
+  "player": {
+    "class": "warrior",
+    "level": 40,
+    "talents": {
+      "tree": "arms",
+      "spells": [
+        16462,
+        12286
+      ]
+    },
+    "stance": 71,
+    "forced_role": null,
+    "auras": [],
+    "items": []
+  },
+  "bot": {
+    "class": "priest",
+    "spec": "shadow",
+    "role": "dps",
+    "level": 40,
+    "gear": "blue",
+    "items": [],
+    "mana_pct": null,
+    "cc_mark": null
+  },
+  "situation": {
+    "kind": "tank_damage",
+    "mobs": {
+      "role": "melee",
+      "count": 1,
+      "level_delta": 1,
+      "refill": true
+    },
+    "hp_band": [
+      40,
+      90
+    ],
+    "floor_pct": 30,
+    "victim": "player",
+    "pull_after_s": 30,
+    "ooc_wait_s": 0,
+    "debuff": null
+  },
+  "setup_checks": [
+    "player_level",
+    "player_visible",
+    "player_talents",
+    "player_stance",
+    "player_forced_role",
+    "bot_present",
+    "bot_level",
+    "bot_role",
+    "bot_spec",
+    "grouped",
+    "mobs_ready",
+    "config_read"
+  ],
+  "duration_s": 180,
+  "repeats": 2,
+  "min_valid_s": 120,
+  "rules": [
+    {
+      "id": "PRI-SHADOWFORM-PREPULL",
+      "desc": "Shadow priest casts no Shadowform in the first 8 s of the fight (it was already up before the pull)",
+      "source": "ai/playerbot/strategy/priest/ShadowPriestStrategy.cpp:231-247 (the shadowform row exists only in ShadowPriestBuffStrategy::InitCombatTriggers; the non-combat init at :244 adds nothing)",
+      "expect_today": "FAIL",
+      "why_expect": "Shadowform is only queued by a combat trigger, so the bot casts it after the pull starts (low impact: one global cooldown)",
+      "check": {
+        "metric": "count",
+        "where": {
+          "kind": "cast",
+          "src": "$bot",
+          "spell": "Shadowform",
+          "t_to": 8
+        }
+      },
+      "pass_if": "== 0"
+    },
+    {
+      "id": "PRI-SHADOWFORM-UP",
+      "desc": "Companion: Shadowform is on the shadow priest for at least 80 percent of the combat samples, so the rule above is not a vacuous pass",
+      "source": "ai/playerbot/strategy/priest/ShadowPriestStrategy.cpp:231-237",
+      "expect_today": "PASS",
+      "why_expect": "the combat row casts Shadowform at ACTION_MOVE priority",
+      "check": {
+        "metric": "uptime",
+        "unit": "$bot",
+        "aura": [
+          15473
+        ],
+        "phase": "in_combat"
+      },
+      "pass_if": ">= 0.8"
+    }
+  ]
+}

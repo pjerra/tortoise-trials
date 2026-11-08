@@ -1,0 +1,117 @@
+{
+  "id": "priest-holy-pws-bear-bal",
+  "title": "Holy priest: no shield on a Balance-talent druid tanking in Dire Bear Form",
+  "group": "healers",
+  "class": "priest",
+  "spec": "holy",
+  "player": {
+    "class": "druid",
+    "level": 40,
+    "talents": {
+      "tree": "balance",
+      "spells": [
+        16814,
+        16689
+      ]
+    },
+    "stance": 9634,
+    "forced_role": null,
+    "auras": [],
+    "items": []
+  },
+  "bot": {
+    "class": "priest",
+    "spec": "holy",
+    "role": "healer",
+    "level": 40,
+    "gear": "blue",
+    "items": [
+      {
+        "name": "Sweet Nectar",
+        "count": 20
+      }
+    ],
+    "mana_pct": null,
+    "cc_mark": null
+  },
+  "situation": {
+    "kind": "tank_damage",
+    "mobs": {
+      "role": "melee",
+      "count": 1,
+      "level_delta": 1,
+      "refill": true
+    },
+    "hp_band": [
+      40,
+      90
+    ],
+    "floor_pct": 12,
+    "victim": "player",
+    "pull_after_s": 0,
+    "ooc_wait_s": 0,
+    "debuff": null
+  },
+  "setup_checks": [
+    "player_level",
+    "player_visible",
+    "player_talents",
+    "player_stance",
+    "player_forced_role",
+    "bot_present",
+    "bot_level",
+    "bot_role",
+    "bot_spec",
+    "bot_items",
+    "grouped",
+    "mobs_ready",
+    "config_read"
+  ],
+  "duration_s": 180,
+  "repeats": 4,
+  "min_valid_s": 120,
+  "opportunity": {
+    "unit": "$player",
+    "hp_lt": 90,
+    "hp_gt": "$critical",
+    "in_combat": true
+  },
+  "rules": [
+    {
+      "id": "PRI-PWS-BEAR-BAL",
+      "desc": "Holy priest casts no Power Word: Shield on a Balance-talent druid in Dire Bear Form above the critical band in combat",
+      "source": "ai/playerbot/strategy/priest/PriestActions.h:42; ai/playerbot/policy/heal/ShieldTargetPolicy.h:16; ai/playerbot/PlayerbotAI.cpp:4007; ai/playerbot/AiFactory.cpp:491-504,580-611; issue #1553; ai/playerbot/AiFactory.cpp:248-345 (druid tab 0 = DPS)",
+      "expect_today": "PASS",
+      "why_expect": "FORM_BEAR/FORM_DIREBEAR read as TANK at AiFactory.cpp:495-497 (GetRoleFromStanceOrGear :491-515), used by GetPlayerRoles :597-611; with the solo druid as the only tank HasOtherTank (:520-576) finds no other tank, so the form is read and no shield lands above the critical band. #1553 reproduces only with a second tank in the group (see PRI-PWS-BEAR-BAL-2TANK)",
+      "check": {
+        "metric": "count",
+        "where": {
+          "kind": "cast",
+          "src": "$bot",
+          "dst": "$player",
+          "spell": "Power Word: Shield",
+          "dst_hp_gt": "$critical",
+          "in_combat": true
+        }
+      },
+      "pass_if": "== 0",
+      "min_opportunity_s": 90
+    },
+    {
+      "id": "PRI-PWS-BEAR-BAL-FORM",
+      "desc": "Precondition: Dire Bear Form (aura 9634) stays on the player through the fight, so the shield rule above is about this stance",
+      "source": "precondition, no bot code: the stance is read by ai/playerbot/AiFactory.cpp:491-504 (GetRoleFromStanceOrGear); setup check player_stance proves it at the start, this proves it in the fight",
+      "expect_today": "PASS",
+      "why_expect": "the runner re-casts the stance and excludes time without it",
+      "check": {
+        "metric": "uptime",
+        "unit": "$player",
+        "aura": [
+          9634
+        ],
+        "phase": "in_combat"
+      },
+      "pass_if": ">= 0.9"
+    }
+  ]
+}

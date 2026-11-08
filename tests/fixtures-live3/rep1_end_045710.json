@@ -1,0 +1,124 @@
+{
+ "last_samples": [
+  {
+   "auras": [
+    71
+   ],
+   "casting": null,
+   "guid": "0x000000000000064c",
+   "hp": 378,
+   "in_combat": true,
+   "max_hp": 1189,
+   "max_power": 1000,
+   "power": 688,
+   "t": 179.47,
+   "target": "0xf130000aae3d0e65",
+   "unit": "player",
+   "wall": "2026-11-08T05:00:43.745+01:00",
+   "x": -11926,
+   "y": -1283,
+   "z": 85
+  },
+  {
+   "auras": [],
+   "casting": null,
+   "guid": "0xf130000aae3d0e64",
+   "hp": 0,
+   "in_combat": false,
+   "max_hp": 1189,
+   "max_power": 0,
+   "power": 0,
+   "t": 179.47,
+   "target": "",
+   "unit": "mob:0xf130000aae3d0e64",
+   "wall": "2026-11-08T05:00:43.745+01:00",
+   "x": -11924.658,
+   "y": -1280.5372,
+   "z": 85.14122
+  },
+  {
+   "auras": [],
+   "casting": null,
+   "guid": "0xf130000aae3d0e65",
+   "hp": 2153,
+   "in_combat": true,
+   "max_hp": 2175,
+   "max_power": 0,
+   "power": 0,
+   "t": 179.47,
+   "target": "0x000000000000065a",
+   "unit": "mob:0xf130000aae3d0e65",
+   "wall": "2026-11-08T05:00:43.745+01:00",
+   "x": -11943.225,
+   "y": -1282.7562,
+   "z": 85.769714
+  }
+ ],
+ "marks_tail": [
+  {
+   "ended": "duration",
+   "kind": "fight_end",
+   "t": 191.5,
+   "wall": "2026-11-08T05:00:44.591+01:00"
+  },
+  {
+   "kind": "gm",
+   "kind_detail": "die",
+   "line": ".die",
+   "t": 195.34,
+   "target": "0xf130000aae3d0e65",
+   "wall": "2026-11-08T05:00:48.434+01:00"
+  },
+  {
+   "kind": "gm",
+   "kind_detail": "unaura",
+   "line": ".unaura all",
+   "t": 197.14,
+   "target": "0x000000000000064c",
+   "wall": "2026-11-08T05:00:50.228+01:00"
+  },
+  {
+   "kind": "gm",
+   "kind_detail": "modify_hp",
+   "line": ".modify hp 1189 1189",
+   "t": 197.44,
+   "target": "0x000000000000064c",
+   "wall": "2026-11-08T05:00:50.526+01:00"
+  },
+  {
+   "kind": "gm",
+   "kind_detail": "modify_hp",
+   "line": ".modify hp 1577 1577",
+   "t": 197.73,
+   "target": "0x000000000000065a",
+   "wall": "2026-11-08T05:00:50.818+01:00"
+  },
+  {
+   "kind": "teardown",
+   "rows": [
+    {
+     "evidence": "killed 1, still alive: none",
+     "id": "mobs_dead",
+     "ok": true,
+     "value": [
+      "0xf130000aae3d0e65"
+     ]
+    },
+    {
+     "evidence": ".unaura all on self",
+     "id": "player_unaura",
+     "ok": true,
+     "value": "all"
+    },
+    {
+     "evidence": ".modify hp full on self and hire",
+     "id": "healed_full",
+     "ok": true,
+     "value": 1189
+    }
+   ],
+   "t": 197.73,
+   "wall": "2026-11-08T05:00:50.818+01:00"
+  }
+ ]
+}

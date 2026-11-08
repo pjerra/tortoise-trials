@@ -1,0 +1,100 @@
+{
+  "bot": {
+    "cc_mark": null,
+    "class": "priest",
+    "gear": "blue",
+    "items": [
+      {
+        "count": 20,
+        "name": "Morning Glory Dew"
+      }
+    ],
+    "level": 35,
+    "mana_pct": null,
+    "role": "healer",
+    "spec": "holy"
+  },
+  "class": "priest",
+  "duration_s": 180,
+  "group": "healers",
+  "id": "priest-holy-pws-def-arms",
+  "min_valid_s": 120,
+  "opportunity": {
+    "hp_gt": "$critical",
+    "hp_lt": 90,
+    "in_combat": true,
+    "unit": "$player"
+  },
+  "player": {
+    "auras": [],
+    "class": "warrior",
+    "forced_role": null,
+    "items": [],
+    "level": 35,
+    "stance": 71,
+    "talents": {
+      "spells": [
+        12285,
+        12295
+      ],
+      "tree": "arms"
+    }
+  },
+  "repeats": 2,
+  "rules": [
+    {
+      "check": {
+        "metric": "count",
+        "where": {
+          "dst": "$player",
+          "dst_hp_gt": "$critical",
+          "dst_hp_le": null,
+          "in_combat": true,
+          "kind": "cast",
+          "spell": "Power Word: Shield",
+          "src": "$bot"
+        }
+      },
+      "desc": "Holy priest: no shield on an Arms warrior tanking in Defensive Stance above critical in combat",
+      "expect_today": "FAIL",
+      "id": "PRI-PWS-DEF-ARMS",
+      "min_n": 0,
+      "min_opportunity_s": 90,
+      "pass_if": "== 0",
+      "source": "ai/playerbot/strategy/priest/PriestActions.h:42; issue #1553",
+      "why_expect": "IsTank reads talents/forced role, not stance (PlayerbotAI.cpp:4007-4024)"
+    }
+  ],
+  "setup_checks": [
+    "player_level",
+    "player_talents",
+    "player_stance",
+    "player_forced_role",
+    "bot_present",
+    "bot_level",
+    "bot_spec",
+    "grouped",
+    "mobs_ready",
+    "config_read"
+  ],
+  "situation": {
+    "debuff": null,
+    "floor_pct": 30,
+    "hp_band": [
+      40,
+      90
+    ],
+    "kind": "tank_damage",
+    "mobs": {
+      "count": 1,
+      "level_delta": 1,
+      "refill": true,
+      "role": "melee"
+    },
+    "ooc_wait_s": 0,
+    "pull_after_s": 0,
+    "victim": "player"
+  },
+  "spec": "holy",
+  "title": "Holy priest: no shield on an Arms warrior tanking in Defensive Stance"
+}

@@ -1,0 +1,106 @@
+{
+  "id": "priest-holy-dispel-magic",
+  "title": "Holy priest: Dispel Magic on a magic debuff on the tanking player within 6 s",
+  "group": "healers",
+  "class": "priest",
+  "spec": "holy",
+  "player": {
+    "class": "warrior",
+    "level": 40,
+    "talents": {
+      "tree": "arms",
+      "spells": [
+        16462,
+        12286
+      ]
+    },
+    "stance": 71,
+    "forced_role": null,
+    "auras": [
+      770
+    ],
+    "items": []
+  },
+  "bot": {
+    "class": "priest",
+    "spec": "holy",
+    "role": "healer",
+    "level": 40,
+    "gear": "blue",
+    "items": [
+      {
+        "name": "Sweet Nectar",
+        "count": 20
+      }
+    ],
+    "mana_pct": null,
+    "cc_mark": null
+  },
+  "situation": {
+    "kind": "debuff",
+    "mobs": {
+      "role": "melee",
+      "count": 1,
+      "level_delta": 1,
+      "refill": true
+    },
+    "hp_band": [
+      40,
+      90
+    ],
+    "floor_pct": 30,
+    "victim": "player",
+    "pull_after_s": 0,
+    "ooc_wait_s": 0,
+    "debuff": {
+      "spell_id": 770
+    }
+  },
+  "setup_checks": [
+    "player_level",
+    "player_visible",
+    "player_talents",
+    "player_stance",
+    "player_forced_role",
+    "bot_present",
+    "bot_level",
+    "bot_role",
+    "bot_spec",
+    "bot_items",
+    "grouped",
+    "mobs_ready",
+    "config_read",
+    "player_auras"
+  ],
+  "duration_s": 180,
+  "repeats": 2,
+  "min_valid_s": 120,
+  "rules": [
+    {
+      "id": "PRI-DISPEL-MAGIC",
+      "desc": "Holy priest casts Dispel Magic on the player within 6 s of Faerie Fire (magic, no damage, 40 s) landing on him, at least 80 percent of the time",
+      "source": "ai/playerbot/strategy/priest/PriestStrategy.cpp:312,333 (dispel magic on party rows); ai/playerbot/PlayerbotAISpells.cpp:1849-1876 (HasAuraToDispel: negative magic aura on a friend, at least AiPlayerbot.DispelAuraDuration 2000 ms)",
+      "expect_today": "PASS",
+      "why_expect": "Faerie Fire r1 (770): Dispel=magic, aura effects only (armor -176, no damage), SpellDuration index 64 = 40000 ms, hostile target type so IsPositiveSpell is false",
+      "check": {
+        "metric": "latency",
+        "trigger": {
+          "kind": "aura_on",
+          "dst": "$player",
+          "spell_id": [
+            770
+          ]
+        },
+        "response": {
+          "kind": "cast",
+          "src": "$bot",
+          "dst": "$player",
+          "spell": "Dispel Magic"
+        },
+        "within_s": 6
+      },
+      "pass_if": ">= 0.8",
+      "min_n": 4
+    }
+  ]
+}

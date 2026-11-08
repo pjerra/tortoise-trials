@@ -1,0 +1,116 @@
+{
+  "id": "priest-holy-pws-battle-ooc-control",
+  "title": "Holy priest: Battle Stance control, a hurt non-tank Arms warrior still gets the out-of-combat shield",
+  "group": "healers",
+  "class": "priest",
+  "spec": "holy",
+  "player": {
+    "class": "warrior",
+    "level": 40,
+    "talents": {
+      "tree": "arms",
+      "spells": [
+        16462,
+        12286
+      ]
+    },
+    "stance": 2457,
+    "forced_role": null,
+    "auras": [],
+    "items": []
+  },
+  "bot": {
+    "class": "priest",
+    "spec": "holy",
+    "role": "healer",
+    "level": 40,
+    "gear": "blue",
+    "items": [
+      {
+        "name": "Sweet Nectar",
+        "count": 20
+      }
+    ],
+    "mana_pct": null,
+    "cc_mark": null
+  },
+  "situation": {
+    "kind": "ooc_hurt",
+    "mobs": {
+      "role": "melee",
+      "count": 0,
+      "level_delta": 0
+    },
+    "hp_band": [
+      30,
+      40
+    ],
+    "floor_pct": 12,
+    "victim": "player",
+    "pull_after_s": 0,
+    "ooc_wait_s": 150,
+    "hurt_every_s": 20,
+    "debuff": null,
+    "max_rescues_per_min": 12
+  },
+  "setup_checks": [
+    "player_level",
+    "player_visible",
+    "player_talents",
+    "player_stance",
+    "player_forced_role",
+    "player_no_shield",
+    "bot_present",
+    "bot_level",
+    "bot_role",
+    "bot_spec",
+    "bot_items",
+    "grouped",
+    "config_read"
+  ],
+  "duration_s": 150,
+  "repeats": 2,
+  "min_valid_s": 120,
+  "opportunity": {
+    "unit": "$player",
+    "hp_lt": 90,
+    "hp_gt": "$critical",
+    "in_combat": false
+  },
+  "rules": [
+    {
+      "id": "PRI-PWS-BATTLE-OOC-CONTROL",
+      "desc": "Control: out of combat, the holy priest still shields an Arms warrior in Battle Stance that sits in the low band above critical",
+      "source": "ai/playerbot/strategy/priest/HolyPriestStrategy.cpp:89-102 (InitNonCombatTriggers: party member low health, shield first at ACTION_HIGH+2); ai/playerbot/strategy/priest/PriestActions.h:42; ai/playerbot/AiFactory.cpp:491-504",
+      "expect_today": "PASS",
+      "why_expect": "control: Battle Stance with Arms talents is no tank (AiFactory.cpp:503 only reads Defensive Stance), so the non-combat low health row's shield-first order stays; a non-tank still gets the out-of-combat shield before and after the round-3 fix",
+      "check": {
+        "metric": "count",
+        "where": {
+          "kind": "cast",
+          "src": "$bot",
+          "dst": "$player",
+          "spell": "Power Word: Shield",
+          "in_combat": false
+        }
+      },
+      "pass_if": ">= 1"
+    },
+    {
+      "id": "PRI-PWS-BATTLE-OOC-CONTROL-STANCE",
+      "desc": "Precondition: Battle Stance (aura 2457) stays on the player through the out-of-combat window, so the shield rule above is about this stance",
+      "source": "precondition, no bot code: the stance is read by ai/playerbot/AiFactory.cpp:491-504 (GetRoleFromStanceOrGear); setup check player_stance proves it at the start, this proves it through the window",
+      "expect_today": "PASS",
+      "why_expect": "the ooc_hurt runner never clears auras and re-casts the stance when it reads down",
+      "check": {
+        "metric": "uptime",
+        "unit": "$player",
+        "aura": [
+          2457
+        ],
+        "phase": "out_of_combat"
+      },
+      "pass_if": ">= 0.9"
+    }
+  ]
+}

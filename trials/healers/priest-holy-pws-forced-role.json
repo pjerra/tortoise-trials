@@ -1,0 +1,118 @@
+{
+  "id": "priest-holy-pws-forced-role",
+  "title": "Holy priest: Defensive Arms warrior with .bot role self tank gets no shield above critical",
+  "group": "healers",
+  "class": "priest",
+  "spec": "holy",
+  "player": {
+    "class": "warrior",
+    "level": 40,
+    "talents": {
+      "tree": "arms",
+      "spells": [
+        16462,
+        12286
+      ]
+    },
+    "stance": 71,
+    "forced_role": "tank",
+    "auras": [],
+    "items": []
+  },
+  "bot": {
+    "class": "priest",
+    "spec": "holy",
+    "role": "healer",
+    "level": 40,
+    "gear": "blue",
+    "items": [
+      {
+        "name": "Sweet Nectar",
+        "count": 20
+      }
+    ],
+    "mana_pct": null,
+    "cc_mark": null
+  },
+  "situation": {
+    "kind": "tank_damage",
+    "mobs": {
+      "role": "melee",
+      "count": 1,
+      "level_delta": 1,
+      "refill": true
+    },
+    "hp_band": [
+      40,
+      90
+    ],
+    "floor_pct": 30,
+    "victim": "player",
+    "pull_after_s": 0,
+    "ooc_wait_s": 0,
+    "debuff": null
+  },
+  "setup_checks": [
+    "player_level",
+    "player_visible",
+    "player_talents",
+    "player_stance",
+    "player_forced_role",
+    "player_no_shield",
+    "bot_present",
+    "bot_level",
+    "bot_role",
+    "bot_spec",
+    "bot_items",
+    "grouped",
+    "mobs_ready",
+    "config_read"
+  ],
+  "duration_s": 180,
+  "repeats": 2,
+  "min_valid_s": 120,
+  "opportunity": {
+    "unit": "$player",
+    "hp_lt": 90,
+    "hp_gt": "$critical",
+    "in_combat": true
+  },
+  "rules": [
+    {
+      "id": "PRI-PWS-FORCED-ROLE",
+      "desc": "With the player's forced role set to tank the holy priest casts no Power Word: Shield on him above the critical band",
+      "source": "ai/playerbot/PlayerbotAI.cpp:4009 (stored forced role first); commands/Party.cpp:867 (.bot role self); ai/playerbot/strategy/priest/PriestActions.h:42; issue #1553",
+      "expect_today": "PASS",
+      "why_expect": "the stored forced role is read before talents or stance, so the guard applies",
+      "check": {
+        "metric": "count",
+        "where": {
+          "kind": "cast",
+          "src": "$bot",
+          "dst": "$player",
+          "spell": "Power Word: Shield",
+          "dst_hp_gt": "$critical",
+          "in_combat": true
+        }
+      },
+      "pass_if": "== 0",
+      "min_opportunity_s": 90
+    },
+    {
+      "id": "PRI-PWS-FORCED-ROLE-STANCE",
+      "desc": "Precondition: Defensive Stance (aura 71) stays on the player through the fight, so the shield rule above is about this stance",
+      "source": "precondition, no bot code: the stance is read by ai/playerbot/AiFactory.cpp:491-504 (GetRoleFromStanceOrGear); setup check player_stance proves it at the start, this proves it in the fight",
+      "expect_today": "PASS",
+      "why_expect": "the runner re-casts the stance and excludes time without it",
+      "check": {
+        "metric": "uptime",
+        "unit": "$player",
+        "aura": [
+          71
+        ],
+        "phase": "in_combat"
+      },
+      "pass_if": ">= 0.9"
+    }
+  ]
+}

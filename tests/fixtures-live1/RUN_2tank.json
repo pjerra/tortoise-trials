@@ -1,0 +1,40 @@
+{
+ "args": {
+  "bind": false,
+  "dry_run": false,
+  "label": "before",
+  "out": "",
+  "parallel": 1,
+  "repeats": 0,
+  "server": "testserver"
+ },
+ "binary": "/path/to/turtle-agent",
+ "characters": {
+  "1": [
+   {
+    "class": "warrior",
+    "name": "Trlwarriora",
+    "team": "alliance"
+   }
+  ]
+ },
+ "critical_health": null,
+ "ended": "2026-11-08T03:23:54.748+01:00",
+ "label": "before",
+ "low_health": null,
+ "medium_health": null,
+ "name": "tortoise-trials",
+ "refused": false,
+ "server": "testserver",
+ "slots": [
+  "1"
+ ],
+ "started": "2026-11-08T03:19:27.905+01:00",
+ "ta_commit": "66a9202e80721689a025c1e232a206a198425367",
+ "ta_version": "turtle-agent 0.1.0",
+ "tb_version": "TortoiseBots 1.17.0",
+ "trials": [
+  "priest-holy-pws-def-arms-2tank"
+ ],
+ "warnings": []
+}

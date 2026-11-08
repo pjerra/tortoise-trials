@@ -1,0 +1,15 @@
+{
+ "failed_row_rep2": {
+  "evidence": "stance not held: aura 71 missing after 2 casts (auras [], cast_state {'spell_id': 71, 'name': 'Defensive Stance', 'reason': 42, 'reason_name': 'line_of_sight', 'ago_ms': 3037}, cast )",
+  "id": "player_stance",
+  "ok": false,
+  "value": 71
+ },
+ "guids": {
+  "bot": "0x000000000000065a",
+  "marked": null,
+  "mobs": [],
+  "pet": null,
+  "player": "0x000000000000064c"
+ }
+}

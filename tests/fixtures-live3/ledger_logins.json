@@ -1,0 +1,107 @@
+[
+ {
+  "run": "20261108-044040-before",
+  "kind": "lease",
+  "at": "2026-11-08T04:40:40.810+01:00",
+  "character": "Gbmage",
+  "reason": null
+ },
+ {
+  "run": "20261108-044040-before",
+  "kind": "session",
+  "at": "2026-11-08T04:40:41.847+01:00",
+  "character": "Gbmage",
+  "reason": null
+ },
+ {
+  "run": "20261108-044040-before",
+  "kind": "session",
+  "at": "2026-11-08T04:40:44.212+01:00",
+  "character": "Trlwarriora",
+  "reason": null
+ },
+ {
+  "run": "20261108-044040-before",
+  "kind": "slot_teardown",
+  "at": "2026-11-08T04:57:10.487+01:00",
+  "character": null,
+  "reason": null
+ },
+ {
+  "run": "20261108-045710-before",
+  "kind": "lease",
+  "at": "2026-11-08T04:57:10.930+01:00",
+  "character": "Gbmage",
+  "reason": null
+ },
+ {
+  "run": "20261108-045710-before",
+  "kind": "session",
+  "at": "2026-11-08T04:57:12.003+01:00",
+  "character": "Gbmage",
+  "reason": null
+ },
+ {
+  "run": "20261108-045710-before",
+  "kind": "session",
+  "at": "2026-11-08T04:57:14.143+01:00",
+  "character": "Trlwarriora",
+  "reason": null
+ },
+ {
+  "run": "20261108-045710-before",
+  "kind": "slot_teardown",
+  "at": "2026-11-08T05:02:35.618+01:00",
+  "character": null,
+  "reason": null
+ },
+ {
+  "run": "20261108-050235-before",
+  "kind": "lease",
+  "at": "2026-11-08T05:02:35.893+01:00",
+  "character": "Gbmage",
+  "reason": null
+ },
+ {
+  "run": "20261108-050235-before",
+  "kind": "invalid",
+  "at": "2026-11-08T05:02:36.932+01:00",
+  "character": null,
+  "reason": "error: LoginRefused"
+ },
+ {
+  "run": "20261108-050235-before",
+  "kind": "slot_teardown",
+  "at": "2026-11-08T05:02:36.940+01:00",
+  "character": null,
+  "reason": null
+ },
+ {
+  "run": "20261108-050750-before",
+  "kind": "lease",
+  "at": "2026-11-08T05:07:50.787+01:00",
+  "character": "Gbmage",
+  "reason": null
+ },
+ {
+  "run": "20261108-050750-before",
+  "kind": "session",
+  "at": "2026-11-08T05:07:51.825+01:00",
+  "character": "Gbmage",
+  "reason": null
+ },
+ {
+  "run": "20261108-050750-before",
+  "kind": "session",
+  "at": "2026-11-08T05:07:53.919+01:00",
+  "character": "Trlwarriora",
+  "reason": null
+ },
+ {
+  "run": "20261108-050750-before",
+  "kind": "slot_teardown",
+  "at": "2026-11-08T05:24:19.066+01:00",
+  "character": null,
+  "reason": null
+ }
+]

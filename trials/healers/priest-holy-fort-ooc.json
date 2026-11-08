@@ -1,0 +1,91 @@
+{
+  "id": "priest-holy-fort-ooc",
+  "title": "Holy priest: Power Word: Fortitude on the player within 30 s out of combat",
+  "group": "healers",
+  "class": "priest",
+  "spec": "holy",
+  "player": {
+    "class": "warrior",
+    "level": 40,
+    "talents": {
+      "tree": "arms",
+      "spells": [
+        16462,
+        12286
+      ]
+    },
+    "stance": null,
+    "forced_role": null,
+    "auras": [],
+    "items": []
+  },
+  "bot": {
+    "class": "priest",
+    "spec": "holy",
+    "role": "healer",
+    "level": 40,
+    "gear": "blue",
+    "items": [
+      {
+        "name": "Sweet Nectar",
+        "count": 20
+      }
+    ],
+    "mana_pct": null,
+    "cc_mark": null
+  },
+  "situation": {
+    "kind": "ooc_buffs",
+    "mobs": {
+      "role": "melee",
+      "count": 0,
+      "level_delta": 0
+    },
+    "hp_band": [
+      40,
+      90
+    ],
+    "floor_pct": 30,
+    "victim": "player",
+    "pull_after_s": 0,
+    "ooc_wait_s": 60,
+    "debuff": null
+  },
+  "setup_checks": [
+    "player_level",
+    "player_visible",
+    "player_talents",
+    "player_forced_role",
+    "bot_present",
+    "bot_level",
+    "bot_role",
+    "bot_spec",
+    "bot_items",
+    "grouped",
+    "config_read"
+  ],
+  "duration_s": 60,
+  "repeats": 2,
+  "min_valid_s": 45,
+  "rules": [
+    {
+      "id": "PRI-FORT-OOC",
+      "desc": "Holy priest puts Power Word: Fortitude (or Prayer of Fortitude) on the player within 30 s of the out-of-combat window opening",
+      "source": "ai/playerbot/strategy/priest/PriestStrategy.cpp:474-492 (non-combat buff rows)",
+      "expect_today": "PASS",
+      "why_expect": "prayer of fortitude / power word: fortitude on party rows sit at ACTION_NORMAL+3/+2 in the non-combat buff strategy",
+      "check": {
+        "metric": "first",
+        "where": {
+          "kind": "aura_on",
+          "dst": "$player",
+          "spell": [
+            "Power Word: Fortitude",
+            "Prayer of Fortitude"
+          ]
+        }
+      },
+      "pass_if": "<= 30"
+    }
+  ]
+}

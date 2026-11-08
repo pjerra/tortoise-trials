@@ -1,0 +1,101 @@
+{
+  "id": "paladin-blessing-ooc",
+  "title": "Holy paladin: a Blessing on the player within 30 s out of combat",
+  "group": "healers",
+  "class": "paladin",
+  "spec": "holy",
+  "player": {
+    "class": "warrior",
+    "level": 40,
+    "talents": {
+      "tree": "arms",
+      "spells": [
+        16462,
+        12286
+      ]
+    },
+    "stance": null,
+    "forced_role": null,
+    "auras": [],
+    "items": []
+  },
+  "bot": {
+    "class": "paladin",
+    "spec": "holy",
+    "role": "healer",
+    "level": 40,
+    "gear": "blue",
+    "items": [
+      {
+        "name": "Sweet Nectar",
+        "count": 20
+      }
+    ],
+    "mana_pct": null,
+    "cc_mark": null
+  },
+  "situation": {
+    "kind": "ooc_buffs",
+    "mobs": {
+      "role": "melee",
+      "count": 0,
+      "level_delta": 0
+    },
+    "hp_band": [
+      40,
+      90
+    ],
+    "floor_pct": 30,
+    "victim": "player",
+    "pull_after_s": 0,
+    "ooc_wait_s": 60,
+    "debuff": null
+  },
+  "setup_checks": [
+    "player_level",
+    "player_visible",
+    "player_talents",
+    "player_forced_role",
+    "bot_present",
+    "bot_level",
+    "bot_role",
+    "bot_spec",
+    "bot_items",
+    "grouped",
+    "config_read"
+  ],
+  "duration_s": 60,
+  "repeats": 2,
+  "min_valid_s": 45,
+  "rules": [
+    {
+      "id": "PAL-BLESSING-OOC",
+      "desc": "Holy paladin puts one of its blessings (single or greater) on the player within 30 s of the out-of-combat window opening",
+      "source": "ai/playerbot/strategy/paladin/PaladinTriggers.cpp:292-374 (FindBlessingCandidate); ai/playerbot/strategy/paladin/PaladinActions.cpp:273,401 (GetTarget, GetBlessingForTarget); ai/playerbot/strategy/paladin/PaladinStrategy.cpp:724-733",
+      "expect_today": "PASS",
+      "why_expect": "FindBlessingCandidate (PaladinTriggers.cpp:339-368) walks every live group member incl. a real player with no class or master filter; GetBlessingForTarget (PaladinActions.cpp:401) gives a non-paladin warrior Blessing of Might first, so the trigger fires and the cast lands",
+      "check": {
+        "metric": "first",
+        "where": {
+          "kind": "aura_on",
+          "dst": "$player",
+          "spell": [
+            "Blessing of Might",
+            "Blessing of Wisdom",
+            "Blessing of Kings",
+            "Blessing of Sanctuary",
+            "Blessing of Salvation",
+            "Blessing of Light",
+            "Greater Blessing of Might",
+            "Greater Blessing of Wisdom",
+            "Greater Blessing of Kings",
+            "Greater Blessing of Sanctuary",
+            "Greater Blessing of Salvation",
+            "Greater Blessing of Light"
+          ]
+        }
+      },
+      "pass_if": "<= 30"
+    }
+  ]
+}
