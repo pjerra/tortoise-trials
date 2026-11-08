@@ -176,7 +176,7 @@ def _matches(row, where, samples_by_guid, ctx, trial):
                        "src_power_lt", "response_dst", "same_dst",
                        "trigger_debounce_s", "src_target_of", "dst_target_of",
                        "src_within_of_marked", "marked_has_cc",
-                       "spell_interruptible", "src_hp_le",
+                       "spell_interruptible", "src_hp_le", "not_within_s_after_mark",
                        "num", "den", "trigger", "response", "within_s",
                        "aura", "unit", "phase", "name", "alive", "min_n",
                        "triggers"):
@@ -455,6 +455,46 @@ def _triggers(check, samples, ctx):
     return [r for r in (ctx.get("rows") or []) if _matches(r, where, samples_by_guid, ctx, ctx.get("trial") or {})]
 
 
+def mark_spans(marks, kind, seconds):
+    """[(a, b)] on the events' time base: from each runner mark of `kind` to `seconds` later.
+
+    The base is the one the normaliser uses (seconds since the fight_start mark, else setup_ok): a
+    mark's ISO wall minus the base wall, or its plain `t` when there is no wall.
+    """
+    try:
+        seconds = float(seconds)
+    except (TypeError, ValueError):
+        return []
+    from . import events as _events
+    base = None
+    for want in ("fight_start", "setup_ok"):
+        for mark in marks or []:
+            if mark.get("kind") == want:
+                base = _events._wall_secs(mark.get("wall"))
+                break
+        if base is not None:
+            break
+    spans = []
+    for mark in marks or []:
+        if mark.get("kind") != kind:
+            continue
+        wall = _events._wall_secs(mark.get("wall"))
+        try:
+            t = wall - base if (wall is not None and base is not None) else float(mark.get("t"))
+        except (TypeError, ValueError):
+            continue
+        spans.append((t, t + seconds))
+    return spans
+
+
+def _in_spans(spans, t):
+    try:
+        t = float(t)
+    except (TypeError, ValueError):
+        return False
+    return any(a <= t <= b for (a, b) in spans)
+
+
 def evaluate(rule, rows, samples, marks, ctx):
     """Return {value, verdict(PASS/FAIL/INCONCLUSIVE), evidence, guard}."""
     ctx = dict(ctx or {})
@@ -468,13 +508,22 @@ def evaluate(rule, rows, samples, marks, ctx):
     if window:
         rows = window_rows(rows, window)
         samples = window_samples(samples, window)
+    check = rule.get("check") or {}
+    metric = check.get("metric")
+    where = check.get("where") or {}
+    # where.not_within_s_after_mark {kind, s}: drop the events and samples within s seconds after each
+    # runner mark of that kind (e.g. a mob refill, whose summon adds a fresh mob that is not the bot's
+    # doing). Excluded-span rows stay: they carry the spans. Hp/aura lookups still read all samples.
+    after_mark = where.get("not_within_s_after_mark")
+    if isinstance(after_mark, dict):
+        spans = mark_spans(marks, after_mark.get("kind"), after_mark.get("s"))
+        if spans:
+            rows = [r for r in rows if r.get("kind") == "excluded" or not _in_spans(spans, r.get("t", 0.0))]
+            samples = [s for s in samples or [] if not _in_spans(spans, s.get("t", 0.0))]
     ctx["rows"] = rows
     ctx["samples_all"] = all_samples
     samples_by_guid = _sample_rows(all_samples)
     excluded = _excluded_from(rows)
-    check = rule.get("check") or {}
-    metric = check.get("metric")
-    where = check.get("where") or {}
     guard_note = ""
     uses_threshold_alias = _uses_threshold_alias(rule, trial)
     if uses_threshold_alias and ctx.get("thresholds_assumed"):
@@ -562,6 +611,14 @@ def evaluate(rule, rows, samples, marks, ctx):
                     last_by_src[src] = trig.get("t", 0.0)
             triggers = kept
         within = float(check.get("within_s") or 0.0)
+        # debounce_responder_s: the responder's own cooldown. A trigger that arrives less than N s after the
+        # responder's last matching response is skipped (not a miss, not counted): the response to the
+        # trigger before it already used the ability. Default off.
+        try:
+            resp_cd = float(check.get("debounce_responder_s") or 0.0)
+        except (TypeError, ValueError):
+            resp_cd = 0.0
+        cd_where = {k: v for k, v in resp_where.items() if k != "dst"}   # the cooldown is on the ability, any target
         answered = 0
         counted = 0
         ev = []
@@ -571,7 +628,6 @@ def evaluate(rule, rows, samples, marks, ctx):
             # crosses one, carries no opportunity: skip it entirely.
             if _in_excluded(excluded, t0) or any(a <= t0 + within and t0 <= b for (a, b) in excluded):
                 continue
-            counted += 1
             rw = dict(resp_where)
             trig_guid = trig.get("src_guid") or trig.get("dst_guid") or trig.get("guid")
             if dst_mode == "$trigger.src":
@@ -580,6 +636,13 @@ def evaluate(rule, rows, samples, marks, ctx):
                 rw["dst"] = trig.get("dst_guid") or trig.get("dst") or trig.get("guid")
             if check.get("same_dst"):
                 rw["dst"] = trig.get("dst_guid") or trig.get("dst") or trig.get("guid") or trig.get("unit")
+            if resp_cd > 0 and any(
+                    0.0 <= t0 - cand.get("t", 0.0) < resp_cd and cand is not trig
+                    and not _in_excluded(excluded, cand.get("t", 0.0))
+                    and _matches(cand, cd_where, samples_by_guid, ctx, trial)
+                    for cand in rows):
+                continue
+            counted += 1
             hit = None
             for cand in sorted(rows, key=lambda r: r.get("t", 0.0)):
                 if not (t0 <= cand.get("t", 0.0) <= t0 + within):

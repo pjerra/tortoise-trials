@@ -116,6 +116,21 @@ Shortened example (from `trials/healers/priest-holy-pws-def-arms-2tank.json`):
 }
 ```
 
+### Rule options for latency and filtered rules
+
+- `check.debounce_responder_s` (latency rules only, a number of seconds > 0, default off): the
+  responder's own cooldown. A trigger that arrives less than N s after the bot's last matching
+  response (same `response` filter, any target) is skipped: it is not counted and not a miss. Use it
+  with the cooldown of the answering ability (for example 10 for Taunt, 30 for Counterspell), so one
+  answer is not scored against two triggers. `trigger_debounce_s` is different: it thins the
+  triggers per source before anything is answered.
+- `check.where.not_within_s_after_mark` (`{"kind": "<mark kind>", "s": N}`, only in `check.where`,
+  any metric, default off): drop the events and samples within N s after each runner mark of that
+  kind (the marks are the ones in `marks.jsonl`; `refill` is written when a refilled mob is
+  summoned). A mob refill brings a fresh mob that the bot has not engaged yet, so a rule about
+  threat or aggro can leave that window out. Excluded-span rows stay; hp, aura and combat
+  lookups still read all samples.
+
 Spell, item and creature ids come from `data/` (built offline from the public core SQL with
 `build_data.py`; it never contacts a server). The `Trl*` character names in `data/characters.json`
 are the generic names the runner creates on a test server.

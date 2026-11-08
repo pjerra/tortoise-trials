@@ -33,7 +33,7 @@ WHERE_KEYS = {
     "dst_lacks_aura", "src_power_lt", "response_dst", "same_dst",
     "trigger_debounce_s", "src_target_of", "dst_target_of",
     "src_within_of_marked", "marked_has_cc", "spell_interruptible",
-    "src_hp_le",
+    "src_hp_le", "not_within_s_after_mark",
 }
 # Closed enums (no prefix escape anywhere).
 EVENT_TRIGGER_KINDS = {"damage", "aura_on", "aura_off", "cast", "cast_start"}
@@ -68,7 +68,7 @@ RULE_FIELDS = {"id", "desc", "source", "expect_today", "why_expect",
                "check", "pass_if", "min_opportunity_s", "min_n"}
 CHECK_FIELDS = {"metric", "where", "num", "den", "trigger", "response",
                 "within_s", "response_dst", "same_dst", "trigger_debounce_s",
-                "name", "aura", "unit", "phase", "alive", "triggers", "min_n"}
+                "debounce_responder_s", "name", "aura", "unit", "phase", "alive", "triggers", "min_n"}
 TRIGGER_FIELDS = (WHERE_KEYS - {"response_dst", "same_dst", "trigger_debounce_s"}) | {"unit", "below"}
 RESPONSE_FIELDS = {"kind", "src", "dst", "spell", "spell_id", "in_combat"}
 SPEC_IDS = {
@@ -150,6 +150,15 @@ def _check_filter(doc, label, trial_id, rid, errs, spells_path=None,
         for key in doc:
             if key not in (allowed or WHERE_KEYS):
                 _err(errs, "%s: unknown %s key %r" % (where, label, key))
+    if "not_within_s_after_mark" in doc:
+        spec = doc["not_within_s_after_mark"]
+        if label != "where":
+            _err(errs, "%s: not_within_s_after_mark is only valid in check.where (it filters the whole check)" % where)
+        elif (not isinstance(spec, dict) or set(spec) != {"kind", "s"}
+              or not isinstance(spec["kind"], str) or not spec["kind"]
+              or isinstance(spec["s"], bool) or not isinstance(spec["s"], (int, float)) or spec["s"] <= 0):
+            _err(errs, "%s: bad not_within_s_after_mark %r (want {\"kind\": <mark kind>, \"s\": seconds > 0})"
+                 % (where, spec))
     if need_kind and "kind" not in doc:
         # A filter without a `kind` matches every event kind: reject it.
         _err(errs, "%s: %s needs a kind" % (where, label))
@@ -259,6 +268,12 @@ def _check_rule(rule, trial_id, errs, spells_path=None):
     debounce = check.get("trigger_debounce_s")
     if debounce is not None and not _is_num(debounce):
         _err(errs, "%s/%s: bad trigger_debounce_s %r" % (trial_id, rid, debounce))
+    cd = check.get("debounce_responder_s")
+    if cd is not None:
+        if metric != "latency":
+            _err(errs, "%s/%s: debounce_responder_s only applies to a latency rule" % (trial_id, rid))
+        if isinstance(cd, bool) or not isinstance(cd, (int, float)) or cd <= 0:
+            _err(errs, "%s/%s: bad debounce_responder_s %r (a number of seconds > 0)" % (trial_id, rid, cd))
     within = check.get("within_s")
     if within is not None and not _is_num(within):
         _err(errs, "%s/%s: bad within_s %r" % (trial_id, rid, within))
