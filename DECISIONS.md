@@ -43,3 +43,16 @@ Changed (`situation` only; rules, player, bot and duration are as before):
 
 Count stays 1 and refill stays on (a dead mob must be replaced or the fight ends before `min_valid_s`).
 These numbers are chosen from the offline data of the failed run; they have not been run live.
+
+## 2026-11-08: `priest-holy-pws-def-arms-2tank` takes the solo trial's `max_rescues_per_min: 12`
+
+`TwoTankTrialFilesTest` pins the 2tank trials as "the solo trial plus a protection paladin", and the
+def-arms 2tank file lacked the solo's `max_rescues_per_min: 12` (a known failing test). Chosen: change the
+trial, keep the test strict. The cap only decides when a rep is cut as "floor after N rescues"; the 2tank
+trial has the same fight, so the same cap belongs on it, and a second tank only lowers the damage the victim
+takes. A run of the bear-form 2tank trial, which also has no cap, lost a rep to the default cap of 6.
+
+Effect on old numbers: the PR #1557 BEFORE/AFTER runs used the trial without the cap and stay valid as
+they are; only future runs of this trial use 12, so a future run is compared with those baselines at a
+looser cap (a rep that would have been cut at 6 rescues may now finish and score). `priest-holy-pws-bear-bal`
+and its 2tank twin carry no cap on either side and stay as they are; they still match each other.
