@@ -29,11 +29,14 @@ NO_LADDER_KINDS = {"ooc_hurt", "ooc_buffs", "cc_target"}
 def base_delta(mobs):
     """The level_delta a fight actually uses at step 0.
 
-    A missing or 0 level_delta has always meant +1 in situations.level_window (`int(x or 1)`);
-    the ladder starts from what really ran, so it reads the value the same way.
+    A missing (or null) level_delta means +1, the default. An explicit 0 means 0: it used to read
+    as +1 too (`int(x or 1)`), so a trial that wrote 0 silently ran one level harder than written.
     """
+    value = (mobs or {}).get("level_delta")
+    if value is None:
+        return 1
     try:
-        return int((mobs or {}).get("level_delta") or 1)
+        return int(value)
     except (TypeError, ValueError):
         return 1
 

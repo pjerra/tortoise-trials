@@ -142,7 +142,7 @@ class LadderUnitTest(unittest.TestCase):
         self.assertEqual(got[3]["refill_every_s"], None)
 
     def test_the_mob_level_never_goes_below_player_level_minus_1_and_never_gets_harder(self):
-        self.assertEqual(ladder.params(make_trial(delta=0), 0)["level_delta"], 1)      # 0 has always meant +1
+        self.assertEqual(ladder.params(make_trial(delta=0), 0)["level_delta"], 0)      # an explicit 0 is a real 0
         self.assertEqual(ladder.params(make_trial(delta=0), 2)["level_delta"], -1)
         self.assertEqual(ladder.params(make_trial(delta=-1), 2)["level_delta"], -1)
         for step in range(4):                                   # written -2: already below the floor

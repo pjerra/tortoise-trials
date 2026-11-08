@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
 
 import test_live as tl  # noqa: E402
-from trl.live import agent as agent_mod, gm_guard, run, teardown  # noqa: E402
+from trl.live import agent as agent_mod, gm_guard, ladder, run, situations, teardown  # noqa: E402
 
 
 def slot_row(sid):
@@ -140,6 +140,36 @@ teardown: 2 ok, 0 skipped, 2 failed
             self.assertTrue(out["ok"])
             self.assertEqual(out["failed_steps"], [])
             self.assertEqual(out["detail"], "teardown: 1 ok, 0 skipped, 0 failed")
+
+
+class LevelDeltaZeroTest(unittest.TestCase):
+    """`level_delta: 0` read as +1 (`int(x or 1)`); only an absent value should default to +1."""
+
+    def window(self, mobs):
+        trial = tl.load_trial()
+        trial["situation"]["mobs"] = mobs
+        sit = situations.Situation.__new__(situations.Situation)
+        sit.trial, sit.sit = trial, trial["situation"]
+        return sit.level_window(), int(trial["player"]["level"])
+
+    def test_an_explicit_zero_is_zero(self):
+        (lo, hi), level = self.window({"role": "melee", "count": 1, "level_delta": 0, "refill": True})
+        self.assertEqual((lo, hi), (level - 1, level + 1))
+
+    def test_a_missing_or_null_value_is_still_plus_one(self):
+        for mobs in ({"role": "melee", "count": 1}, {"role": "melee", "count": 1, "level_delta": None}):
+            (lo, hi), level = self.window(mobs)
+            self.assertEqual((lo, hi), (level, level + 2))
+
+    def test_other_values_are_unchanged(self):
+        for delta in (-2, -1, 1, 2):
+            (lo, hi), level = self.window({"role": "melee", "count": 1, "level_delta": delta})
+            self.assertEqual((lo, hi), (level + delta - 1, level + delta + 1))
+
+    def test_the_ladder_starts_from_the_explicit_zero(self):
+        trial = tl.load_trial()
+        trial["situation"]["mobs"] = {"role": "melee", "count": 1, "level_delta": 0, "refill": True}
+        self.assertEqual([ladder.params(trial, s)["level_delta"] for s in range(4)], [0, -1, -1, -1])
 
 
 if __name__ == "__main__":
