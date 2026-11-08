@@ -190,6 +190,37 @@ class CleanupWiringTest(unittest.TestCase):
             with open(os.path.join(tmp, "card.md")) as f:
                 self.assertIn("not proved dead or gone", f.read())
 
+    def test_one_summon_not_in_view_does_not_make_the_others_unverified_at_run_end(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            h = Harness(tmp)
+            h.agent.kill_raise = True
+            h.rep(1, summons=[MOB1, MOB2], alive=[MOB1, MOB2])
+            h.in_view(MOB2, dead=True)                       # MOB2 died by itself
+            h.not_in_view(MOB1)                              # MOB1 is not in view: UNKNOWN
+            with unittest.mock.patch.object(run.teardown, "slot_teardown",
+                                            lambda d, binary=None: {"ok": True, "rc": 0, "detail": ""}):
+                h.r.stop_session(h.session)
+            # before: summon_states raised on MOB1 and BOTH were reported
+            self.assertEqual(h.r.unverified, [norm(MOB1)])
+            self.assertIn(norm(MOB2), h.verified)
+            self.assertNotIn(norm(MOB1), h.verified)
+
+    def test_an_aborted_session_still_names_its_unverified_summons_without_asking_the_agent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            h = Harness(tmp)
+            h.agent.kill_raise = True
+            h.rep(1, summons=[MOB1, MOB2], alive=[MOB1, MOB2])
+            h.session.abort("lease lost")
+            h.agent.calls.clear()
+            with unittest.mock.patch.object(run.teardown, "slot_teardown",
+                                            lambda d, binary=None: {"ok": True, "rc": 0, "detail": ""}):
+                h.r.stop_session(h.session)
+            # before: the final check returned early and the guids were never named
+            self.assertEqual(sorted(h.r.unverified), sorted([norm(MOB1), norm(MOB2)]))
+            self.assertEqual([sorted(w["summons_unverified"]) for w in h.r.warnings if "summons_unverified" in w],
+                             [sorted([norm(MOB1), norm(MOB2)])])
+            self.assertEqual([c for c in h.agent.calls if c[0] in ("units", "unit")], [])
+
     def test_run_end_recheck_that_finds_it_dead_reports_nothing(self):
         with tempfile.TemporaryDirectory() as tmp:
             h = Harness(tmp)

@@ -696,15 +696,18 @@ class Run:
         agent = getattr(session, "agent", None)
         ledger = getattr(session, "ledger", None) or self.ledger
         pending = self.unverified_summons(session, ledger)
-        if not pending or agent is None or session.abort_reason:
+        if not pending:
             return
-        try:
-            states = situations.summon_states(agent, ledger, only=pending)
-        except Exception as exc:  # noqa: BLE001 - the answer is UNKNOWN, which is also a leftover
-            self.log("final summon check slot %s: %s" % (session.slot_id, exc))
-            states = {}
-        self.note_verified(session, [{"id": "mobs_dead", "verified": [
-            g for g, state in states.items() if state in ("dead", "gone")]}])
+        if agent is not None and not session.abort_reason:
+            try:
+                # unknown_ok: one summon that is not in view must not make every other one unverified
+                states = situations.summon_states(agent, ledger, only=pending, unknown_ok=True)
+            except Exception as exc:  # noqa: BLE001 - the unit list itself failed: all stay unverified
+                self.log("final summon check slot %s: %s" % (session.slot_id, exc))
+                states = {}
+            self.note_verified(session, [{"id": "mobs_dead", "verified": [
+                g for g, state in states.items() if state in ("dead", "gone")]}])
+        # an aborted session (lost lease, disconnect) is not asked: its leftovers are named, not queried
         left = self.unverified_summons(session, ledger)
         if left:
             self.unverified.extend(norm_guid(g) for g in left)
