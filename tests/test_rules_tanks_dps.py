@@ -187,6 +187,8 @@ class FilesTest(unittest.TestCase):
             self.assertIn(rank, auras)
             self.assertEqual(spells_mod.name_for(rank), "Polymorph")
         self.assertIn("cc_mark_set", load("dps-mage-cc-respect")["setup_checks"])
+        # the moon mark plus two unmarked mobs: a kill never leaves the sheep as the only target
+        self.assertEqual(load("dps-mage-cc-respect")["situation"]["mobs"]["count"], 3)
 
     def test_spell_ids_the_rules_read(self):
         self.assertEqual(spells_mod.name_for(25780), "Righteous Fury")
@@ -200,18 +202,29 @@ class TankRulesTest(RepMixin, unittest.TestCase):
     TID = "tank-warrior-taunt-off-healer"
 
     def test_taunt_latency(self):
-        hits = [event(t, "damage", MOB, PLAYER if t < 50 else EXTRA1, None) for t in (10, 30, 70)]
-        taunts = [event(t + 2, "cast", BOT, MOB, 355) for t in (10, 30, 70)]
+        times = (10, 30, 70, 100, 130)
+        hits = [event(t, "damage", MOB, PLAYER if t < 50 else EXTRA1, None) for t in times]
+        taunts = [event(t + 2, "cast", BOT, MOB, 355) for t in times]
         samples = series(200)
         self.assertEqual(self.verdict(self.TID, "TNK-WAR-TAUNT", hits + taunts, samples), "PASS")
         self.assertEqual(self.verdict(self.TID, "TNK-WAR-TAUNT", hits, samples), "FAIL")
-        # a taunt on another unit, or after the 5 s window, does not answer
-        late = [event(t + 6, "cast", BOT, MOB, 355) for t in (10, 30, 70)]
+        # Mocking Blow and Challenging Shout answer too (the dev rows: mocking blow taunt, AoE taunt)
+        other = [event(t + 2, "cast", BOT, MOB, sid("Mocking Blow") if i % 2 else sid("Challenging Shout"))
+                 for i, t in enumerate(times)]
+        self.assertEqual(self.verdict(self.TID, "TNK-WAR-TAUNT", hits + other, samples), "PASS")
+        # a taunt after the 5 s window does not answer
+        late = [event(t + 6, "cast", BOT, MOB, 355) for t in times]
         self.assertEqual(self.verdict(self.TID, "TNK-WAR-TAUNT", hits + late, samples), "FAIL")
-        # the debounce folds a mob's swings inside 12 s into one trigger: n stays 3
+        # a taunt on another unit (the marked mob, not the one that hit) does not answer
+        elsewhere = [event(t + 2, "cast", BOT, MARKED, 355) for t in times]
+        self.assertEqual(self.verdict(self.TID, "TNK-WAR-TAUNT", hits + elsewhere, samples), "FAIL")
+        # the debounce folds a mob's swings inside 12 s into one trigger: n stays 5
         swings = hits + [event(11, "damage", MOB, PLAYER, None), event(12, "damage", MOB, PLAYER, None)]
         got = self.rules(self.TID, swings + taunts, samples)["TNK-WAR-TAUNT"]
-        self.assertEqual((got["verdict"], got["n"]), ("PASS", 3))
+        self.assertEqual((got["verdict"], got["n"]), ("PASS", 5))
+        # fewer than min_n 5 triggers is INCONCLUSIVE
+        self.assertEqual(self.verdict(self.TID, "TNK-WAR-TAUNT", hits[:4] + taunts[:4], samples),
+                         "INCONCLUSIVE")
 
     def test_mobs_on_tank_ratio(self):
         samples = series(200)
@@ -232,7 +245,8 @@ class TankRulesTest(RepMixin, unittest.TestCase):
 
     def test_righteous_fury(self):
         tid = "tank-paladin-righteous-fury"
-        self.assertEqual(self.verdict(tid, "TNK-PAL-RIGHTEOUS-FURY", [], series(200, bot=(25780,))), "PASS")
+        for aura in (20450, 25780, 25781):
+            self.assertEqual(self.verdict(tid, "TNK-PAL-RIGHTEOUS-FURY", [], series(200, bot=(aura,))), "PASS")
         self.assertEqual(self.verdict(tid, "TNK-PAL-RIGHTEOUS-FURY", [], series(200)), "FAIL")
         good = ([event(10 + i, "damage", MOB, BOT, None) for i in range(20)]
                 + [event(40 + i, "damage", MOB, EXTRA1, None) for i in range(2)])
@@ -245,12 +259,15 @@ class DpsRulesTest(RepMixin, unittest.TestCase):
     def test_threat_cap(self):
         tid = "dps-mage-threat-cap"
         samples = series(200, player=(71,))
-        nukes = [event(10 + 5 * i, "cast", BOT, MOB, 133) for i in range(4)]
+        nukes = [event(10 + 5 * i, "cast", BOT, MOB, 133) for i in range(15)]
         self.assertEqual(self.verdict(tid, "DPS-MAG-THREAT-NO-AGGRO", nukes, samples), "PASS")
         pulled = nukes + [event(60, "damage", MOB, BOT, None)]
         self.assertEqual(self.verdict(tid, "DPS-MAG-THREAT-NO-AGGRO", pulled, samples), "FAIL")
         self.assertEqual(self.verdict(tid, "DPS-MAG-THREAT-DAMAGE", nukes, samples), "PASS")
-        self.assertEqual(self.verdict(tid, "DPS-MAG-THREAT-DAMAGE", nukes[:2], samples), "FAIL")
+        self.assertEqual(self.verdict(tid, "DPS-MAG-THREAT-DAMAGE", nukes[:14], samples), "FAIL")
+        # wand shots are not nukes: an only-wanding mage fails the precondition
+        wand = [event(10 + 2 * i, "cast", BOT, MOB, sid("Shoot")) for i in range(40)]
+        self.assertEqual(self.verdict(tid, "DPS-MAG-THREAT-DAMAGE", wand, samples), "FAIL")
         # out of combat there is no opportunity: the count rule is not scored
         idle = [s for s in samples if s["guid"] != PLAYER] + [
             sample(t, PLAYER, auras=(71,), combat=False) for t in range(0, 201)]
@@ -258,20 +275,22 @@ class DpsRulesTest(RepMixin, unittest.TestCase):
 
     def _interrupt(self, tid, rid, spell_id, gap):
         samples = series(200, player=(71,))
-        casts = [event(10 + gap * i, "cast_start", MOB, PLAYER, LIGHTNING_BOLT) for i in range(3)]
-        answers = [event(11.5 + gap * i, "cast", BOT, MOB, spell_id) for i in range(3)]
+        casts = [event(10 + gap * i, "cast_start", MOB, PLAYER, LIGHTNING_BOLT) for i in range(5)]
+        answers = [event(11.5 + gap * i, "cast", BOT, MOB, spell_id) for i in range(5)]
         self.assertEqual(self.verdict(tid, rid, casts + answers, samples), "PASS")
         self.assertEqual(self.verdict(tid, rid, casts, samples), "FAIL")
         # an instant (not interruptible) cast is no trigger: no triggers at all -> INCONCLUSIVE
-        instants = [event(10 + gap * i, "cast_start", MOB, PLAYER, 355) for i in range(3)]
+        instants = [event(10 + gap * i, "cast_start", MOB, PLAYER, 355) for i in range(5)]
         self.assertEqual(self.verdict(tid, rid, instants, samples), "INCONCLUSIVE")
-        # fewer than min_n 3 triggers is INCONCLUSIVE, not a pass
-        self.assertEqual(self.verdict(tid, rid, casts[:2] + answers[:2], samples), "INCONCLUSIVE")
+        # fewer than min_n 5 triggers is INCONCLUSIVE, not a pass
+        self.assertEqual(self.verdict(tid, rid, casts[:4] + answers[:4], samples), "INCONCLUSIVE")
+        return casts, samples
 
     def test_kick(self):
-        self._interrupt("dps-rogue-kick-caster", "DPS-ROG-KICK", sid("Kick"), 20)
-        # Kidney Shot (the kick node's alternative) answers too
-        self._interrupt("dps-rogue-kick-caster", "DPS-ROG-KICK", sid("Kidney Shot"), 20)
+        casts, samples = self._interrupt("dps-rogue-kick-caster", "DPS-ROG-KICK", sid("Kick"), 20)
+        # Kidney Shot does not answer: the events cannot show that it stopped the cast
+        kidney = [event(11.5 + 20 * i, "cast", BOT, MOB, sid("Kidney Shot")) for i in range(5)]
+        self.assertEqual(self.verdict("dps-rogue-kick-caster", "DPS-ROG-KICK", casts + kidney, samples), "FAIL")
 
     def test_counterspell(self):
         self._interrupt("dps-mage-counterspell-caster", "DPS-MAG-COUNTERSPELL", 2139, 40)

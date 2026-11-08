@@ -86,10 +86,10 @@
   "rules": [
     {
       "id": "DPS-ROG-KICK",
-      "desc": "The rogue interrupts (Kick, or Kidney Shot as the node's alternative) an interruptible cast of the mob within 3 s of its cast start, at least 60 percent of the time (one trigger per mob per 10 s: Kick's cooldown)",
-      "source": "ai/playerbot/strategy/rogue/RogueStrategy.cpp:373-391 (RogueCcStrategy: kick at ACTION_INTERRUPT + 1), :24 (kick -> kidney shot); ai/playerbot/strategy/rogue/RogueTriggers.h:9; ai/playerbot/strategy/rogue/RogueActions.h:111-115 (CastKickAction); ai/playerbot/AiFactory.cpp:711-727 (rogues get 'cc'); ai/playerbot/strategy/generic/ThreatStrategy.cpp:60-73; ai/playerbot/strategy/triggers/GenericTriggers.cpp:936-939 (InterruptSpellTrigger); ai/playerbot/PlayerbotAI.cpp:6541-6589 (IsInterruptableSpellCasting: a generic spell still on its cast bar or a channel)",
+      "desc": "The rogue casts Kick on the mob within 3 s of an interruptible cast start, at least 60 percent of the time (one trigger per mob per 10 s, one counted answer per 10 s: Kick's cooldown)",
+      "source": "ai/playerbot/strategy/rogue/RogueStrategy.cpp:377-396 (RogueCcStrategy), :385-387 (kick at ACTION_INTERRUPT + 1); ai/playerbot/strategy/rogue/RogueTriggers.h:9; ai/playerbot/strategy/rogue/RogueActions.h:113-117 (CastKickAction is a CastMeleeInterruptSpellAction); ai/playerbot/AiFactory.cpp:876-892 (rogues get 'cc'); ai/playerbot/strategy/generic/ThreatStrategy.cpp:68-83 (the high-threat veto); ai/playerbot/AiFactory.cpp:633-642 (KeepsPartyThreatBackoff), :1007-1016 (non-tank bots under a real master get 'threat'); ai/playerbot/strategy/triggers/GenericTriggers.cpp:1072-1075 (InterruptSpellTrigger); ai/playerbot/PlayerbotAISpells.cpp:1799-1847 (IsInterruptableSpellCasting); ai/playerbot/strategy/actions/GenericSpellActions.h:131-152 (CastInterruptSpellAction / CastMeleeInterruptSpellAction: 'interrupt target', still the CastSpellAction threat type), :39 (ACTION_THREAT_SINGLE); TortoiseBots upstream/dev abb91ff62",
       "expect_today": "?",
-      "why_expect": "every rogue has the cc strategy and the kick row outranks the whole combo rotation, so with no threat back-off this passes. But CastKickAction is a CastMeleeSpellAction (RogueActions.h:111-115) and inherits the ACTION_THREAT_SINGLE type (GenericSpellActions.h:39), and ThreatMultiplier scores every such action 0 while 'high threat' is active (ThreatStrategy.cpp:60-73). The rogue gets the threat strategy under a player tank (AiFactory.cpp:473-489,842-850) and its white swings keep it near 80 percent of a player tank with no gear, so Kick may be vetoed most of the fight. FAIL here with a PASS on the no-tank control would prove that",
+      "why_expect": "every rogue has the cc strategy and the kick row outranks the whole combo rotation, so with no threat back-off this passes. But CastKickAction is a CastMeleeInterruptSpellAction (RogueActions.h:113-117), which still inherits CastSpellAction's ACTION_THREAT_SINGLE (GenericSpellActions.h:39), and ThreatMultiplier scores every such action 0 while 'high threat' is active (ThreatStrategy.cpp:68-83). The rogue gets the threat strategy under a player tank (AiFactory.cpp:633-642,1007-1016) and its white swings keep it near 80 percent of a player tank with no gear, so Kick may be vetoed most of the fight. FAIL here with a PASS on the no-tank control would prove that. Kick only: the node's alternative Kidney Shot is not counted, because the events cannot show that it stopped the cast",
       "check": {
         "metric": "latency",
         "trigger": {
@@ -100,24 +100,21 @@
         "response": {
           "kind": "cast",
           "src": "$bot",
-          "spell": [
-            "Kick",
-            "Kidney Shot"
-          ]
+          "spell": "Kick"
         },
         "response_dst": "$trigger.src",
         "within_s": 3,
         "trigger_debounce_s": 10
       },
       "pass_if": ">= 0.6",
-      "min_n": 3
+      "min_n": 5
     },
     {
       "id": "DPS-ROG-KICK-STANCE",
-      "desc": "Precondition: Defensive Stance (aura 71) stays on the player through the fight, so the role read by the bot is the one this trial is about",
-      "source": "precondition, no bot code: the stance is read by ai/playerbot/AiFactory.cpp:446-471 (GetPlayerRoles) unless the forced role decides first (ai/playerbot/PlayerbotAI.cpp:3986-3990)",
+      "desc": "Precondition: Defensive Stance (aura 71) stays on the player through the fight",
+      "source": "precondition, no bot code: setup check player_stance proves the stance at the start, this uptime proves it in the fight",
       "expect_today": "PASS",
-      "why_expect": "setup check player_stance proves the stance at the start; the runner's threat cast every 6 s keeps the player in the stance's rotation",
+      "why_expect": "the stance is cast in set-up and nothing in the fight removes it; a repeat where it drops shows here instead of passing silently",
       "check": {
         "metric": "uptime",
         "unit": "$player",

@@ -92,15 +92,17 @@
   "rules": [
     {
       "id": "TNK-PAL-RIGHTEOUS-FURY",
-      "desc": "The Protection paladin holds Righteous Fury (aura 25780) for at least 95 percent of its in-combat samples",
-      "source": "ai/playerbot/strategy/paladin/ProtectionPaladinStrategy.cpp:241-262 (righteous fury rows in and out of combat, ACTION_NORMAL + 1); ai/playerbot/strategy/paladin/PaladinTriggers.h:66 (RighteousFuryTrigger = BUFF_TRIGGER); ai/playerbot/strategy/paladin/PaladinActions.h:59; ai/playerbot/strategy/paladin/PaladinAiObjectContext.cpp:75-77 (buff protection pve/pvp/raid)",
+      "desc": "The Protection paladin holds Righteous Fury (aura 20450, 25780 or 25781) for at least 95 percent of its in-combat samples",
+      "source": "ai/playerbot/strategy/paladin/ProtectionPaladinStrategy.cpp:252-272 (righteous fury rows in and out of combat, ACTION_NORMAL + 1); ai/playerbot/strategy/paladin/PaladinTriggers.h:66 (RighteousFuryTrigger = BUFF_TRIGGER); ai/playerbot/strategy/paladin/PaladinActions.h:73; ai/playerbot/strategy/paladin/PaladinAiObjectContext.cpp:76-78 (buff protection pve/pvp/raid); TortoiseBots upstream/dev abb91ff62",
       "expect_today": "PASS",
       "why_expect": "the non-combat row puts the buff up before the pull and the combat row re-casts it if it drops (30 min duration, so it should never fall off in a 180 s fight)",
       "check": {
         "metric": "uptime",
         "unit": "$bot",
         "aura": [
-          25780
+          20450,
+          25780,
+          25781
         ],
         "phase": "in_combat"
       },
@@ -108,10 +110,10 @@
     },
     {
       "id": "TNK-PAL-MOBS-ON-TANK",
-      "desc": "At most 30 percent of all mob damage lands on the healer or the DPS player",
-      "source": "ai/playerbot/strategy/paladin/ProtectionPaladinStrategy.cpp:46-49 (lose aggro -> hand of reckoning at ACTION_MOVE, judgement at ACTION_MOVE - 1), :18 (hand of reckoning -> righteous defense); ai/playerbot/strategy/triggers/GenericTriggers.cpp:289-320",
+      "desc": "At most 30 percent of the mob damage events (hits counted, not amounts) land on the healer or the DPS player; the rest on the tank",
+      "source": "ai/playerbot/strategy/paladin/ProtectionPaladinStrategy.cpp:51-54 (lose aggro -> hand of reckoning at ACTION_MOVE, judgement at ACTION_MOVE - 1), :58-60 (party member attacked -> hand of reckoning on attacker at ACTION_MOVE, #1156), :19,23 (both fall back to righteous defense); ai/playerbot/strategy/triggers/GenericTriggers.cpp:312-349 (LoseAggroTrigger; the tank-player exception at :328-343); TortoiseBots upstream/dev abb91ff62",
       "expect_today": "?",
-      "why_expect": "the paladin taunt row sits at ACTION_MOVE, far below the warrior's INTERRUPT+1, and its alternative Righteous Defense is not a 1.12 spell; whether Hand of Reckoning is known at level 40 on this core is not proven. Compare with TNK-WAR-MOBS-ON-TANK",
+      "why_expect": "both paladin taunt rows sit at ACTION_MOVE, far below the warrior's INTERRUPT+1, and their alternative Righteous Defense is not a 1.12 spell; whether Hand of Reckoning is known at level 40 on this core is not proven. Compare with TNK-WAR-MOBS-ON-TANK",
       "check": {
         "metric": "ratio",
         "num": {
@@ -132,10 +134,10 @@
     },
     {
       "id": "TNK-PAL-RF-STANCE",
-      "desc": "Precondition: Battle Stance (aura 2457) stays on the player through the fight, so the role read by the bot is the one this trial is about",
-      "source": "precondition, no bot code: the stance is read by ai/playerbot/AiFactory.cpp:446-471 (GetPlayerRoles) unless the forced role decides first (ai/playerbot/PlayerbotAI.cpp:3986-3990)",
+      "desc": "Precondition: Battle Stance (aura 2457) stays on the player through the fight",
+      "source": "precondition, no bot code: setup check player_stance proves the stance at the start, this uptime proves it in the fight",
       "expect_today": "PASS",
-      "why_expect": "setup check player_stance proves the stance at the start; the runner's threat cast every 6 s keeps the player in the stance's rotation",
+      "why_expect": "the stance is cast in set-up and nothing in the fight removes it; a repeat where it drops shows here instead of passing silently",
       "check": {
         "metric": "uptime",
         "unit": "$player",

@@ -52,7 +52,7 @@
     "kind": "cc_target",
     "mobs": {
       "role": "humanoid",
-      "count": 2,
+      "count": 3,
       "level_delta": 1,
       "refill": true
     },
@@ -93,9 +93,9 @@
     {
       "id": "DPS-MAG-CC-RESPECT",
       "desc": "No damage from the mage (direct, periodic or splash) lands on the moon-marked mob while it carries Polymorph",
-      "source": "ai/playerbot/strategy/values/PossibleAttackTargetsValue.cpp:49-101 (a mob in breakable CC leaves the target list), :127-168 (HasBreakableCC); ai/playerbot/strategy/triggers/GenericTriggers.cpp:710-738 (AoeTrigger: never AoE a pack holding a breakable CC); ai/playerbot/strategy/actions/GenericSpellActions.cpp:24-33 (BreaksCcInArea for Frost Nova, Blizzard, Cone of Cold)",
+      "source": "ai/playerbot/strategy/values/PossibleAttackTargetsValue.cpp:53-108 (a mob in breakable CC leaves the target list unless nothing else is left), :131-173 (HasBreakableCC); ai/playerbot/strategy/triggers/GenericTriggers.cpp:830-860 (AoeTrigger: never AoE a pack holding a breakable CC); ai/playerbot/strategy/actions/GenericSpellActions.cpp:46-61 (BreaksCcInArea for Frost Nova, Blizzard, Cone of Cold); TortoiseBots upstream/dev abb91ff62",
       "expect_today": "PASS",
-      "why_expect": "the sheeped mob is only a target when nothing else is left, and every area spell path checks for a breakable CC in its radius (commits 180024d15, 9ccede38a). Uses dst_has_aura with all Polymorph ranks: marked_has_cc reads a fixed CC list (trl/rules.py DEFAULT_CC_AURAS) that has rank 1 (118) but not ranks 2-4 (12824-12826), which a level 45 mage casts",
+      "why_expect": "the sheeped mob is only a target when nothing else is left, and every area spell path checks for a breakable CC in its radius (commits 180024d15, 9ccede38a). Three mobs (the moon mark and two others, refilled when one dies) so an unmarked mob is always up: with two, the gap between a kill and its refill leaves the sheep as the only target (PossibleAttackTargetsValue.cpp:97-107) and the mage would nuke it by design. dst_has_aura names only the Polymorph ranks: marked_has_cc now knows them too (trl/rules.py, commit 5fa9e61) but also matches other CC, and here only the sheep matters",
       "check": {
         "metric": "count",
         "where": {
@@ -107,6 +107,7 @@
             12824,
             12825,
             12826,
+            28270,
             28271,
             28272
           ]
@@ -117,7 +118,7 @@
     {
       "id": "DPS-MAG-CC-POLYMORPH",
       "desc": "Precondition: the mage casts Polymorph on the moon-marked mob at least once, so the respect rule has a sheep to respect",
-      "source": "ai/playerbot/strategy/mage/MageStrategy.cpp:444-446 (polymorph row, ACTION_INTERRUPT); ai/playerbot/strategy/mage/MageAiObjectContext.cpp:171,236; ai/playerbot/strategy/values/CcTargetValue.cpp (the assigned mark)",
+      "source": "ai/playerbot/strategy/mage/MageStrategy.cpp:446-448 (polymorph row, ACTION_INTERRUPT); ai/playerbot/strategy/mage/MageAiObjectContext.cpp:171,238; ai/playerbot/strategy/values/CcTargetValue.cpp (the assigned mark); TortoiseBots upstream/dev abb91ff62",
       "expect_today": "PASS",
       "why_expect": "the runner assigns the moon mark with .bot cc moon <bot> (setup check cc_mark_set); the polymorph row fires on the assigned mark",
       "check": {
