@@ -1097,8 +1097,14 @@ class Run:
         setup_doc["mob_source"] = situation.mob_source
         setup_doc["outcome"] = outcome
         failed = [c for c in setup_doc["checks"] if not c.get("ok") and c.get("id") != "config_read"]
+        # no arena / no mobs = no fight happened: the failed mobs_ready and player_visible rows are only
+        # its consequence, so the rep says WHY there was no fight (sweep-1b read "player not visible" and
+        # "0/0 summons" for 7 reps whose real cause was a polluted arena)
+        no_fight = str(outcome.get("ended") or "") in ("no arena", "no mobs")
         setup_doc["ok"] = not failed and not outcome.get("invalid_reason")
-        if failed:
+        if no_fight and outcome.get("invalid_reason"):
+            setup_doc["invalid_reason"] = outcome["invalid_reason"]
+        elif failed:
             setup_doc["invalid_reason"] = failed[0].get("evidence") or failed[0].get("id")
         elif outcome.get("invalid_reason"):
             setup_doc["invalid_reason"] = outcome["invalid_reason"]
@@ -1109,7 +1115,8 @@ class Run:
             collect.unbind_commander(agent, bot_name or "")
         collect.normalise(rep_dir, trial, self.log)
         # REQUIRED: the player must have been visible to the bots (events.jsonl exists now)
-        self.apply_player_visible(rep_dir, trial, setup_doc)
+        if not no_fight:
+            self.apply_player_visible(rep_dir, trial, setup_doc)
         capped = ladder.capped(outcome)
         self.note_rep(session, trial, rep_index, difficulty, bool(setup_doc.get("ok")) and not capped,
                       capped, outcome.get("ended"))

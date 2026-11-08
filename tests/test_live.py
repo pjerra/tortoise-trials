@@ -64,7 +64,7 @@ class FakeAgent(agent_mod.Agent):
         self.unit_rows = dict(unit_rows or {})
         self.event_rows = list(events or [])
         self.tt_reply = tt_reply or {"replies": [{"ok": True}]}
-        self.mark_row = {"mark": "moon"}
+        self.mark_row = {"icon": "moon", "guid": ""}      # the agent's real MarkResult
         self.calls = []
         self.gm = []
         self.gm_at = []

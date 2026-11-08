@@ -13,7 +13,8 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
 
 import test_live as tl  # noqa: E402
-from trl.live import gm_guard, setup, situations  # noqa: E402
+import unittest.mock  # noqa: E402
+from trl.live import gm_guard, run, setup, situations  # noqa: E402
 
 
 class LevelAgent(tl.FakeAgent):
@@ -185,14 +186,15 @@ class CcMarkAckTest(unittest.TestCase):
     """The build acks `TBM:ACTION_ACK|cc moon|bot:<name>|1|<name>`; the check wanted the name inside the
     intent field and read "no TBM:ACTION_ACK" while the ack was there."""
 
-    def run_mark(self, ack_text):
+    def run_mark(self, ack_text, mark_row=None, want_agent=False):
         with tempfile.TemporaryDirectory() as tmp:
             agent = tl.FakeAgent(events=[{"kind": "system", "text": ack_text}])
-            agent.mark_row = {"mark": "moon"}
+            agent.mark_row = mark_row if mark_row is not None else {"icon": "moon", "guid": "0xF130000000000C02"}
             ctx = situations.SitContext(player_guid=tl.PLAYER, bot_name="Liftryd")
             sit = situations.Situation(agent, {"id": "t", "player": {"level": 45}}, None, tl.new_ledger(tmp),
                                        None, None, ctx, arenas=[], mobs={})
-            return sit.mark_and_cc("0xF130000000000C02")
+            row = sit.mark_and_cc("0xF130000000000C02")
+            return (row, agent) if want_agent else row
 
     def test_the_ack_the_build_really_sends_is_accepted(self):
         row = self.run_mark("TBM:ACTION_ACK|cc moon|bot:Liftryd|1|Liftryd")
@@ -202,9 +204,120 @@ class CcMarkAckTest(unittest.TestCase):
         row = self.run_mark("TBM:ACTION_ACK|cc moon Liftryd|bot:Liftryd|1|Liftryd")
         self.assertTrue(row["ok"], row["evidence"])
 
+    def test_the_mark_is_read_from_the_icon_key_the_agent_really_returns(self):
+        # before: row.get("mark") was None on every rep ("mark None; ... -> TBM:ACTION_ACK|cc moon|bot:Fael|1|Fael")
+        row = self.run_mark("TBM:ACTION_ACK|cc moon|bot:Liftryd|1|Liftryd", mark_row={"icon": "moon", "guid": "x"})
+        self.assertTrue(row["ok"], row["evidence"])
+        self.assertEqual(row["value"], "moon")
+        row = self.run_mark("TBM:ACTION_ACK|cc moon|bot:Liftryd|1|Liftryd", mark_row={"mark": "moon"})   # old shape
+        self.assertTrue(row["ok"])
+        row = self.run_mark("TBM:ACTION_ACK|cc moon|bot:Liftryd|1|Liftryd", mark_row={"_err": "no echo"})
+        self.assertFalse(row["ok"])
+        self.assertIn("mark: no echo", row["evidence"])
+
+    def test_the_marked_mob_is_selected_before_the_cc_command(self):
+        # `.bot cc moon` acts on the player's selected target; reps 2-4 had a dead mob selected
+        row, agent = self.run_mark("TBM:ACTION_ACK|cc moon|bot:Liftryd|1|Liftryd", want_agent=True)
+        methods = [c[0] for c in agent.calls]
+        self.assertIn("target", methods)
+        self.assertLess(methods.index("target"), methods.index("tbm"))
+        self.assertEqual([c[1]["guid"] for c in agent.calls if c[0] == "target"], ["0xF130000000000C02"])
+
+    def test_a_refusal_ends_the_wait_and_is_shown(self):
+        line = "TBM:ACTION_ERR|cc moon|no-target|Your target is dead, out of the world or not attackable."
+        row = self.run_mark(line)
+        self.assertFalse(row["ok"])
+        self.assertIn("no-target", row["evidence"])
+
     def test_an_ack_with_count_zero_is_not_a_mark(self):
         row = self.run_mark("TBM:ACTION_ACK|cc moon|bot:Liftryd|0|Liftryd")
         self.assertFalse(row["ok"])
+
+
+class NoFightReasonTest(unittest.TestCase):
+    """A rep that ended "no arena" had no fight, so player_visible and mobs_ready could only fail; the
+    rep must say why there was no fight, not "player not visible to bots"."""
+
+    def rep(self, outcome):
+        import test_cleanup_wiring as cw
+
+        class FakeSit:
+            summoned = []
+            mob_source = "summon"
+
+            def __init__(self, *a, **k):
+                pass
+
+            def level_window(self):
+                return (1, 60)
+
+            def run(self):
+                return outcome
+
+        with tempfile.TemporaryDirectory() as tmp:
+            h = cw.Harness(tmp)
+            setup_doc = {"ok": True, "checks": [], "guids": {"player": tl.PLAYER, "bot": None, "pet": None,
+                                                              "mobs": [], "marked": None},
+                         "bot_name": "Helper", "config": {}}
+            with unittest.mock.patch.object(run, "run_setup", lambda *a, **k: setup_doc), \
+                 unittest.mock.patch.object(run.collect, "Collector", tl.StubCollector), \
+                 unittest.mock.patch.object(run.situations, "Situation", FakeSit), \
+                 unittest.mock.patch.object(run.Run, "pull_evpull", lambda *a, **k: None), \
+                 unittest.mock.patch.object(run.teardown.time, "sleep", lambda s: None):
+                h.r.run_repeat(h.session, h.trial, 1)
+            return setup_doc
+
+    def test_no_arena_names_the_arena_and_adds_no_player_visible_row(self):
+        doc = self.rep({"ok": False, "ended": "no arena", "invalid_reason": "no quiet arena"})
+        self.assertEqual(doc["invalid_reason"], "no quiet arena")
+        self.assertNotIn("player_visible", [c["id"] for c in doc["checks"]])
+
+    def test_a_fight_that_happened_still_gets_the_visibility_check(self):
+        doc = self.rep({"ok": True, "ended": "duration"})
+        self.assertIn("player_visible", [c["id"] for c in doc["checks"]])
+
+
+class UnclaimedSummonTest(unittest.TestCase):
+    """Five `.npc summon` in a row (one refill, five entries) all went unclaimed and stood in the arena."""
+
+    def make(self, tmp, units_after_summon):
+        agent = tl.FakeAgent()
+        agent.units_queue = []
+        led = tl.new_ledger(tmp)
+        guard = gm_guard.GmGuard(agent, led, tl.ctx_for(mob_entries=frozenset({767, 1084})))
+        agent.unit_list = []
+        orig = agent.rpc
+
+        def rpc(method, params=None, timeout=None):
+            if method == "gm" and (params or {}).get("text", "").startswith(".npc summon"):
+                agent.unit_list = list(units_after_summon)
+            return orig(method, params, timeout)
+        agent.rpc = rpc
+        return agent, led, guard
+
+    def test_an_unclaimed_summon_is_recorded_and_stops_further_summons(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            far = [{"guid": "0xF130000000000E01", "entry": 767, "dead": False, "distance": 12.0}]
+            agent, led, guard = self.make(tmp, far)
+            logs = []
+            self.assertIsNone(situations.summon_mob(agent, guard, led, 767, timeout=0.1, poll=0.02, log=logs.append))
+            rows = led.of_kind("summon_unclaimed")
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["new_units"][0]["distance"], 12.0)
+            self.assertTrue(any("no unit claimed" in l for l in logs))
+            sit = situations.Situation(agent, {"id": "t", "player": {"level": 36}}, guard, led, None, None,
+                                       situations.SitContext(), arenas=[],
+                                       mobs={"melee": [{"entry": 767, "level_min": 35, "level_max": 37},
+                                                       {"entry": 1084, "level_min": 35, "level_max": 37}]},
+                                       log=logs.append)
+            sit.sit["mobs"] = {"role": "melee", "count": 1, "level_delta": 0}
+            summons_before = len([g for g in agent.gm if g.startswith(".npc summon")])
+            self.assertEqual(sit.summon("melee", 1), [])
+            summons_after = len([g for g in agent.gm if g.startswith(".npc summon")])
+            self.assertEqual(summons_after - summons_before, 1)          # one try, not one per entry
+            self.assertTrue(sit.summon_blocked)
+            self.assertEqual(sit.summon("melee", 1), [])                 # a later refill summons nothing
+            self.assertEqual(len([g for g in agent.gm if g.startswith(".npc summon")]), summons_after)
 
 
 if __name__ == "__main__":

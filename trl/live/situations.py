@@ -117,12 +117,15 @@ def _guid_words(text):
     return out
 
 
-def summon_mob(agent, guard, ledger, entry, within=3.0, timeout=5.0, poll=0.5, foreign=None):
+def summon_mob(agent, guard, ledger, entry, within=3.0, timeout=5.0, poll=0.5, foreign=None, log=None):
     """Summon one entry and claim it by the reply's guid, or by a NEW unit within 3 yd.
 
     `within` is the claim radius for the fallback: a nearby same-entry unit that
     was absent from the pre-summon list, never a distance match to any unit.
     `foreign` (parallel runs) returns the guids the OTHER slots summoned: never claimed here.
+    An unclaimed summon may still stand in the arena (sweep-1b: five of them, in combat with the player,
+    made the arena "not quiet" for the next 11 reps), so it is written to the ledger as
+    `summon_unclaimed` with what was in view, and logged; the caller stops summoning.
     """
     known = {norm_guid(g) for g in ledger.summon_guids()}
     if foreign is not None:
@@ -133,6 +136,7 @@ def summon_mob(agent, guard, ledger, entry, within=3.0, timeout=5.0, poll=0.5, f
     since = agent.snapshot()
     guard.send("npc_summon", None, int(entry))
     deadline = time.time() + timeout
+    seen = []
     while True:
         reply_guids = set()
         try:
@@ -149,17 +153,25 @@ def summon_mob(agent, guard, ledger, entry, within=3.0, timeout=5.0, poll=0.5, f
             if unit and guid not in known:
                 ledger.add({"kind": "summon", "guid": guid, "entry": int(entry)})
                 return guid
+        fresh = []
         for unit in units:
             guid = norm_guid(unit.get("guid"))
             if not guid or guid in known or guid in before:
                 continue
+            fresh.append(unit)
             dist = unit.get("distance", -1)
             # an unknown distance (-1) is not proof this is the new summon
             if dist is None or dist < 0 or dist > within:
                 continue
             ledger.add({"kind": "summon", "guid": guid, "entry": int(entry)})
             return guid
+        seen = [(norm_guid(u.get("guid")), u.get("distance")) for u in fresh]
         if time.time() >= deadline:
+            ledger.add({"kind": "summon_unclaimed", "entry": int(entry),
+                        "new_units": [{"guid": g, "distance": d} for g, d in seen],
+                        "reply_guids": sorted(reply_guids)})
+            if log:
+                log("summon entry %s: no unit claimed (new units in view: %s)" % (entry, seen or "none"))
             return None
         time.sleep(poll)
 
@@ -498,6 +510,8 @@ class Situation:
         return max(1, target - 1), min(60, target + 1)
 
     def summon(self, role, count, near_player=True):
+        if getattr(self, "summon_blocked", False):
+            return []
         lo, hi = self.level_window()
         entries = pick_entry(self.mobs, role, lo, hi)
         if not entries and role != "humanoid":
@@ -510,9 +524,12 @@ class Situation:
             if not row:
                 break
             guid = summon_mob(self.agent, self.guard, self.ledger, row["entry"],
-                              foreign=self.foreign_summons)
+                              foreign=self.foreign_summons, log=self.log)
             if not guid:
-                continue
+                # an unclaimed summon may stand in the arena: another entry, or another refill, would only
+                # add orphans (sweep-1b: 5 from one refill). Stop summoning for this repeat.
+                self.summon_blocked = True
+                break
             unit = wait_until(lambda: self.agent.unit(guid=guid), timeout=3.0, poll=0.3) or {}
             level = int(unit.get("level") or 0)
             if not unit.get("hostile") or not (lo <= level <= hi):
@@ -934,22 +951,36 @@ class Situation:
                    timeout=30.0, poll=1.0)
 
     def mark_and_cc(self, guid):
+        """Put the moon on `guid` and tell the bot to crowd-control it.
+
+        Two facts from the sweeps: the agent's `mark` answers {"icon": "moon", "guid": ...} (this code read
+        a "mark" key and saw None on every rep), and `.bot cc moon <bot>` acts on the player's SELECTED
+        target ("TBM:ACTION_ERR|cc moon|no-target|Your target is dead ... Select a live enemy first" on
+        every rep after the first, when the selection was the previous rep's corpse). So the marked mob is
+        selected first, under the same lock as the mark.
+        """
         # mark reads and moves the shared raid marks: same lock as the GM selection
         with self.agent.action_lock:
             row = self.agent.rpc("mark", {"guid": guid, "icon": "moon"})
-        echo = row.get("mark") if isinstance(row, dict) else None
+            self.target(guid)
+        echo = None
+        if isinstance(row, dict):
+            echo = row.get("icon") or row.get("mark")
         intent = "cc moon %s" % self.ctx.bot_name
         since = self.agent.tbm(intent)
-        # the build acks `TBM:ACTION_ACK|cc moon|bot:<name>|<count>|<name>`: the intent field is the command
-        # WITHOUT its argument (the sweep's cc_mark_set read "no TBM:ACTION_ACK" while the ack was there)
-        line, _rows = self.agent.wait_reply(since, r"TBM:ACTION_ACK\|cc moon[ |]", timeout=10)
+        # the build acks `TBM:ACTION_ACK|cc moon|bot:<name>|<count>|<name>` (the intent field is the command
+        # WITHOUT its argument) and refuses with `TBM:ACTION_ERR|cc moon|<why>|<text>`
+        line, _rows = self.agent.wait_reply(since, r"TBM:ACTION_(?:ACK|ERR)\|cc moon[ |]", timeout=10)
         ack = re.search(r"TBM:ACTION_ACK\|cc moon(?: " + re.escape(self.ctx.bot_name) + r")?\|[^|]*\|(\d+)\|",
                         line or "")
         self.ledger.add({"kind": "cc_mark", "guid": guid, "mark": echo or "", "bot": self.ctx.bot_name,
                          "reply": line or ""})
+        err = ""
+        if isinstance(row, dict) and row.get("_err"):
+            err = "; mark: %s" % str(row["_err"])[:120]
         return {"id": "cc_mark_set", "ok": bool(echo) and bool(ack) and int(ack.group(1)) >= 1,
                 "value": echo or line,
-                "evidence": "mark %s; .bot %s -> %s" % (echo, intent, line or "no TBM:ACTION_ACK")}
+                "evidence": "mark %s; .bot %s -> %s%s" % (echo, intent, line or "no TBM:ACTION_ACK", err)}
 
     def apply_debuff(self, spell_id):
         target = self.victim_target_guid()

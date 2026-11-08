@@ -22,12 +22,13 @@ def make(in_combat=(A, B, C), marked=B):
     with open(str(ROOT / "trials" / "dps" / "dps-mage-cc-respect.json")) as f:
         trial = json.load(f)
     agent = tl.FakeAgent()
-    for g in (A, B, C):
-        agent.unit_rows[norm(g)] = {"guid": norm(g), "hostile": True, "dead": False, "level": 46,
-                                    "in_combat": g in in_combat}
     ctx = situations.SitContext(player_guid=tl.PLAYER)
     ctx.guids["marked"] = marked
     sit = situations.Situation(agent, trial, None, None, None, None, ctx, arenas=[], mobs={})
+    level = sit.level_window()[0] + 1          # inside the trial's own level window, whatever its level_delta
+    for g in (A, B, C):
+        agent.unit_rows[norm(g)] = {"guid": norm(g), "hostile": True, "dead": False, "level": level,
+                                    "in_combat": g in in_combat}
     sit.summoned = [A, B, C]
     ctx.checks.append({"id": "mobs_ready", "ok": True, "value": [], "evidence": "before the pull"})
     return sit, agent
