@@ -384,6 +384,7 @@ class Run:
         self.run_stamp = stamp()
         self.started = iso_now()
         self.warnings = []
+        self.unverified = []          # summons not proved dead or gone at the run end
         self.characters_used = {}
         self.tb_version = ""
         self.ta_commit = binary_commit(binary) if binary else ""
@@ -670,6 +671,52 @@ class Run:
                 continue
             self.record_cleanup_leftover(session, trial, row.get("id"), row.get("evidence") or "failed")
 
+    @staticmethod
+    def unverified_summons(session, ledger):
+        """Ledger summons no cleanup has proved dead or gone yet (guids as the ledger wrote them)."""
+        verified = getattr(session, "verified_summons", None) or set()
+        return [g for g in ledger.summon_guids() if g and norm_guid(g) not in verified]
+
+    @staticmethod
+    def note_verified(session, rows):
+        """Remember the summons a cleanup's mobs_dead row proved dead or gone: never re-checked."""
+        verified = getattr(session, "verified_summons", None)
+        if verified is None:
+            verified = session.verified_summons = set()
+        for row in rows or []:
+            if row.get("id") == "mobs_dead":
+                verified.update(norm_guid(g) for g in row.get("verified") or [])
+
+    def final_summon_check(self, session):
+        """Run end: re-check every summon still unverified once; a leftover is a warning and exit 5.
+
+        Not-in-view stays UNKNOWN here (the player is not necessarily at the mob's arena); `trials
+        cleanup <run-dir>` goes back to the arena and settles it.
+        """
+        agent = getattr(session, "agent", None)
+        ledger = getattr(session, "ledger", None) or self.ledger
+        pending = self.unverified_summons(session, ledger)
+        if not pending or agent is None or session.abort_reason:
+            return
+        try:
+            states = situations.summon_states(agent, ledger, only=pending)
+        except Exception as exc:  # noqa: BLE001 - the answer is UNKNOWN, which is also a leftover
+            self.log("final summon check slot %s: %s" % (session.slot_id, exc))
+            states = {}
+        self.note_verified(session, [{"id": "mobs_dead", "verified": [
+            g for g, state in states.items() if state in ("dead", "gone")]}])
+        left = self.unverified_summons(session, ledger)
+        if left:
+            self.unverified.extend(norm_guid(g) for g in left)
+            self.warnings.append({"summons_unverified": [norm_guid(g) for g in left],
+                                  "slot": session.slot_id,
+                                  "detail": "not proved dead or gone at the run end: `trials cleanup <run-dir>`"})
+            ledger.add({"kind": "mob_leftover", "guids": [norm_guid(g) for g in left],
+                        "reason": "unverified at run end"})
+            self.log("slot %s: %d summon(s) not proved dead or gone at the run end: %s"
+                     % (session.slot_id, len(left), ", ".join(norm_guid(g) for g in left)))
+            self.server_error = True
+
     def repeat_cleanup_now(self, session, bot_name):
         """M8: after a relogin, kill the slot ledger's summons with a fresh guard."""
         agent = session.agent
@@ -680,10 +727,12 @@ class Run:
                         abort=lambda s=session: s.abort_reason)
         try:
             extras = [n for n in (getattr(session, "last_extras", None) or []) if n]
+            kw = {"only": self.unverified_summons(session, ledger)}   # the player may be anywhere: UNKNOWN stays
             if extras:
-                return teardown.repeat_cleanup(agent, guard, ledger, bot_name, player_guid,
-                                               extra_names=extras)
-            return teardown.repeat_cleanup(agent, guard, ledger, bot_name, player_guid)
+                kw["extra_names"] = extras
+            rows = teardown.repeat_cleanup(agent, guard, ledger, bot_name, player_guid, **kw)
+            self.note_verified(session, rows)
+            return rows
         finally:
             self.drain_guard(guard)
 
@@ -863,6 +912,10 @@ class Run:
         session.teardown_done = True
         try:
             # `turtle-agent teardown` logs in again (to say `.gm off`): it counts for realmd too
+            try:
+                self.final_summon_check(session)
+            except Exception as exc:  # noqa: BLE001 - the teardown must still run
+                self.log("final summon check slot %s: %s" % (session.slot_id, exc))
             self.pace("slot teardown %s" % session.slot_id, account=getattr(session, "account", ""))
             out = teardown.slot_teardown(session.slot_dir, self.binary)
             if not out.get("ok"):
@@ -892,9 +945,9 @@ class Run:
         ledger = getattr(session, "ledger", None) or self.ledger
         # summons an earlier repeat's cleanup already proved dead or gone are not checked again: a
         # despawned corpse answers "not in view", which used to make the whole check UNKNOWN
-        verified = getattr(session, "verified_summons", None)
-        if verified is None:
-            verified = session.verified_summons = set()
+        if getattr(session, "verified_summons", None) is None:
+            session.verified_summons = set()
+        before_rep = {norm_guid(g) for g in ledger.summon_guids() if g}      # earlier repeats' summons
         rep_dir = os.path.join(self.run_dir, trial["id"], "rep%d" % rep_index)
         os.makedirs(rep_dir, exist_ok=True)
         marks = collect.Marks(os.path.join(rep_dir, "marks.jsonl"), self.log)
@@ -961,8 +1014,13 @@ class Run:
             marks.add({"kind": "setup_failed", "reason": setup_doc.get("invalid_reason")})
             try:
                 kw = {"extra_names": extra_names} if extra_names else {}
-                self.note_teardown(teardown.repeat_cleanup(agent, guard, ledger, setup_doc.get("bot_name"),
-                                                           player_guid, wait_s=5, **kw))
+                # the unverified summons only, and no "not in view = gone": the whole ledger read UNKNOWN
+                # (exit 5) from the second repeat on
+                rows = teardown.repeat_cleanup(agent, guard, ledger, setup_doc.get("bot_name"),
+                                               player_guid, wait_s=5,
+                                               only=self.unverified_summons(session, ledger), **kw)
+                self.note_verified(session, rows)
+                self.note_teardown(rows)
             except Exception as exc:  # noqa: BLE001 - the repeat still ends INVALID
                 self.note_exception(exc)
                 self.log("setup-fail cleanup %s: %s" % (trial["id"], exc))
@@ -1003,14 +1061,14 @@ class Run:
             outcome = situation.run()
         finally:
             collector.stop()
-            # the summons no earlier cleanup has verified, checked from inside the arena (see repeat_cleanup)
-            checked = [g for g in ledger.summon_guids() if g not in verified]
-            kw = {"only": checked, "absent_is_gone": True}
+            # every summon no cleanup has verified yet; "not in view" counts as gone only for this
+            # repeat's own (made where the player stands), an earlier leftover may sit in another arena
+            own = [g for g in ledger.summon_guids() if g and norm_guid(g) not in before_rep]
+            kw = {"only": self.unverified_summons(session, ledger), "absent_is_gone": own}
             if extra_names:
                 kw["extra_names"] = extra_names
             rows = teardown.repeat_cleanup(agent, guard, ledger, bot_name, player_guid, **kw)
-            if any(r.get("id") == "mobs_dead" and r.get("ok") for r in rows):
-                verified.update(checked)
+            self.note_verified(session, rows)
             marks.add({"kind": "teardown", "rows": rows})
             self.note_teardown(rows)
             self.free_arenas(session)         # the arena goes back once this slot's summons are cleaned up
@@ -1157,6 +1215,7 @@ class Run:
                             for t in trials},
             "characters": self.characters_used,
             "warnings": self.warnings,
+            "unverified_summons": sorted(set(self.unverified)),
             "refused": self.refused,
             "args": {k: getattr(self.args, k) for k in
                      ("server", "label", "repeats", "parallel", "out", "bind", "dry_run")},

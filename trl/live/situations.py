@@ -175,7 +175,14 @@ def kill_summon(agent, guard, ledger, guid):
 NOT_IN_VIEW = re.compile(r"\bis not in view\b", re.I)
 
 
-def summon_states(agent, ledger, only=None, absent_is_gone=False):
+def _gone_ok(absent_is_gone, guid):
+    """absent_is_gone is a bool for every guid, or the collection of guids it holds for."""
+    if isinstance(absent_is_gone, (set, frozenset, list, tuple)):
+        return norm_guid(guid) in {norm_guid(g) for g in absent_is_gone if g}
+    return bool(absent_is_gone)
+
+
+def summon_states(agent, ledger, only=None, absent_is_gone=False, unknown_ok=False):
     """guid -> alive|dead|gone, from units_must first and unit_must for the missing.
 
     A guid absent from the 60 yd list is not dead: only unit_must may confirm it
@@ -185,7 +192,10 @@ def summon_states(agent, ledger, only=None, absent_is_gone=False):
     holds every earlier repeat's). `absent_is_gone` is for a caller that stands where the
     summons were made: the agent answers "unit <guid> is not in view" for a temp summon
     whose corpse has despawned, and with the player in the arena that is gone, not UNKNOWN.
-    Without it (the player may be anywhere) "not in view" stays an rpc failure.
+    Without it (the player may be anywhere) "not in view" stays an rpc failure. It may also be a
+    collection of guids: "not in view" then counts as gone for those only (this repeat's own mobs,
+    made where the player stands), and stays UNKNOWN for the rest. With `unknown_ok` such a guid is
+    answered "unknown" instead of failing the whole call, so the others are still checked (and killed).
     """
     ids = [norm_guid(g) for g in ledger.summon_guids() if g]
     if only is not None:
@@ -206,8 +216,11 @@ def summon_states(agent, ledger, only=None, absent_is_gone=False):
             states[guid] = "gone"
             continue
         except RpcError as exc:
-            if absent_is_gone and NOT_IN_VIEW.search(str(exc)):
+            if _gone_ok(absent_is_gone, guid) and NOT_IN_VIEW.search(str(exc)):
                 states[guid] = "gone"
+                continue
+            if unknown_ok:
+                states[guid] = "unknown"
                 continue
             raise
         states[guid] = "gone" if not one else ("dead" if one.get("dead") else "alive")

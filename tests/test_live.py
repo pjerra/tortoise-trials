@@ -1204,7 +1204,7 @@ class WorkerCleanupTest(unittest.TestCase):
             session = self.make_session(tmp, a)
             r = self.make_run(tmp)
 
-            def refuse(agent, guard, ledger, bot_name, player_guid, wait_s=0):
+            def refuse(agent, guard, ledger, bot_name, player_guid, wait_s=0, **kw):
                 raise gm_guard.GmServerError("popup")
 
             with unittest.mock.patch.object(run, "run_setup", lambda *a, **k: {

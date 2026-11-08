@@ -98,7 +98,7 @@ class RepeatCleanupScopeTest(unittest.TestCase):
             self.assertEqual([agent_mod.norm_guid(g) for g in a.kills], [agent_mod.norm_guid(NEW_MOB)])
             self.assertFalse([r for r in led.rows if r.get("kind") == "mob_leftover"])
 
-    def test_without_the_scope_the_old_summon_still_reads_unknown(self):
+    def test_without_the_scope_the_old_summon_reads_unknown_but_the_new_one_is_still_killed(self):
         with tempfile.TemporaryDirectory() as tmp:
             a, led = self.setup_agent(tmp)
             guard = gm_guard.GmGuard(a, led, tl.ctx_for())
@@ -106,7 +106,8 @@ class RepeatCleanupScopeTest(unittest.TestCase):
             dead = [r for r in rows if r["id"] == "mobs_dead"][0]
             self.assertFalse(dead["ok"])
             self.assertIn("UNKNOWN", dead["evidence"])
-            self.assertEqual(a.kills, [])
+            self.assertEqual([agent_mod.norm_guid(g) for g in a.kills], [agent_mod.norm_guid(NEW_MOB)])
+            self.assertEqual(dead["verified"], [agent_mod.norm_guid(NEW_MOB)])
 
 
 class SlotTeardownNamesFailedStepsTest(unittest.TestCase):

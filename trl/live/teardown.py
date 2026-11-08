@@ -45,7 +45,9 @@ def repeat_cleanup(agent, guard, ledger, bot_name, player_guid, wait_s=20.0, ext
     holds every earlier repeat's, and each of those was already verified by its own cleanup).
     Without it an earlier repeat's despawned corpse answers "unit ... is not in view", which read
     as UNKNOWN for the whole ledger: mobs_dead failed, nothing was killed, one summon stayed alive.
-    `absent_is_gone` is for the caller that stands in the arena (see situations.summon_states).
+    `absent_is_gone` is for the caller that stands in the arena (see situations.summon_states): True, or
+    the guids it holds for (this repeat's own mobs; an earlier repeat's leftover may sit in another arena
+    and stays UNKNOWN when it is not in view).
     """
     rows = []
     try:
@@ -63,7 +65,7 @@ def repeat_cleanup(agent, guard, ledger, bot_name, player_guid, wait_s=20.0, ext
     unknown = ""
     states = None
     try:
-        states = summon_states(agent, ledger, only=only, absent_is_gone=absent_is_gone)
+        states = summon_states(agent, ledger, only=only, absent_is_gone=absent_is_gone, unknown_ok=True)
     except RpcError as exc:
         # an RPC error is UNKNOWN, not "none alive"
         unknown = str(exc)[:160]
@@ -85,7 +87,7 @@ def repeat_cleanup(agent, guard, ledger, bot_name, player_guid, wait_s=20.0, ext
                 kill_errors.append(_kill_error(exc))
         time.sleep(1.5)
         try:
-            states = summon_states(agent, ledger, only=only, absent_is_gone=absent_is_gone)
+            states = summon_states(agent, ledger, only=only, absent_is_gone=absent_is_gone, unknown_ok=True)
         except RpcError as exc:
             states = None
             unknown = str(exc)[:160]
@@ -96,14 +98,23 @@ def repeat_cleanup(agent, guard, ledger, bot_name, player_guid, wait_s=20.0, ext
         ledger.add({"kind": "mob_leftover", "guids": ids, "reason": "unknown: %s" % unknown})
     else:
         still = [g for g, state in (states or {}).items() if state == "alive"]
+        # an earlier repeat's leftover that is not in view (the player may stand in another arena) is
+        # UNKNOWN, never gone; it does not stop the other summons being checked and killed
+        not_proved = [g for g, state in (states or {}).items() if state == "unknown"]
         evidence = "killed %d, still alive: %s" % (len(killed), ", ".join(still) or "none")
+        if not_proved:
+            evidence += "; UNKNOWN (not in view, not proved dead): %s" % ", ".join(not_proved)
         if kill_errors:
             evidence += "; errors: " + " | ".join(kill_errors[-2:])
-        rows.append(_row("mobs_dead", not still, killed,
-                         evidence if (still or kill_errors or had_alive)
+        rows.append(_row("mobs_dead", not (still or not_proved), killed,
+                         evidence if (still or not_proved or kill_errors or had_alive)
                          else "every ledger summon confirmed dead or gone"))
+        # per guid, so the runner stops re-checking exactly the summons that are proved dead or gone
+        rows[-1]["verified"] = sorted(g for g, state in (states or {}).items() if state in ("dead", "gone"))
         if still:
             ledger.add({"kind": "mob_leftover", "guids": still, "reason": "still alive"})
+        if not_proved:
+            ledger.add({"kind": "mob_leftover", "guids": not_proved, "reason": "unknown: not in view"})
     try:
         guard.send("unaura", player_guid, "all")
         rows.append(_row("player_unaura", True, "all", ".unaura all on self"))

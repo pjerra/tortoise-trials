@@ -179,6 +179,10 @@ def write_card(run_dir, run_trials):
         ladder_line = _ladder_line(trial.get("trial"), ladder_steps)
         if ladder_line:
             lines.append(ladder_line)
+    left = run.get("unverified_summons") or []
+    if left:
+        lines += ["", "**Summons not proved dead or gone at the run end** (%d): %s. Run `trials cleanup <run-dir>`." % (
+            len(left), ", ".join(str(g) for g in left))]
     lines += ["", "| trial | rule | expected | verdict | metric k/n (summed over repeats) | value | pass_if | surprise |",
               "|---|---|---|---|---|---|---|---|"]
     card_rows = []
