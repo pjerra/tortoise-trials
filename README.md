@@ -40,6 +40,7 @@ Environment variables (all optional):
 | `TRIALS_RESERVED_SLOTS` | comma list of slot ids never taken (default `3`) |
 | `TRIALS_EVPULL` | script `script <run_dir> <server>` that copies the bot event log to `ev-<server>.csv`; without it the bot-side events are skipped |
 | `TRIALS_CORE_DIR` | core checkout for `build_data.py` (needs `sql/base`) |
+| `TRIALS_DEBUG` | set to `1` to print debug-level lines (one per login from the login pacer) |
 
 `--bind` also calls a `tbdash-get <server> <api path>` command on `PATH` to pull the dashboard's
 fight list for the player; without `--bind` nothing like that is used.
@@ -61,7 +62,7 @@ only.
 ./trials.sh list [--class priest]
 ./trials.sh validate [files...]                      # check trial files, no server needed
 ./trials.sh run --server S --trial ID --label before [--repeats N] [--parallel 2] [--dry-run]
-./trials.sh score <run-dir>                          # re-score a finished run, writes card.md/card.json
+./trials.sh score <run-dir>                          # re-score a finished run (`run` already scores at its end)
 ./trials.sh cleanup <run-dir>                        # remove hires and summons, log out, release leases
 ./trials.sh compare <run-dir> --baseline <run-dir>
 ./trials.sh pr-block --before <run-dir> --after <run-dir> [--issue N]
@@ -72,7 +73,7 @@ only.
 slot (own account and character) per worker.
 
 A run folder holds `RUN.json`, one folder per trial and repeat with the raw samples, `events.jsonl`,
-`setup.json`, `verdicts.json`, and the `card.md` summary. Verdicts are PASS, FAIL, INCONCLUSIVE
+`setup.json`, `verdicts.json`, and the `card.md` / `card.json` summary (written when `run` ends). Verdicts are PASS, FAIL, INCONCLUSIVE
 (not enough opportunity or data) or INVALID (a guard failed; the repeat says why). Exit codes:
 0 ok, 1 problems, 4 safety refusal, 5 server or RPC error or a leftover summon.
 
