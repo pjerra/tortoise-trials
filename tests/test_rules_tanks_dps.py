@@ -172,7 +172,9 @@ class FilesTest(unittest.TestCase):
             self.assertEqual([(b["class"], b["role"]) for b in trial["extra_bots"]],
                              [("priest", "healer")], tid)
             self.assertEqual(trial["extra_bots"][0]["level"], trial["bot"]["level"], tid)
-            self.assertEqual(trial["situation"]["max_rescues_per_min"], 12, tid)
+            # the two mage trials fight a mob that is on the mage: 30 (DECISIONS.md, 2026-11-09)
+            self.assertEqual(trial["situation"]["max_rescues_per_min"],
+                             30 if tid in ("dps-mage-counterspell-caster", "dps-mage-threat-cap") else 12, tid)
 
     def test_caster_trials_prove_the_caster(self):
         for tid in ("dps-rogue-kick-caster", "dps-mage-counterspell-caster"):
@@ -263,11 +265,19 @@ class DpsRulesTest(RepMixin, unittest.TestCase):
         self.assertEqual(self.verdict(tid, "DPS-MAG-THREAT-NO-AGGRO", nukes, samples), "PASS")
         pulled = nukes + [event(60, "damage", MOB, BOT, None)]
         self.assertEqual(self.verdict(tid, "DPS-MAG-THREAT-NO-AGGRO", pulled, samples), "FAIL")
-        self.assertEqual(self.verdict(tid, "DPS-MAG-THREAT-DAMAGE", nukes, samples), "PASS")
-        self.assertEqual(self.verdict(tid, "DPS-MAG-THREAT-DAMAGE", nukes[:14], samples), "FAIL")
+        # DPS-MAG-THREAT-DAMAGE is a rate per minute of mob-alive time (>= 8), see DECISIONS.md
+        def mob_alive(seconds):
+            return samples + [{"t": float(t), "unit": "mob:" + MOB.lower(), "guid": MOB.lower(),
+                               "hp": 500 if t < seconds else 0, "max_hp": 2000, "in_combat": t < seconds,
+                               "auras": []} for t in range(0, 201)]
+        quick = [event(2 + 3.5 * i, "cast", BOT, MOB, 133) for i in range(6)]      # 6 nukes, mob dead at 22 s
+        self.assertEqual(self.verdict(tid, "DPS-MAG-THREAT-DAMAGE", quick, mob_alive(22)), "PASS")
+        # the same 6 nukes against a mob that lives the whole repeat: 2 a minute, the back-off held
+        self.assertEqual(self.verdict(tid, "DPS-MAG-THREAT-DAMAGE", quick, mob_alive(200)), "FAIL")
+        self.assertEqual(self.verdict(tid, "DPS-MAG-THREAT-DAMAGE", quick, mob_alive(8)), "INCONCLUSIVE")
         # wand shots are not nukes: an only-wanding mage fails the precondition
         wand = [event(10 + 2 * i, "cast", BOT, MOB, sid("Shoot")) for i in range(40)]
-        self.assertEqual(self.verdict(tid, "DPS-MAG-THREAT-DAMAGE", wand, samples), "FAIL")
+        self.assertEqual(self.verdict(tid, "DPS-MAG-THREAT-DAMAGE", wand, mob_alive(200)), "FAIL")
         # out of combat there is no opportunity: the count rule is not scored
         idle = [s for s in samples if s["guid"] != PLAYER] + [
             sample(t, PLAYER, auras=(71,), combat=False) for t in range(0, 201)]

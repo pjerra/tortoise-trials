@@ -53,8 +53,8 @@
     "mobs": {
       "role": "humanoid",
       "count": 3,
-      "level_delta": 1,
-      "refill": true
+      "level_delta": -1,
+      "refill": false
     },
     "hp_band": [
       40,

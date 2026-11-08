@@ -76,3 +76,36 @@ logic, a failed game-side step (an RPC step, or the agent exiting) makes the lea
 game-side teardown failed"), which fits "2 failed" with one real cause. Which game-side step it is will
 now be in the log of the next run. If it turns out to be server-side or in turtle-agent, it belongs in
 that project, not here.
+
+## 2026-11-09: base difficulty of the tank/DPS trials (sweep-1b)
+
+Evidence: `20261108-232904-sweep1b`, 4-6 reps per trial, `--parallel 2`, the ladder stepping a trial down after
+each rescue-cap rep. A rep that ends on the cap with 12-21 rescues in a minute wastes itself; the ladder then needs
+1-3 reps to reach a step that survives. What each trial needed:
+
+| trial | step 0 (+1, refill on) | what survived | base now |
+|---|---|---|---|
+| `dps-mage-counterspell-caster` | capped (13 rescues, 125 s) | steps 1-2 capped too; only step 3 (-1, count 1, refill off) ran 180 s, 3 of 3 | `level_delta` -1, refill on, `max_rescues_per_min` 30 |
+| `dps-mage-threat-cap` | capped (21 rescues) | steps 1-2 capped; step 3 ran 180 s, but its mob died after 2-3 nukes | `level_delta` -1, refill on, `max_rescues_per_min` 30 |
+| `dps-mage-cc-respect` | 3 of 4 ran 180 s (13, 7, 3 rescues); rep 4 capped (16) | the ladder is off for `cc_target` | `level_delta` -1, refill off |
+| `dps-rogue-kick-caster` | 4 of 4 ran 180 s, 0 rescues | - | unchanged |
+| `tank-paladin-righteous-fury` | 2 of 3 clean, rep 3 capped (14) | step 1 (0): 2 of 2 ran 180 s | `level_delta` 0 |
+| `tank-warrior-taunt-off-healer` | no fight in sweep-1b (arena) | same shape as the paladin trial | `level_delta` 0 (not measured) |
+
+Why the two mage trials keep refill on and get a higher cap instead of the ladder's step 3: step 3 turns the refill
+off, and then the threat trial's mob dies at 20 s, the rule `DPS-MAG-THREAT-NO-AGGRO` gets 18-24 s of opportunity
+(it needs 90) and the counterspell rule sees at most one cast (it needs 5). The capped reps are capped by the
+bench's own sustain (a gearless forced tank under a caster), and the question the trials ask is about the mage, so the
+cap is raised to 30 rescues a minute instead of making the fight empty. Hit rates after this change are not
+measured; the `level_delta` values come from the steps that survived above.
+
+## 2026-11-09: `DPS-MAG-THREAT-DAMAGE` is a rate per mob-alive minute
+
+Was: at least 15 nukes per repeat. At the ladder's easier steps one mob dies after 2-3 nukes and the rest of the
+repeat is empty (sweep-1b step 3: 2, 2, 3 nukes), so the rule could never pass and said nothing about the bot.
+Now: `metric: rate`, `per: mob_alive`, `min_alive_s: 15`, `pass_if >= 8`. The denominator is the seconds in which at
+least one `mob:` sample had hp > 0 (each second once). Threshold: an unvetoed fire mage casts a nuke every 3.5 s,
+about 15 a minute; 8 is a little over half of that. A back-off that holds the veto half the time or more (the wand
+fills in, #922) gives 7 or fewer, an idle mage about 0. Under 15 s of mob-alive time the rule is INCONCLUSIVE.
+sweep-1b's step-3 reps would read about 5-6 a minute (2 nukes in 20 s with Frost Nova, Blink and Cone of Cold cast
+in between: the mob was on the mage), i.e. FAIL for a mage that is under attack, which is information, not an artefact.

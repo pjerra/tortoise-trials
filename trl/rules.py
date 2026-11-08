@@ -765,6 +765,19 @@ def evaluate(rule, rows, samples, marks, ctx):
 
     if metric == "rate":
         hits = scored([r for r in rows if _matches(r, where, samples_by_guid, ctx, trial)])
+        if check.get("per") == "mob_alive":
+            # hits per minute of the time a mob was alive (a mob that dies after 2-3 nukes leaves the rest of
+            # the repeat empty, which a per-scored-minute rate would count against the bot)
+            alive = mob_alive_seconds(samples, excluded)
+            floor_s = float(check.get("min_alive_s") or 10.0)
+            if alive < floor_s:
+                return {"value": None, "k": len(hits), "n": 0, "verdict": "INCONCLUSIVE",
+                        "evidence": ["a mob was alive only %.0f s (needs %.0f s)" % (alive, floor_s)],
+                        "reason": "mob alive too short", "guard": guard_note}
+            value = len(hits) / alive * 60.0
+            return {"value": value, "k": len(hits), "n": 1,
+                    "verdict": "PASS" if _pass(rule.get("pass_if"), value) else "FAIL",
+                    "evidence": ["%d in %.0f s with a mob alive" % (len(hits), alive)], "guard": guard_note}
         span = _scored_span(rows, samples, excluded, window)
         value = (len(hits) / span * 60.0) if span > 0 else 0.0
         return {"value": value, "k": len(hits), "n": 1,
@@ -802,6 +815,22 @@ def window_samples(samples, window):
         if lo <= t <= hi:
             out.append(s)
     return out
+
+
+def mob_alive_seconds(samples, excluded):
+    """Seconds (1 Hz samples, each second once) in which at least one `mob:` unit had hp > 0."""
+    seconds = set()
+    for sample in samples or []:
+        if not str(sample.get("unit") or "").startswith("mob:"):
+            continue
+        try:
+            t = float(sample.get("t", 0.0))
+            hp = float(sample.get("hp") or 0)
+        except (TypeError, ValueError):
+            continue
+        if hp > 0 and not _in_excluded(excluded, t):
+            seconds.add(int(round(t)))
+    return float(len(seconds))
 
 
 def _scored_span(rows, samples, excluded, window=None):

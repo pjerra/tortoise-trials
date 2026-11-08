@@ -68,7 +68,7 @@ RULE_FIELDS = {"id", "desc", "source", "expect_today", "why_expect",
                "check", "pass_if", "min_opportunity_s", "min_n"}
 CHECK_FIELDS = {"metric", "where", "num", "den", "trigger", "response",
                 "within_s", "response_dst", "same_dst", "trigger_debounce_s",
-                "debounce_responder_s", "debounce_responder_spells", "name", "aura", "unit", "phase", "alive", "triggers", "min_n"}
+                "debounce_responder_s", "debounce_responder_spells", "per", "min_alive_s", "name", "aura", "unit", "phase", "alive", "triggers", "min_n"}
 TRIGGER_FIELDS = (WHERE_KEYS - {"response_dst", "same_dst", "trigger_debounce_s"}) | {"unit", "below"}
 RESPONSE_FIELDS = {"kind", "src", "dst", "spell", "spell_id", "in_combat"}
 SPEC_IDS = {
@@ -274,6 +274,15 @@ def _check_rule(rule, trial_id, errs, spells_path=None):
             _err(errs, "%s/%s: debounce_responder_s only applies to a latency rule" % (trial_id, rid))
         if isinstance(cd, bool) or not isinstance(cd, (int, float)) or cd <= 0:
             _err(errs, "%s/%s: bad debounce_responder_s %r (a number of seconds > 0)" % (trial_id, rid, cd))
+    per = check.get("per")
+    if per is not None and (metric != "rate" or per != "mob_alive"):
+        _err(errs, "%s/%s: bad per %r (only \"mob_alive\", only on a rate rule)" % (trial_id, rid, per))
+    min_alive = check.get("min_alive_s")
+    if min_alive is not None:
+        if per is None:
+            _err(errs, "%s/%s: min_alive_s needs per: mob_alive" % (trial_id, rid))
+        if isinstance(min_alive, bool) or not isinstance(min_alive, (int, float)) or min_alive <= 0:
+            _err(errs, "%s/%s: bad min_alive_s %r (seconds > 0)" % (trial_id, rid, min_alive))
     cds = check.get("debounce_responder_spells")
     if cds is not None:
         if cd is None:

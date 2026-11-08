@@ -53,7 +53,7 @@
     "mobs": {
       "role": "melee",
       "count": 1,
-      "level_delta": 1,
+      "level_delta": -1,
       "refill": true
     },
     "hp_band": [
@@ -65,7 +65,7 @@
     "pull_after_s": 0,
     "ooc_wait_s": 0,
     "debuff": null,
-    "max_rescues_per_min": 12
+    "max_rescues_per_min": 30
   },
   "setup_checks": [
     "player_level",
@@ -116,12 +116,14 @@
     },
     {
       "id": "DPS-MAG-THREAT-DAMAGE",
-      "desc": "Precondition: the mage really fights, at least 15 fire nukes on the mobs per repeat, so DPS-MAG-THREAT-NO-AGGRO cannot pass because the mage stood idle or only wanded",
+      "desc": "Precondition: the mage really fights, at least 8 fire nukes per minute while a mob is alive, so DPS-MAG-THREAT-NO-AGGRO cannot pass because the mage stood idle or only wanded",
       "source": "ai/playerbot/strategy/mage/FireMageStrategy.cpp:25-27 (fireball default), :34-48 (fireball, fire blast and scorch rows); ai/playerbot/strategy/generic/ThreatStrategy.cpp:68-83 (the high-threat veto); ai/playerbot/strategy/triggers/GenericTriggers.cpp:758-788 (HighThreatTrigger: the veto only holds at 80 percent or more); TortoiseBots upstream/dev abb91ff62",
       "expect_today": "PASS",
-      "why_expect": "a count, not a damage share: the DSL counts events, and a hit-count share would weigh every melee swing of the tank and the mob against one 3.5 s Fireball. Unvetoed, a fire mage casts about 40-50 nukes in 180 s; 15 means it nuked for at least a third of the fight even with the back-off holding the rest. Below 80 percent of the tank's threat nothing vetoes the nukes, and each taunt from the player resets the ratio",
+      "why_expect": "a rate per minute of mob-alive time, not a count per repeat: at an easier difficulty step one mob dies after 2-3 nukes and the rest of the repeat is empty, so a fixed 'at least 15 per repeat' could never pass (sweep-1b: 2, 2, 3). Unvetoed, a fire mage casts a nuke every 3.5 s, about 15 a minute; 8 is a little over half of that. A back-off that holds the veto for half the time or more (the wand fills in, #922) leaves it at 7 or fewer, and an idle mage near 0. A mob alive for less than 15 s gives INCONCLUSIVE, not a verdict. Below 80 percent of the tank's threat nothing vetoes the nukes, and each taunt from the player resets the ratio",
       "check": {
-        "metric": "count",
+        "metric": "rate",
+        "per": "mob_alive",
+        "min_alive_s": 15,
         "where": {
           "kind": "cast",
           "src": "$bot",
@@ -134,7 +136,7 @@
           ]
         }
       },
-      "pass_if": ">= 15"
+      "pass_if": ">= 8"
     },
     {
       "id": "DPS-MAG-THREAT-STANCE",

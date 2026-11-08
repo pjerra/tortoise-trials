@@ -53,7 +53,7 @@
     "mobs": {
       "role": "melee",
       "count": 1,
-      "level_delta": 1,
+      "level_delta": 0,
       "refill": true
     },
     "hp_band": [

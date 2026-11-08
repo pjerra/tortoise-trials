@@ -219,5 +219,84 @@ class NotWithinAfterMarkTest(unittest.TestCase):
         self.assertEqual([e for e in scenario.validate(trial) if "not_within" in e or "needs a kind" in e], [])
 
 
+class RatePerMobAliveTest(unittest.TestCase):
+    """DPS-MAG-THREAT-DAMAGE counted nukes per repeat: a mob that dies after 2-3 nukes made it unpassable."""
+
+    NUKE = {"kind": "cast", "src": "$bot", "dst": "$mob", "spell": ["Fireball"]}
+
+    def rule(self, per="mob_alive", min_alive_s=15, pass_if=">= 8"):
+        check = {"metric": "rate", "where": dict(self.NUKE)}
+        if per:
+            check["per"] = per
+        if min_alive_s:
+            check["min_alive_s"] = min_alive_s
+        return {"id": "R", "desc": "x", "source": "s", "expect_today": "?", "why_expect": "x", "check": check,
+                "pass_if": pass_if, "min_opportunity_s": 0, "min_n": 0}
+
+    @staticmethod
+    def nuke(t):
+        return {"t": t, "kind": "cast", "src": "b", "src_guid": BOT, "dst": "m", "dst_guid": MOB,
+                "src_unit": "$bot", "dst_unit": "$mob", "spell_id": 133, "spell": "Fireball", "amount": None,
+                "dst_hp_pct": 90.0, "src_role": "bot", "dst_role": "mob", "origin": "ta"}
+
+    @staticmethod
+    def samples(alive_s, total_s=180):
+        out = []
+        for t in range(total_s):
+            out.append(tt._sample(float(t), PLAYER, 800))
+            out.append({"t": float(t), "unit": "mob:" + MOB.lower(), "guid": MOB.lower(),
+                        "hp": 500 if t < alive_s else 0, "max_hp": 2000, "in_combat": t < alive_s, "auras": []})
+        return out
+
+    def evaluate(self, rule, rows, samples):
+        trial = tt._trial()
+        trial["rules"] = [rule]
+        ctx = {"guids": {"player": PLAYER, "bot": BOT, "mobs": [MOB]}, "thresholds": {}, "trial": trial}
+        return rules_mod.evaluate(rule, rows, samples, [], ctx)
+
+    def test_a_short_lived_mob_does_not_sink_an_active_mage(self):
+        # 6 nukes while the mob lives for 20 s of a 180 s repeat: 18 a minute alive, 2 a minute scored
+        rows = [self.nuke(2.0 + 3.3 * i) for i in range(6)]
+        res = self.evaluate(self.rule(), rows, self.samples(20))
+        self.assertEqual(res["verdict"], "PASS")
+        self.assertAlmostEqual(res["value"], 18.0, places=0)
+        # the failing case before the change: the per-repeat rate over the scored span reads 2 a minute
+        res = self.evaluate(self.rule(per=None, min_alive_s=None), rows, self.samples(20))
+        self.assertLess(res["value"], 8)
+
+    def test_a_blocked_mage_misses_it_with_a_long_lived_mob(self):
+        rows = [self.nuke(10.0), self.nuke(60.0), self.nuke(120.0)]      # 3 nukes in 180 s alive: 1 a minute
+        res = self.evaluate(self.rule(), rows, self.samples(180))
+        self.assertEqual(res["verdict"], "FAIL")
+        self.assertAlmostEqual(res["value"], 1.0, places=1)
+
+    def test_a_mob_alive_too_briefly_is_inconclusive(self):
+        res = self.evaluate(self.rule(), [self.nuke(1.0)], self.samples(8))
+        self.assertEqual(res["verdict"], "INCONCLUSIVE")
+
+    def test_the_union_of_mobs_counts_each_second_once(self):
+        samples = self.samples(20)
+        samples += [{"t": float(t), "unit": "mob:0xf130000000000bbb", "guid": "x", "hp": 400, "max_hp": 900,
+                     "in_combat": True, "auras": []} for t in range(10, 30)]
+        self.assertEqual(rules_mod.mob_alive_seconds(samples, []), 30.0)
+
+    def test_validator(self):
+        def errs(**over):
+            trial = tt._trial()
+            rule = self.rule()
+            rule["check"].update(over)
+            trial["rules"] = [rule]
+            return [e for e in scenario.validate(trial) if "per" in e or "min_alive_s" in e]
+        self.assertEqual(errs(), [])
+        self.assertTrue(errs(per="alive"))
+        self.assertTrue(errs(min_alive_s=0))
+        self.assertTrue(errs(min_alive_s="x"))
+        trial = tt._trial()
+        rule = self.rule()
+        rule["check"]["metric"] = "count"
+        trial["rules"] = [rule]
+        self.assertTrue([e for e in scenario.validate(trial) if "bad per" in e])      # rate rules only
+
+
 if __name__ == "__main__":
     unittest.main()
