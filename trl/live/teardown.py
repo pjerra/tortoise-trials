@@ -191,6 +191,51 @@ def trial_cleanup(agent, ledger, bot_name, timeout=15.0, extras=()):
     return rows
 
 
+ORPHAN_NEAR = 5.0     # yards from the arena point the summon was made at
+
+
+def prove_orphans(agent, slot_ledger):
+    """([guid], [(guid, why)]): the `summon_unclaimed` candidates still standing that are the summoned entry
+    within ORPHAN_NEAR yd of the recorded arena. A proven one gets a ledger `summon` row (so the guard may kill
+    it); a unit of another entry, or elsewhere, is refused. Units that are dead or gone are skipped."""
+    proven, refused = [], []
+    held = {norm_guid(g) for g in slot_ledger.summon_guids() if g}
+    for row in slot_ledger.of_kind("summon_unclaimed"):
+        arena = row.get("arena") or {}
+        for unit in row.get("new_units") or []:
+            guid = norm_guid(unit.get("guid"))
+            if not guid or guid in held:
+                continue
+            try:
+                got = agent.unit_must(guid=guid)
+            except UnitGone:
+                continue
+            except RpcError as exc:
+                refused.append((guid, "unit unreadable: %s" % _kill_error(exc)))
+                continue
+            if got.get("dead"):
+                continue
+            try:
+                same = int(got.get("entry")) == int(row.get("entry"))
+            except (TypeError, ValueError):
+                same = False
+            try:
+                dist = ((float(got["x"]) - float(arena["x"])) ** 2 + (float(got["y"]) - float(arena["y"])) ** 2) ** 0.5
+            except (KeyError, TypeError, ValueError):
+                dist = None
+            if not same:
+                refused.append((guid, "entry %s is not the summoned entry %s" % (got.get("entry"), row.get("entry"))))
+            elif dist is None or dist > ORPHAN_NEAR:
+                refused.append((guid, "not within %.0f yd of the arena (%s)"
+                                % (ORPHAN_NEAR, "unknown position" if dist is None else "%.1f yd" % dist)))
+            else:
+                slot_ledger.add({"kind": "summon", "guid": guid, "entry": int(row.get("entry")),
+                                 "claimed": "orphan proved by cleanup"})
+                held.add(guid)
+                proven.append(guid)
+    return proven, refused
+
+
 def pending_extra_hires(ledger):
     """Extra hires the ledger never saw removed: [(name, extra index)], oldest first, one per name."""
     last_hire, last_removed = {}, {}
@@ -439,6 +484,14 @@ def cleanup(run_dir, log=None, binary=None, login_factory=None):
                                    int(arena["z"]), int(arena.get("map", 0)))
                     except Exception as exc:  # noqa: BLE001 - the character may already be there
                         log("cleanup: go_xyz to the ledger arena skipped: %s" % exc)
+                # unclaimed summons recorded by the run (`summon_unclaimed`): killed only when proved to be the
+                # summoned entry within ORPHAN_NEAR yd of the arena; anything else is reported, never killed
+                proven, refused = prove_orphans(agent, slot_ledger)
+                for guid in proven:
+                    log("cleanup: unclaimed summon %s proved (entry and position), killing it" % guid)
+                    guids.append(guid)
+                for guid, why in refused:
+                    problems.append("unclaimed summon %s on %s/%s not proved: %s" % (guid, server, sid, why))
                 for guid in guids:
                     try:
                         guard.kill(guid)

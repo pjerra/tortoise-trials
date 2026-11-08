@@ -117,7 +117,8 @@ def _guid_words(text):
     return out
 
 
-def summon_mob(agent, guard, ledger, entry, within=3.0, timeout=5.0, poll=0.5, foreign=None, log=None):
+def summon_mob(agent, guard, ledger, entry, within=3.0, timeout=5.0, poll=0.5, foreign=None, log=None,
+               arena=None):
     """Summon one entry and claim it by the reply's guid, or by a NEW unit within 3 yd.
 
     `within` is the claim radius for the fallback: a nearby same-entry unit that
@@ -169,7 +170,10 @@ def summon_mob(agent, guard, ledger, entry, within=3.0, timeout=5.0, poll=0.5, f
         if time.time() >= deadline:
             ledger.add({"kind": "summon_unclaimed", "entry": int(entry),
                         "new_units": [{"guid": g, "distance": d} for g, d in seen],
-                        "reply_guids": sorted(reply_guids)})
+                        "reply_guids": sorted(reply_guids),
+                        # where it was summoned: `trials cleanup` kills a recorded unit only when it is still
+                        # this entry and within 5 yd of this point
+                        "arena": ({k: arena.get(k) for k in ("id", "map", "x", "y", "z")} if arena else None)})
             if log:
                 log("summon entry %s: no unit claimed (new units in view: %s)" % (entry, seen or "none"))
             return None
@@ -474,6 +478,7 @@ class Situation:
             reply = self.quiet_ok()
             if reply:
                 self.log("arena %s quiet" % arena.get("id"))
+                self.current_arena = arena
                 self.on_arena(arena)
                 if self.ctx.bot_name:
                     bring_hire(self.agent, self.ctx.bot_name)
@@ -524,7 +529,8 @@ class Situation:
             if not row:
                 break
             guid = summon_mob(self.agent, self.guard, self.ledger, row["entry"],
-                              foreign=self.foreign_summons, log=self.log)
+                              foreign=self.foreign_summons, log=self.log,
+                              arena=getattr(self, "current_arena", None))
             if not guid:
                 # an unclaimed summon may stand in the arena: another entry, or another refill, would only
                 # add orphans (sweep-1b: 5 from one refill). Stop summoning for this repeat.
@@ -545,9 +551,12 @@ class Situation:
     def world_pull(self):
         """Fallback when `.npc summon` is refused: the nearest hostile in the level window."""
         lo, hi = self.level_window()
+        # never another slot's summon (parallel runs), nor one this ledger already holds
+        taken = {norm_guid(g) for g in (self.foreign_summons() or ()) if g} if self.foreign_summons else set()
+        taken |= {norm_guid(g) for g in self.ledger.summon_guids() if g}
         candidates = [u for u in self.agent.units(within=70)
                       if u.get("hostile") and not u.get("dead") and lo <= int(u.get("level") or 0) <= hi
-                      and (u.get("distance", 999) >= 0)]
+                      and (u.get("distance", 999) >= 0) and norm_guid(u.get("guid")) not in taken]
         if not candidates:
             return None
         candidates.sort(key=lambda u: u.get("distance", 999))
@@ -601,6 +610,35 @@ class Situation:
         else:
             checks.append(row)
 
+    CC_GAP_TAIL_S = 3.0     # a refilled mob is summoned and pulled; it needs a moment to be the target
+
+    def track_cc_gap(self, gap_start):
+        """cc_target: an `excluded` span (why cc_gap) while no UNMARKED summon is alive, until the next one
+        has been up for CC_GAP_TAIL_S. With only the sheep left it is the only possible target, and the mage
+        nukes it by design (PossibleAttackTargetsValue.cpp:97-107): that is not a CC-respect failure.
+        Returns the gap's start (an ISO wall time) while it is open, else None."""
+        marked = self.ctx.guids.get("marked")
+        try:
+            alive = self.alive_now()
+        except RpcError as exc:
+            self.log("cc gap check skipped: alive count unknown (%s)" % exc)
+            return gap_start
+        unmarked = [g for g in alive if not marked or norm_guid(g) != norm_guid(marked)]
+        if not unmarked and gap_start is None:
+            return self._wall()
+        if unmarked and gap_start is not None:
+            self.marks.excluded(gap_start, self._wall(offset=self.CC_GAP_TAIL_S), "cc_gap")
+            return None
+        return gap_start
+
+    def _wall(self, offset=0.0):
+        stamp = getattr(self.marks, "now_iso", None)
+        if stamp is not None:
+            return stamp(offset)       # the rep's steady clock (see collect.Marks)
+        import datetime
+        return (datetime.datetime.now().astimezone()
+                + datetime.timedelta(seconds=offset)).isoformat(timespec="milliseconds")
+
     def pull(self):
         for guid in self.summoned:
             self.walk_near(guid, 5.0)
@@ -650,6 +688,10 @@ class Situation:
         role = mobs.get("role") or "melee"
         count = int(mobs.get("count") or 1)
         made = self.summon(role, count)
+        if not made and getattr(self, "summon_blocked", False):
+            # a summon that went unclaimed may stand in the arena: fighting it as a world mob would leave a
+            # non-ledger mob that nothing ever kills. The repeat is invalid; the ledger row names the unit.
+            return {"ok": False, "ended": "no mobs", "invalid_reason": "summon unclaimed"}
         if not made:
             guid = self.world_pull()
             if not guid:
@@ -712,6 +754,7 @@ class Situation:
         debuff_gone_at = None
         ended = ""
         invalid = ""
+        gap_start = None          # cc_target: since when no unmarked summon has been alive
         try:
             entered = time.time()
             while True:
@@ -736,6 +779,8 @@ class Situation:
                     break
                 if deadline and now >= deadline:
                     break
+                if kind == "cc_target" and self.fight_start:
+                    gap_start = self.track_cc_gap(gap_start)
                 if mobs.get("refill", True) and now - getattr(self, "_last_refill", 0) > 3:
                     try:
                         alive = len(self.alive_now())
@@ -781,6 +826,8 @@ class Situation:
             self.collector.tick_hooks.remove(governor.tick)
             if guard_gov is not None:
                 self.collector.tick_hooks.remove(guard_gov.tick)
+            if gap_start is not None:
+                self.marks.excluded(gap_start, self._wall(), "cc_gap")
             self.marks.add({"kind": "fight_end", "ended": ended or "duration"})
         out = {"ok": not invalid, "ended": ended or "duration", "mob_source": self.mob_source,
                "fight_start": self.fight_start}
