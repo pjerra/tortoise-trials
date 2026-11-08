@@ -17,3 +17,9 @@
 - A rep cut by the cap is still scored INVALID only through `min_valid_s`; a cap end with enough scored seconds
   scores normally, but the ladder and the extra-rep count treat every cap end as not valid.
 - `evpull`/`split_botev` pair windows with rep numbers by position; a rep without a window (setup failure) shifts the pairing. Extra reps make this more likely.
+
+## From the first live run of adaptive difficulty, free slot and --parallel 2 (2026-11-08)
+- `trials run` writes no card.md/card.json; `trials.py score <run-dir>` is needed afterwards.
+- Teardown ends rc=14 on the priest runs (2-3 failed steps, one summon left behind); the log does not say which steps failed. Log the failing step names.
+- `paladin-holy-heal-latency` hits the rescue cap on every rep even at difficulty step 3, so it never scores: give it a lighter situation (fewer or weaker mobs, wider hp band).
+- The login pacer logs nothing when it does not wait, so shared use across parallel workers is invisible in the log: log one line per login at debug level.
