@@ -556,6 +556,34 @@ class Situation:
             self.target(guid)
             self.agent.rpc("attack", {})
 
+    def cc_targets(self):
+        """cc_target: every summon except the marked (crowd-controlled) one."""
+        marked = self.ctx.guids.get("marked")
+        return [g for g in self.summoned if not marked or norm_guid(g) != norm_guid(marked)]
+
+    def engage_cc_targets(self, timeout=10.0):
+        """cc_target: the player attacks every UNMARKED summon, one after the other (the marked mob is
+        never touched: damaging it would break the crowd control the trial watches), then mobs_ready is
+        taken again and also needs every one of them in combat. Before this only summoned[0] was
+        attacked, so a third mob could stay idle and the check could not tell."""
+        targets = self.cc_targets()
+        if not targets:
+            return
+        self.walk_near(targets[0], 25.0)
+        for guid in targets:
+            self.attack(guid)
+        wait_until(lambda: all((self.agent.unit(guid=g) or {}).get("in_combat") for g in targets),
+                   timeout=timeout, poll=0.5)
+        lo, hi = self.level_window()
+        row = mobs_ready_row(self.agent, self.ledger, (lo, hi), self.summoned, engaged=targets)
+        checks = self.ctx.checks
+        for i, check in enumerate(checks):
+            if check.get("id") == "mobs_ready":
+                checks[i] = row
+                break
+        else:
+            checks.append(row)
+
     def pull(self):
         for guid in self.summoned:
             self.walk_near(guid, 5.0)
@@ -635,8 +663,7 @@ class Situation:
             time.sleep(wait)
 
         if kind == "cc_target" and self.summoned:
-            self.walk_near(self.summoned[0], 25.0)
-            self.attack(self.summoned[0])
+            self.engage_cc_targets()
         elif self.player_pulls():
             self.pull()
         if kind == "pack":
@@ -929,7 +956,8 @@ class Situation:
             self.log("debuff refused: %s" % exc)
 
 
-def mobs_ready_row(agent, ledger, window, guids):
+def mobs_ready_row(agent, ledger, window, guids, engaged=None):
+    """`engaged`: guids that must also be in combat (cc_target: every unmarked summon)."""
     lo, hi = window
     alive = []
     for guid in guids:
@@ -937,6 +965,10 @@ def mobs_ready_row(agent, ledger, window, guids):
         if unit and unit.get("hostile") and not unit.get("dead") and lo <= int(unit.get("level") or 0) <= hi:
             alive.append(guid)
     ok = bool(alive)
-    return {"id": "mobs_ready", "ok": ok, "value": [norm_guid(g) for g in alive],
-            "evidence": "%d/%d summons hostile, alive, level %d-%d" % (len(alive), len(guids), lo, hi)}
+    evidence = "%d/%d summons hostile, alive, level %d-%d" % (len(alive), len(guids), lo, hi)
+    if engaged:
+        fighting = [g for g in engaged if (agent.unit(guid=g) or {}).get("in_combat")]
+        ok = ok and len(fighting) == len(engaged)
+        evidence += "; %d/%d unmarked summons in combat" % (len(fighting), len(engaged))
+    return {"id": "mobs_ready", "ok": ok, "value": [norm_guid(g) for g in alive], "evidence": evidence}
 
