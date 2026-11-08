@@ -104,7 +104,8 @@
         },
         "response_dst": "$trigger.src",
         "within_s": 3,
-        "trigger_debounce_s": 10
+        "trigger_debounce_s": 10,
+        "debounce_responder_s": 10
       },
       "pass_if": ">= 0.6",
       "min_n": 5

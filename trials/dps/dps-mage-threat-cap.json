@@ -96,7 +96,7 @@
     {
       "id": "DPS-MAG-THREAT-NO-AGGRO",
       "desc": "No mob hits the fire mage while a player tank holds the mobs (the back-off stops the nukes at 80 percent of the tank's threat)",
-      "source": "ai/playerbot/strategy/generic/ThreatStrategy.cpp:11-75 (ThreatMultiplier: a single-target or AoE damage action scores 0 while 'high threat' is active); ai/playerbot/strategy/triggers/GenericTriggers.cpp:640-669 (HighThreatTrigger: 80 percent of the tank's threat, with a 5 s look-ahead); ai/playerbot/strategy/values/ThreatValues.cpp:78-159 (tank threat = the highest IsTank member); ai/playerbot/AiFactory.cpp:473-489,842-850 (KeepsPartyThreatBackoff: a non-tank bot with a real master gets the threat strategy); ai/playerbot/strategy/actions/GenericSpellActions.h:39 (spell actions are ACTION_THREAT_SINGLE); commit 320aa2906 (#922: vetoed nukes fall back to the wand on purpose)",
+      "source": "ai/playerbot/strategy/generic/ThreatStrategy.cpp:13-87 (ThreatMultiplier: a single-target or AoE damage action scores 0 while 'high threat' is active, :68-84; heals are exempt, :39-40); ai/playerbot/strategy/triggers/GenericTriggers.cpp:758-788 (HighThreatTrigger: 80 percent of the tank's threat, with a 5 s look-ahead); ai/playerbot/strategy/values/ThreatValues.cpp:21-39 (my threat and tank threat values), :124-183 (tank threat = the highest IsTank member), :198-246 (relative threat = bot threat * 100 / tank threat); ai/playerbot/AiFactory.cpp:633-642 (KeepsPartyThreatBackoff: a non-tank bot with a real master gets the threat strategy), :1007-1016 (it is added after the configured strings); ai/playerbot/strategy/actions/GenericSpellActions.h:39 (spell actions are ACTION_THREAT_SINGLE), :501-505 (Shoot is threat type NONE); commit 320aa2906 (#922: vetoed nukes fall back to the wand on purpose); TortoiseBots upstream/dev abb91ff62",
       "expect_today": "?",
       "why_expect": "the nukes are vetoed at 80 percent, but since #922 the mage falls back to Shoot while the veto holds, and the wand keeps adding threat. Against a player tank with no gear (taunting every 10 s from the runner) the wand alone may reach the 130 percent a ranged attacker needs to pull. This is the question the trial answers",
       "check": {
@@ -104,7 +104,11 @@
         "where": {
           "kind": "damage",
           "src": "$mob",
-          "dst": "$bot"
+          "dst": "$bot",
+          "not_within_s_after_mark": {
+            "kind": "refill",
+            "s": 5
+          }
         }
       },
       "pass_if": "== 0",
