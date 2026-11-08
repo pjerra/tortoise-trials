@@ -172,9 +172,10 @@ class FilesTest(unittest.TestCase):
             self.assertEqual([(b["class"], b["role"]) for b in trial["extra_bots"]],
                              [("priest", "healer")], tid)
             self.assertEqual(trial["extra_bots"][0]["level"], trial["bot"]["level"], tid)
-            # the two mage trials fight a mob that is on the mage: 30 (DECISIONS.md, 2026-11-09)
+            # the three mage trials fight mobs that are on the mage/the gearless tank: 30 (DECISIONS.md, 2026-11-09)
             self.assertEqual(trial["situation"]["max_rescues_per_min"],
-                             30 if tid in ("dps-mage-counterspell-caster", "dps-mage-threat-cap") else 12, tid)
+                             30 if tid in ("dps-mage-counterspell-caster", "dps-mage-threat-cap",
+                                           "dps-mage-cc-respect") else 12, tid)
 
     def test_caster_trials_prove_the_caster(self):
         for tid in ("dps-rogue-kick-caster", "dps-mage-counterspell-caster"):

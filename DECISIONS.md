@@ -87,12 +87,12 @@ each rescue-cap rep. A rep that ends on the cap with 12-21 rescues in a minute w
 |---|---|---|---|
 | `dps-mage-counterspell-caster` | capped (13 rescues, 125 s) | steps 1-2 capped too; only step 3 (-1, count 1, refill off) ran 180 s, 3 of 3 | `level_delta` -1, refill on, `max_rescues_per_min` 30 |
 | `dps-mage-threat-cap` | capped (21 rescues) | steps 1-2 capped; step 3 ran 180 s, but its mob died after 2-3 nukes | `level_delta` -1, refill on, `max_rescues_per_min` 30 |
-| `dps-mage-cc-respect` | 3 of 4 ran 180 s (13, 7, 3 rescues); rep 4 capped (16) | the ladder is off for `cc_target` | `level_delta` -1, refill off |
+| `dps-mage-cc-respect` | 3 of 4 ran 180 s (13, 7, 3 rescues); rep 4 capped (16) | the ladder is off for `cc_target`; a live check at -1, refill off still capped at 64 s (12 rescues, three mobs on a gearless tank) | `level_delta` -1, refill off, `max_rescues_per_min` 30 |
 | `dps-rogue-kick-caster` | 4 of 4 ran 180 s, 0 rescues | - | unchanged |
 | `tank-paladin-righteous-fury` | 2 of 3 clean, rep 3 capped (14) | step 1 (0): 2 of 2 ran 180 s | `level_delta` 0 |
 | `tank-warrior-taunt-off-healer` | no fight in sweep-1b (arena) | same shape as the paladin trial | `level_delta` 0 (not measured) |
 
-Why the two mage trials keep refill on and get a higher cap instead of the ladder's step 3: step 3 turns the refill
+Why the counterspell and threat trials keep refill on and get a higher cap instead of the ladder's step 3: step 3 turns the refill
 off, and then the threat trial's mob dies at 20 s, the rule `DPS-MAG-THREAT-NO-AGGRO` gets 18-24 s of opportunity
 (it needs 90) and the counterspell rule sees at most one cast (it needs 5). The capped reps are capped by the
 bench's own sustain (a gearless forced tank under a caster), and the question the trials ask is about the mage, so the
