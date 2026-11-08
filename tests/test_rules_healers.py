@@ -189,7 +189,10 @@ class TrialFilesTest(unittest.TestCase):
                 self.assertEqual(trial["bot"]["items"], [{"name": "Sweet Nectar", "count": 20}])
                 self.assertIn("bot_items", trial["setup_checks"])
             if not ooc:
-                self.assertEqual(trial["situation"]["mobs"]["level_delta"], 1)
+                # the holy paladin's heal-latency trial fights weaker mobs (DECISIONS.md): at +1 it hit the
+                # rescue cap on every rep
+                self.assertEqual(trial["situation"]["mobs"]["level_delta"],
+                                 -4 if tid == "paladin-holy-heal-latency" else 1)
 
 
 # ---- #1553 setup contract ---------------------------------------------------

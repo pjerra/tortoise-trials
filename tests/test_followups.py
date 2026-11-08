@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
 
 import test_live as tl  # noqa: E402
+from trl import scenario  # noqa: E402
 from trl.live import agent as agent_mod, gm_guard, ladder, run, situations, teardown  # noqa: E402
 
 
@@ -170,6 +171,32 @@ class LevelDeltaZeroTest(unittest.TestCase):
         trial = tl.load_trial()
         trial["situation"]["mobs"] = {"role": "melee", "count": 1, "level_delta": 0, "refill": True}
         self.assertEqual([ladder.params(trial, s)["level_delta"] for s in range(4)], [0, -1, -1, -1])
+
+
+class PaladinHealLatencySituationTest(unittest.TestCase):
+    """It hit the rescue cap on every rep (even the ladder's step 3), so it never scored."""
+
+    def load(self, name):
+        return scenario.load_trial(str(ROOT / "trials" / "healers" / (name + ".json")))
+
+    def test_it_is_lighter_than_the_priest_twin_that_scores(self):
+        pal = self.load("paladin-holy-heal-latency")["situation"]
+        pri = self.load("priest-holy-heal-latency")["situation"]
+        self.assertEqual(scenario.validate(self.load("paladin-holy-heal-latency")), [])
+        self.assertLessEqual(pal["mobs"]["level_delta"], pri["mobs"]["level_delta"] - 4)   # weaker mob
+        self.assertEqual(pal["mobs"]["count"], 1)
+        self.assertLess(pal["floor_pct"], pri["floor_pct"])                                # lower rescue floor
+        self.assertLessEqual(pal["hp_band"][0], pri["hp_band"][0] - 10)                    # wider band
+        self.assertGreaterEqual(pal["max_rescues_per_min"], 12)                            # as the other capped trials
+
+    def test_the_ladder_never_makes_it_harder_and_the_window_has_mobs(self):
+        trial = self.load("paladin-holy-heal-latency")
+        self.assertEqual({ladder.params(trial, s)["level_delta"] for s in range(4)}, {-4})
+        level = trial["player"]["level"]
+        lo, hi = level - 4 - 1, level - 4 + 1
+        mobs = situations.load_mobs()["melee"]
+        inside = [m for m in mobs if m["level_min"] >= lo and m["level_max"] <= hi]
+        self.assertGreaterEqual(len(inside), 3)
 
 
 if __name__ == "__main__":
