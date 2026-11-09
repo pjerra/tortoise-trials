@@ -219,3 +219,14 @@ send is idempotent). The marker table comes from the client's Talent.dbc / Talen
 - TB re-gears a hire after a build change (UpgradeGearBest, or the tier-kit refit). The evidence records the hire's
   gear after the apply (`.bot inv`), and a trial's `bot.gear` step runs after the talents, so the gear is the trial's.
   Baselines from before this change ran with rolled builds and rolled gear.
+
+### Deadlines reach the transport (FIX FIRST round 2)
+
+A per-bot deadline that only capped the waits still let `snapshot`, `chat`, `tbm`, `party`, `spells` and the event page
+reads run on the default 20 s RPC, plus 15 s for the subprocess kill. Now every call under a deadline goes through
+`Agent.dl_rpc`: it is not started once the deadline is spent (the call returns a `_deadline` error and the check records
+the phase that ran out), and otherwise its own timeout is the time left (1 s floor) and the subprocess kill grace is 1 s
+instead of 15. `read_rows`, `read_lines`, `read_inventory`, `party_guid`, the talent apply and read-back (party fallback
+included) and the gear step's spell read carry the deadline, and the GM guard caps its 10 s selection RPCs by the
+deadline of the step that is using it. A send that started just inside the budget can still run to its 1 s floor.
+

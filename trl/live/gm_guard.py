@@ -139,6 +139,8 @@ class GmContext:
 
 
 class GmGuard:
+    deadline = None      # a setup step under a deadline sets it: every RPC of a send is then capped by what is left
+
     def __init__(self, agent, ledger, ctx=None, dry_run=False, on_gm=None, abort=None):
         self.agent = agent
         self.ledger = ledger
@@ -155,6 +157,12 @@ class GmGuard:
         self.select_wait = SELECT_WAIT
         self.restore_wait = RESTORE_WAIT
         self.select_poll = SELECT_POLL
+
+    def _t(self, default=10):
+        """An RPC timeout string: the default, capped by the setup deadline's time left (1 s floor) when set."""
+        if self.deadline is None or not self.deadline.finite():
+            return "%ds" % default
+        return "%ds" % max(1, int(self.deadline.cap(default)))
 
     def _check_abort(self):
         reason = str(self.abort() or "")
@@ -238,7 +246,7 @@ class GmGuard:
         # lock between the capture and the restore.
         with self.agent.action_lock:
             if kind in SELECTION:
-                prev = norm_guid(self.agent.rpc("status", {}, timeout="10s").get("target") or "")
+                prev = norm_guid(self.agent.rpc("status", {}, timeout=self._t(10)).get("target") or "")
                 gen = int(self.agent.selection_gen)
                 self._select(target)
             if self.dry_run:
@@ -246,7 +254,7 @@ class GmGuard:
                                  "target": target, "dry_run": True, "trial": self.ctx.trial_id})
                 self.on_gm(kind, text, target)
                 return text
-            out = self.agent.rpc("gm", {"text": text}, timeout="10s")
+            out = self.agent.rpc("gm", {"text": text}, timeout=self._t(10))
             if isinstance(out, dict) and "_err" in out:
                 raise GmServerError("server refused %r: %s" % (text, out["_err"]))
             self.ledger.add({"kind": "gm", "line": text, "kind_detail": kind,
@@ -255,8 +263,8 @@ class GmGuard:
                 # the GM line moved the selection: put the fight's current target back,
                 # unless someone else moved the selection after we captured it
                 if int(self.agent.selection_gen) == gen:
-                    self.agent.rpc("target", {"guid": prev}, timeout="10s")
-                    seen = norm_guid(self.agent.rpc("status", {}, timeout="10s").get("target") or "")
+                    self.agent.rpc("target", {"guid": prev}, timeout=self._t(10))
+                    seen = norm_guid(self.agent.rpc("status", {}, timeout=self._t(10)).get("target") or "")
                     if seen != prev:
                         self.ledger.add({"kind": "retarget", "wanted": prev, "seen": seen,
                                          "trial": self.ctx.trial_id})
@@ -416,8 +424,8 @@ class GmGuard:
             return
         if not norm_guid(self.ctx.player_guid):
             raise GmServerError("selection not confirmable: no player guid; no line was sent")
-        self.agent.rpc("target", {"guid": tg}, timeout="10s")
-        st = self.agent.rpc("status", {}, timeout="10s")
+        self.agent.rpc("target", {"guid": tg}, timeout=self._t(10))
+        st = self.agent.rpc("status", {}, timeout=self._t(10))
         seen = norm_guid(st.get("target") or "")
         if seen != tg:
             raise GmServerError("selection did not stick: status.target %s, wanted %s" % (seen, tg))

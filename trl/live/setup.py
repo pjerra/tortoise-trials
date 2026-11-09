@@ -13,6 +13,7 @@ import time
 
 from .. import gear as gear_mod
 from .. import talents as talents_mod
+from .deadline import Deadline
 from .agent import event_guid, event_name, event_text, norm_guid, wait_until
 from .gm_guard import GmRefused, GmServerError
 from .situations import THREAT_CAST, bring_hire
@@ -171,25 +172,6 @@ GEAR_STEP_IDS = {"player_gear_carryover", "player_gear", "player_gear_strip"}
 GEAR_SETUP_BUDGET_S = 90.0     # the whole gear setup of one rep: carry-over strip, proficiencies, grants, equips
 
 
-class Deadline:
-    """One monotonic deadline for a whole setup phase: every wait is capped by what is left of it, and a step
-    that finds it spent stops sending and says which phase ran out."""
-
-    def __init__(self, budget=GEAR_SETUP_BUDGET_S, clock=time.monotonic):
-        self.budget = float(budget)
-        self.clock = clock
-        self.end = clock() + self.budget
-
-    def left(self):
-        return max(0.0, self.end - self.clock())
-
-    def expired(self):
-        return self.left() <= 0.0
-
-    def cap(self, seconds):
-        return min(float(seconds), self.left())
-
-
 def _no_deadline():
     return Deadline(float("inf"))
 
@@ -215,7 +197,7 @@ def _learn_proficiencies(agent, spells, guard, ctx, settle, wait, poll, deadline
     itself, through the guarded `.learn`; a spell already known gets no line. Returns (learned, still missing).
     Every wait is capped by the deadline; a spent deadline stops the sends and notes the phase in timed_out."""
     try:
-        have = agent.spell_ids()
+        have = agent.spell_ids(deadline)
     except Exception:  # noqa: BLE001 - an unreadable spell list: learn them all, verified below
         have = set()
     todo = [sp for sp in spells if sp not in have]
@@ -235,12 +217,12 @@ def _learn_proficiencies(agent, spells, guard, ctx, settle, wait, poll, deadline
 
         def known():
             try:
-                return set(todo) <= agent.spell_ids()
+                return set(todo) <= agent.spell_ids(deadline)
             except Exception:  # noqa: BLE001
                 return False
         wait_until(known, timeout=deadline.cap(wait), poll=poll)
         try:
-            have = agent.spell_ids()
+            have = agent.spell_ids(deadline)
         except Exception:  # noqa: BLE001
             have = set()
         todo = [sp for sp in todo if sp not in have]
@@ -270,6 +252,14 @@ def check_player_gear(agent, trial, guard, ctx, kits=None, settle=1.0, wait=5.0,
     """
     deadline = deadline or _no_deadline()
     timed_out = []
+    prev_guard_deadline, guard.deadline = guard.deadline, deadline
+    try:
+        return _check_player_gear(agent, trial, guard, ctx, kits, settle, wait, poll, deadline, timed_out)
+    finally:
+        guard.deadline = prev_guard_deadline
+
+
+def _check_player_gear(agent, trial, guard, ctx, kits, settle, wait, poll, deadline, timed_out):
     player = trial["player"]
     items, kit_level, why = gear_mod.pick_kit(player, kits)
     if not items:
@@ -372,6 +362,14 @@ def strip_player_gear(agent, guard, ctx, kits=None, keep=None, row_id="player_ge
     """
     deadline = deadline or _no_deadline()
     timed_out = []
+    prev_guard_deadline, guard.deadline = guard.deadline, deadline
+    try:
+        return _strip_player_gear(agent, guard, ctx, kits, keep, row_id, wait, poll, deadline, timed_out)
+    finally:
+        guard.deadline = prev_guard_deadline
+
+
+def _strip_player_gear(agent, guard, ctx, kits, keep, row_id, wait, poll, deadline, timed_out):
     strip_ids = set(ctx.strip_ids) if ctx.strip_ids else gear_mod.all_entries(kits)
     keep = set(keep or ())
     targets = strip_ids - keep
@@ -541,7 +539,9 @@ def check_player_no_shield(offhand):
 
 def read_bot_offhand(agent, name):
     """The off-hand (slot 16) of a hire, from its `.bot inv` listing (TBM:INV_EQ|slot|item|...)."""
-    since = agent.tbm("inv %s" % name)
+    since = agent.tbm("inv %s" % name, deadline=deadline) if deadline is not None else agent.tbm("inv %s" % name)
+    if deadline is not None and deadline.expired():
+        return {}, False
     want = name.strip().lower()
 
     def done(text):
@@ -595,12 +595,12 @@ def check_forced_role(agent, trial, guard, ledger, timeout=8.0):
     return row("player_forced_role", True, role or "clear", line)
 
 
-def party_guid(agent, name):
+def party_guid(agent, name, deadline=None):
     """The guid of a party member by name, from the party RPC only (never chat)."""
     want = (name or "").strip().lower()
     if not want:
         return ""
-    for member in agent.members():
+    for member in (agent.members(deadline) if deadline is not None else agent.members()):
         if (member.get("name") or "").strip().lower() == want:
             return norm_guid(member.get("guid") or "")
     return ""
@@ -699,12 +699,12 @@ def apply_talents(agent, bot, name, ledger, timeout=12.0, deadline=None, guid=""
     if not spec or talents_mod.marker_for((bot or {}).get("class"), spec) is None:
         return None
     deadline = deadline or _no_deadline()
-    since = agent.snapshot()
-    agent.chat("whisper", "talents %s" % talents_mod.premade_name(spec), to=name)
+    since = agent.snapshot(deadline)
+    agent.chat("whisper", "talents %s" % talents_mod.premade_name(spec), to=name, deadline=deadline)
 
     def answered(rows):
         return any(TALENTS_APPLY_OK.search(t) or TALENTS_APPLY_FAIL.search(t) for t in _hire_texts(rows, name, guid))
-    rows = agent.read_rows(since, timeout=deadline.cap(timeout), stop=answered)
+    rows = agent.read_rows(since, timeout=deadline.cap(timeout), stop=answered, deadline=deadline)
     texts = _hire_texts(rows, name, guid)
     line = next((t for t in texts if TALENTS_APPLY_FAIL.search(t)), None) \
         or next((t for t in texts if TALENTS_APPLY_OK.search(t)), "")
@@ -712,7 +712,7 @@ def apply_talents(agent, bot, name, ledger, timeout=12.0, deadline=None, guid=""
     return line or ""
 
 
-def read_bot_talents(agent, name, timeout=12.0, deadline=None, guid=""):
+def read_bot_talents(agent, name, timeout=12.0, deadline=None, guid="", timed_out=None):
     """(raw link or None, reply text, ignored): the `Link:` of the HIRE's own `talents` reply.
 
     Only an event row said by this hire counts (guid, else name; see _from_hire): another bot's reply, the
@@ -733,15 +733,20 @@ def read_bot_talents(agent, name, timeout=12.0, deadline=None, guid=""):
             seen["ignored"] += 1
         return None
 
-    before = agent.snapshot()
-    agent.chat("whisper", "talents", to=name)
-    rows = agent.read_rows(before, timeout=deadline.cap(timeout), stop=hire_link)
+    timed_out = [] if timed_out is None else timed_out
+    before = agent.snapshot(deadline)
+    agent.chat("whisper", "talents", to=name, deadline=deadline)
+    rows = agent.read_rows(before, timeout=deadline.cap(timeout), stop=hire_link, deadline=deadline)
     text = pick(rows)
-    if text is None and not deadline.expired():
-        agent.say_to_bot(name, "talents")
-        rows = agent.read_rows(before, timeout=deadline.cap(timeout), stop=hire_link)
+    if text is None and deadline.expired():
+        timed_out.append("talent read-back")
+    elif text is None:
+        agent.say_to_bot(name, "talents", deadline=deadline)
+        rows = agent.read_rows(before, timeout=deadline.cap(timeout), stop=hire_link, deadline=deadline)
         seen["ignored"] = 0
         text = pick(rows)
+        if text is None and deadline.expired():
+            timed_out.append("party fallback")
     if text is None:
         return None, " / ".join(_hire_texts(rows, name, guid))[-300:], seen["ignored"]
     return talents_mod.link_text(text), text, seen["ignored"]
@@ -773,18 +778,24 @@ def check_bot_talents(agent, bot, name, ledger, timeout=12.0, deadline=None, gui
         return row("bot_talents", False, spec,
                    "no talent marker for %s/%s (trl/talents.py): the build cannot be proven" % (klass, spec))
     deadline = deadline or _no_deadline()
-    guid = party_guid(agent, name) if guid is None else guid
+    timed_out = []
+    if guid is None:
+        guid = party_guid(agent, name, deadline)
+        if deadline.expired():
+            return row("bot_talents", False, spec, "%s: no time left to read the build%s" % (
+                name, _timeout_evidence(["party read"], deadline)))
     reply = apply_talents(agent, bot, name, ledger, timeout=timeout, deadline=deadline, guid=guid)
     if deadline.expired():
         return row("bot_talents", False, spec, "%s: no time left to read the build%s" % (
             name, _timeout_evidence(["talent apply"], deadline)))
-    raw, text, ignored = read_bot_talents(agent, name, timeout=timeout, deadline=deadline, guid=guid)
+    raw, text, ignored = read_bot_talents(agent, name, timeout=timeout, deadline=deadline, guid=guid,
+                                          timed_out=timed_out)
     skipped = "; ignored %d link reply(ies) not from %s" % (ignored, name) if ignored else ""
     if raw is None:
         return row("bot_talents", False, spec,
                    "no talent link from %s in reply to `talents` (wanted %s, marker %s); apply reply: %s; read: %s%s%s"
                    % (name, spec, marker.name, reply or "none", text or "no reply from the hire", skipped,
-                      _timeout_evidence(["talent read-back"] if deadline.expired() else [], deadline)))
+                      _timeout_evidence(timed_out, deadline)))
     trees = talents_mod.parse_link(text)
     if trees is None:
         return row("bot_talents", False, spec, "malformed talent link %r from %s (wanted %s)%s"
@@ -797,9 +808,11 @@ def check_bot_talents(agent, bot, name, ledger, timeout=12.0, deadline=None, gui
     apply_state = "failed" if apply_failed else "ok" if reply else "no reply"
     gear = ""
     if not deadline.expired():
-        entries, complete = read_inventory(agent, name, timeout=deadline.cap(6.0))
+        entries, complete = read_inventory(agent, name, timeout=deadline.cap(6.0), deadline=deadline)
         gear = "; gear after the apply: %s" % (
             "%d item(s) equipped or bagged" % len(entries) if complete else "unreadable (no complete `.bot inv`)")
+        if not complete and deadline.expired():
+            gear += _timeout_evidence(["gear read"], deadline)
     ok = build_ok and not apply_failed
     detail = "%s %s: marker %s rank %d/%d, %d of %d points in the %s tree (%.0f%%), link %s; apply %s%s" % (
         name, spec, marker.name, rank, len(marker.ranks), own, total, spec, share * 100, link,
@@ -932,13 +945,15 @@ def inventory_entries(lines, name=None):
     return got
 
 
-def read_inventory(agent, name, timeout=6.0):
+def read_inventory(agent, name, timeout=6.0, deadline=None):
     """One `.bot inv <name>` read: (entry -> count, complete).
 
     complete = the whole INV_BEGIN|name .. INV_END|name span arrived. A timed-out or
     partial read is NOT a listing that proves anything is missing.
     """
-    since = agent.tbm("inv %s" % name)
+    since = agent.tbm("inv %s" % name, deadline=deadline) if deadline is not None else agent.tbm("inv %s" % name)
+    if deadline is not None and deadline.expired():
+        return {}, False
     want = name.strip().lower()
 
     def done(text):
@@ -948,7 +963,8 @@ def read_inventory(agent, name, timeout=6.0):
     def begun(text):
         m = INV_BEGIN.search(text)
         return bool(m) and m.group(1).strip().lower() == want
-    lines, _rows = agent.read_lines(since, timeout=timeout, stop=done)
+    lines, _rows = (agent.read_lines(since, timeout=timeout, stop=done, deadline=deadline) if deadline is not None
+                    else agent.read_lines(since, timeout=timeout, stop=done))
     complete = any(begun(t) for t in lines) and any(done(t) for t in lines)
     return inventory_entries(lines, name), complete
 

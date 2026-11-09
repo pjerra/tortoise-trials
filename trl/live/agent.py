@@ -115,13 +115,15 @@ class Agent:
 
     # -- transport ---------------------------------------------------------
 
-    def rpc(self, method, params=None, timeout=DEFAULT_TIMEOUT):
+    def rpc(self, method, params=None, timeout=DEFAULT_TIMEOUT, grace=15.0):
+        """One agent RPC. `grace` is how long past the RPC's own timeout the subprocess may live before it is
+        killed (a call under a deadline passes a short one)."""
         argv = [self.binary, "rpc", "--timeout", str(timeout), "--raw", ".", method]
         if params is not None:
             argv.append(json.dumps(params))
         try:
             res = subprocess.run(argv, cwd=self.slot_dir, capture_output=True, text=True,
-                                 timeout=_duration_seconds(timeout) + 15)
+                                 timeout=_duration_seconds(timeout) + grace)
         except (OSError, subprocess.TimeoutExpired) as exc:
             return {"_err": "%s: %s" % (method, exc)}
         if res.returncode:
@@ -133,6 +135,20 @@ class Agent:
             return json.loads(text)
         except ValueError:
             return {"_raw": text}
+
+    def dl_rpc(self, method, params=None, deadline=None, default_s=20.0):
+        """An RPC under a deadline: not started once the deadline is spent (`{"_err": ..., "_deadline": True}`),
+        else its own timeout and its subprocess kill grace are capped by the time left (1 s floor).
+        Without a deadline it is a plain `rpc`."""
+        if deadline is None or not deadline.finite():
+            return self.rpc(method, params)
+        if deadline.expired():
+            return {"_err": "%s: setup deadline spent, not sent" % method, "_deadline": True}
+        secs = max(1, int(deadline.cap(default_s)))
+        kw = {"timeout": "%ds" % secs}
+        if getattr(self.rpc, "__func__", None) is Agent.rpc:      # the real transport; test fakes take no grace
+            kw["grace"] = 1.0
+        return self.rpc(method, params, **kw)
 
     def rpc_must(self, method, params=None, timeout=DEFAULT_TIMEOUT):
         out = self.rpc(method, params, timeout)
@@ -206,19 +222,19 @@ class Agent:
                        "power": st.get("power", 0), "max_power": st.get("max_power", 0),
                        "auras": [], "level": st.get("level", 0)}
 
-    def spell_ids(self):
-        rows = self.rpc("spells", {"passive": True})
+    def spell_ids(self, deadline=None):
+        rows = self.dl_rpc("spells", {"passive": True}, deadline, 10.0)
         if isinstance(rows, dict):
             rows = rows.get("spells") or []
         return {int(r["spell_id"]) for r in rows if isinstance(r, dict) and r.get("spell_id")}
 
-    def head(self):
+    def head(self, deadline=None):
         """The event log's newest seq, asked of the agent (None when it cannot answer).
 
         A `since` past the end answers `next` = the newest seq and no events, so the
         probe costs one empty page and reads nothing.
         """
-        out = self.rpc("events", {"since": HEAD_PROBE, "limit": 1, "wait_ms": 0})
+        out = self.dl_rpc("events", {"since": HEAD_PROBE, "limit": 1, "wait_ms": 0}, deadline, 5.0)
         if isinstance(out, dict) and "_err" not in out:
             try:
                 return int(out.get("next"))
@@ -226,7 +242,7 @@ class Agent:
                 return None
         return None
 
-    def snapshot(self):
+    def snapshot(self, deadline=None):
         """The cursor a reply read starts from: the log head NOW.
 
         `self.cursor` only moves while the collector's event pump runs; in setup the
@@ -234,34 +250,34 @@ class Agent:
         lines of earlier commands (live1: a `co ?` read returned the previous hire's
         Strategies line). The head is exact; the cursor is the fallback.
         """
-        head = self.head()
+        head = self.head(deadline)
         if head is not None:
             return head
         with self._lock:
             return self.cursor
 
-    def party(self):
-        out = self.rpc("party")
+    def party(self, deadline=None):
+        out = self.dl_rpc("party", None, deadline, 10.0)
         return out if isinstance(out, dict) and "_err" not in out else {}
 
-    def members(self):
-        return list(self.party().get("members") or [])
+    def members(self, deadline=None):
+        return list(self.party(deadline).get("members") or [])
 
     # -- actions -----------------------------------------------------------
 
-    def chat(self, type_, text, to=None):
+    def chat(self, type_, text, to=None, deadline=None):
         params = {"type": type_, "text": text}
         if to:
             params["to"] = to
-        return self.rpc("chat", params)
+        return self.dl_rpc("chat", params, deadline, 10.0)
 
-    def tbm(self, command):
-        out = self.rpc("tbm", {"command": command})
+    def tbm(self, command, deadline=None):
+        out = self.dl_rpc("tbm", {"command": command}, deadline, 10.0)
         return int(out.get("since", 0)) if isinstance(out, dict) else 0
 
-    def say_to_bot(self, bot, command):
+    def say_to_bot(self, bot, command, deadline=None):
         """Playerbot chat order: '<bot> <command>' in party chat."""
-        return self.chat("party", "%s %s" % (bot, command))
+        return self.chat("party", "%s %s" % (bot, command), deadline=deadline)
 
     def cast(self, spell_id, target=None):
         params = {"spell_id": int(spell_id)}
@@ -271,7 +287,7 @@ class Agent:
 
     # -- events ------------------------------------------------------------
 
-    def events_since(self, since=None, kinds=None, wait_ms=900, limit=1000, cap_s=None):
+    def events_since(self, since=None, kinds=None, wait_ms=900, limit=1000, cap_s=None, deadline=None):
         """One events page. `cap_s` bounds this RPC's own timeout (a caller under a deadline never lets one
         RPC outlive what is left of it)."""
         with self._lock:
@@ -282,7 +298,14 @@ class Agent:
         rpc_ms = wait_ms + 20000
         if cap_s is not None:
             rpc_ms = min(rpc_ms, max(1000, int(cap_s * 1000)))
-        page = self.rpc("events", params, timeout="%dms" % rpc_ms)
+        if deadline is not None and deadline.finite():
+            if deadline.expired():
+                return {"events": [], "next": start, "oldest": start, "dropped": False, "more": False}
+            rpc_ms = min(rpc_ms, max(1000, int(deadline.left() * 1000)))
+        kw = {}
+        if deadline is not None and deadline.finite() and getattr(self.rpc, "__func__", None) is Agent.rpc:
+            kw["grace"] = 1.0
+        page = self.rpc("events", params, timeout="%dms" % rpc_ms, **kw)
         if not isinstance(page, dict) or "_err" in page:
             return {"events": [], "next": start, "oldest": start, "dropped": False, "more": False}
         page.setdefault("events", [])
@@ -323,36 +346,27 @@ class Agent:
             if time.time() >= deadline:
                 return texts, rows
 
-    def read_rows(self, since, timeout=10.0, kinds=_CHAT_KINDS, stop=None):
+    def read_rows(self, since, timeout=10.0, kinds=_CHAT_KINDS, stop=None, deadline=None):
         """Poll the event log from `since` and return the event ROWS (sender and all), until `stop(rows)` is
         true or the timeout is up. Every page RPC is capped by the time left."""
         rows = []
-        deadline = time.time() + max(0.0, timeout)
+        end = time.time() + max(0.0, timeout)
         page_from = since
         while True:
             page = self.events_since(page_from, kinds=kinds, wait_ms=500,
-                                     cap_s=max(1.0, deadline - time.time()))
+                                     cap_s=max(1.0, end - time.time()), deadline=deadline)
             rows.extend(page.get("events") or [])
             page_from = int(page.get("next", page_from))
             if stop and stop(rows):
                 return rows
-            if time.time() >= deadline:
+            if time.time() >= end or (deadline is not None and deadline.expired()):
                 return rows
 
-    def read_lines(self, since, timeout=10.0, kinds=_CHAT_KINDS, stop=None):
+    def read_lines(self, since, timeout=10.0, kinds=_CHAT_KINDS, stop=None, deadline=None):
         """Poll the event log from `since` and return (lines, rows)."""
-        rows = []
-        deadline = time.time() + timeout
-        page_from = since
-        while True:
-            page = self.events_since(page_from, kinds=kinds, wait_ms=500)
-            rows.extend(page.get("events") or [])
-            page_from = int(page.get("next", page_from))
-            texts = self.lines(rows)
-            if stop and any(stop(t) for t in texts):
-                return texts, rows
-            if time.time() >= deadline:
-                return texts, rows
+        stop_rows = (lambda rows: any(stop(t) for t in self.lines(rows))) if stop else None
+        rows = self.read_rows(since, timeout=timeout, kinds=kinds, stop=stop_rows, deadline=deadline)
+        return self.lines(rows), rows
 
     def wait_reply(self, since, pattern, timeout=10.0, kinds=_CHAT_KINDS):
         rx = re.compile(pattern, re.I)

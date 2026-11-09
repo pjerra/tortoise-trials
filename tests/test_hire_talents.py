@@ -434,5 +434,126 @@ class TalentDeadlineTest(unittest.TestCase):
         self.assertIn(("events", "20500ms"), seen)                                         # uncapped keeps its default
 
 
+def _secs(timeout):
+    """Seconds of an RPC timeout string ("5s", "20500ms"); the transport's default when none is given."""
+    text = str(timeout or "20s")
+    return float(text[:-2]) / 1000.0 if text.endswith("ms") else float(text.rstrip("s"))
+
+
+class BlockingMage(ScriptedMage):
+    """A transport whose chosen RPCs hang, as the real CLI does until ITS timeout: `blocked(method, params)`
+    selects them, each sleeps for the RPC's own timeout (at most BLOCK_S) and then fails. An RPC sent without a
+    cap therefore hangs 20 s; one capped by the deadline hangs only what was left."""
+    BLOCK_S = 20.0
+
+    def __init__(self, blocked, **kw):
+        super().__init__(**kw)
+        self.blocked = blocked
+        self.started = []                            # (method, seconds into the test) of every blocked RPC
+        self.t0 = time.monotonic()
+
+    def rpc(self, method, params=None, timeout=None, **kw):
+        if self.blocked(method, params or {}):
+            self.started.append((method, time.monotonic() - self.t0))
+            time.sleep(min(self.BLOCK_S, _secs(timeout)))
+            return {"_err": "%s: timed out" % method}
+        return super().rpc(method, params, timeout)
+
+
+BUDGET = 1.5
+SLACK = 2.5          # one RPC that started just inside the budget may run to its 1 s floor
+
+
+class BlockingRpcTest(unittest.TestCase):
+    """The whole talent check ends within the (scaled) budget across both `_retry` passes, whichever call hangs."""
+
+    def run_blocked(self, blocked, timeout=30.0, guid="", **kw):
+        with tempfile.TemporaryDirectory() as tmp:
+            a = BlockingMage(blocked, **kw)
+            dl = setup.Deadline(BUDGET)
+            started = time.monotonic()
+            row = setup._retry(lambda: setup.check_bot_talents(a, MAGE_BOT, "Embercrest", tl.new_ledger(tmp),
+                                                               timeout=timeout, deadline=dl, guid=guid),
+                               deadline=dl)
+            elapsed = time.monotonic() - started
+        self.assertLess(elapsed, BUDGET + SLACK, "ran %.1f s of a %.1f s budget" % (elapsed, BUDGET))
+        return row, a, dl
+
+    def test_a_hung_snapshot_head_probe(self):
+        row, a, dl = self.run_blocked(lambda m, p: m == "events" and p.get("wait_ms") == 0)
+        self.assertFalse(row["ok"])
+        self.assertTrue(a.started)
+
+    def test_a_hung_apply_chat(self):
+        row, a, dl = self.run_blocked(lambda m, p: m == "chat" and str(p.get("text", "")).startswith("talents f"))
+        self.assertFalse(row["ok"])
+        self.assertIn("setup deadline", row["evidence"])
+        self.assertIn("talent apply", row["evidence"])
+
+    def test_a_hung_read_back_page(self):
+        row, a, dl = self.run_blocked(lambda m, p: m == "events" and p.get("wait_ms") == 500)
+        self.assertFalse(row["ok"])
+        self.assertIn("setup deadline", row["evidence"])
+
+    def test_a_hung_party_fallback(self):
+        # the hire is deaf to the whisper (its own short read times out), the party fallback chat hangs
+        row, a, dl = self.run_blocked(lambda m, p: m == "chat" and p.get("type") == "party", timeout=0.3)
+        self.assertFalse(row["ok"])
+        self.assertIn("party fallback", row["evidence"])
+        self.assertTrue(any(m == "chat" for m, _t in a.started))
+
+    def test_a_hung_party_read(self):
+        row, a, dl = self.run_blocked(lambda m, p: m == "party", guid=None)
+        self.assertFalse(row["ok"])
+        self.assertIn("setup deadline", row["evidence"])
+
+    def test_a_hung_inventory_read_is_capped_and_noted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a = BlockingMage(lambda m, p: m == "tbm" and str(p.get("command", "")).startswith("inv"),
+                             reads=[("whisper", "Embercrest", link_reply(fire_link()))])
+            dl = setup.Deadline(BUDGET)
+            started = time.monotonic()
+            row = setup.check_bot_talents(a, MAGE_BOT, "Embercrest", tl.new_ledger(tmp), timeout=30.0,
+                                          deadline=dl, guid="")
+            self.assertLess(time.monotonic() - started, BUDGET + SLACK)
+            self.assertTrue(row["ok"], row["evidence"])                       # the build was proven before the hang
+            self.assertIn("unreadable", row["evidence"])
+
+    def test_no_rpc_starts_once_the_deadline_is_spent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a = ScriptedMage()
+            clock = [0.0]
+            dl = setup.Deadline(5.0, clock=lambda: clock[0])
+            clock[0] = 6.0
+            for call in (lambda: a.snapshot(dl), lambda: a.chat("whisper", "x", to="E", deadline=dl),
+                         lambda: a.say_to_bot("E", "x", deadline=dl), lambda: a.tbm("inv E", deadline=dl),
+                         lambda: a.spell_ids(deadline=dl), lambda: a.members(dl),
+                         lambda: setup.read_inventory(a, "E", deadline=dl)):
+                call()
+            self.assertEqual(a.calls, [])                                          # nothing reached the transport
+            out = a.dl_rpc("status", None, dl)
+            self.assertTrue(out.get("_deadline"))
+
+    def test_the_real_transport_gets_a_short_kill_grace_under_a_deadline(self):
+        import unittest.mock as um
+        from trl.live import agent as agent_mod
+        real = agent_mod.Agent("/nonexistent-slot")
+        captured = {}
+
+        def fake_run(argv, **kw):
+            captured["argv"], captured["timeout"] = argv, kw.get("timeout")
+
+            class R:
+                returncode, stdout, stderr = 0, "{}", ""
+            return R()
+        clock = [0.0]
+        with um.patch.object(agent_mod.subprocess, "run", fake_run):
+            real.dl_rpc("party", None, setup.Deadline(3.0, clock=lambda: clock[0]))
+            self.assertEqual(captured["argv"][captured["argv"].index("--timeout") + 1], "3s")
+            self.assertLessEqual(captured["timeout"], 4.0)                         # 3 s + 1 s grace, not + 15 s
+            real.dl_rpc("party", None, None)
+            self.assertGreaterEqual(captured["timeout"], 35.0)                     # no deadline: the old 20 + 15 s
+
+
 if __name__ == "__main__":
     unittest.main()

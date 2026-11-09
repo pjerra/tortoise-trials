@@ -173,8 +173,9 @@ class FakeAgent(agent_mod.Agent):
                 return dict(row)
         return {"_err": "no unit"}
 
-    def tbm(self, command, via=None):
-        return int(self.rpc("tbm", {"command": command}).get("since", 0))
+    def tbm(self, command, via=None, deadline=None):
+        out = self.dl_rpc("tbm", {"command": command}, deadline, 10.0)
+        return int(out.get("since", 0)) if isinstance(out, dict) else 0
 
 
 class StubCollector:

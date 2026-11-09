@@ -398,7 +398,7 @@ class RpcCapTest(unittest.TestCase):
         orig = agent.rpc
 
         def spy(method, params=None, timeout=None):
-            if method in ("equip", "equipment", "inventory"):
+            if method in ("equip", "equipment", "inventory", "gm", "status", "spells"):
                 seen.append((method, timeout))
             return orig(method, params, timeout)
         agent.rpc = spy
@@ -409,7 +409,8 @@ class RpcCapTest(unittest.TestCase):
             guard = gm_guard.GmGuard(agent, tl.new_ledger(tmp), ctx)
             setup.check_player_gear(agent, {"id": "t", "player": pl}, guard, ctx, kits=kits, settle=0.0,
                                     wait=0.0, poll=0.0, deadline=setup.Deadline(7.0))
-        self.assertEqual({m for m, _t in seen}, {"equip", "equipment", "inventory"})
+        self.assertTrue({"equip", "equipment", "inventory", "gm", "status", "spells"} <= {m for m, _t in seen})
+        # the guard's own selection RPCs (10 s by default) and the spell read are capped by the deadline too
         self.assertTrue(all(t is not None and int(t.rstrip("s")) <= 7 for _m, t in seen), seen)
 
 
