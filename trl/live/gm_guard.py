@@ -30,6 +30,7 @@ TEMPLATES = {
     "npc_summon": ".npc summon {0}",
     "go_xyz": ".go xyz {0} {1} {2} {3}",
     "additem": ".additem {0} {1}",
+    "additem_self": ".additem {0} {1}",      # the player's own gear kit (trl/gear.py); see send(), never classified
     "cooldown": ".cooldown",
     "die": ".die",
     "lookup_item": ".lookup item {0}",
@@ -57,7 +58,7 @@ CLASSIFY = [
 # kinds that first target the guid and confirm status.target (the core reads these
 # from the selection, even `.learn` and `.cooldown`; `.levelup` and `.reset talents`
 # act on the selected unit, so they are self-only selections too)
-SELECTION = {"damage", "unaura", "aura", "modify_hp", "modify_mana", "additem", "learn", "cooldown",
+SELECTION = {"damage", "unaura", "aura", "modify_hp", "modify_mana", "additem", "additem_self", "learn", "cooldown",
              "die", "levelup", "reset_talents"}
 # kinds allowed on each target class; "none" means no selection at all
 TARGETS = {
@@ -74,6 +75,7 @@ TARGETS = {
     "npc_summon": ("none",),
     "go_xyz": ("none", "self"),
     "additem": ("hire",),
+    "additem_self": ("self",),
     "cooldown": ("self",),
     "die": ("summon",),
     "lookup_item": ("none",),
@@ -126,6 +128,7 @@ class GmContext:
     learn_ids: frozenset = frozenset()
     aura_ids: frozenset = frozenset()
     item_ids: frozenset = frozenset()
+    gear_ids: frozenset = frozenset()      # the player's gear kit entries (`.additem` on the player itself)
     trial_id: str = ""
     hire_guid: str = ""
     # the extra_bots hires' party guids; with hire_guid they are the whole hire set
@@ -169,7 +172,7 @@ class GmGuard:
         if kind not in TEMPLATES:
             raise GmRefused("kind %r is not in the closed template set" % (kind,))
         text = TEMPLATES[kind].format(*args)
-        return self.send_text(text, target=target)
+        return self.send_text(text, target=target, kind_hint=kind)
 
     @_tracked
     def kill(self, guid):
@@ -209,7 +212,7 @@ class GmGuard:
     # -- closed set -------------------------------------------------------
 
     @_tracked
-    def send_text(self, text, target=None):
+    def send_text(self, text, target=None, kind_hint=None):
         self._check_abort()
         text = " ".join(str(text or "").split())
         kind, groups = None, ()
@@ -220,6 +223,10 @@ class GmGuard:
                 break
         if kind is None:
             raise GmRefused("GM text not in the closed template set: %r" % text)
+        # `.additem` on the player's own kit is a different kind from `.additem` on a hire: only send() with the
+        # kind name reaches it, so a raw ".additem N 1" line still means the hire kind (hire target only)
+        if kind == "additem" and kind_hint == "additem_self":
+            kind = "additem_self"
         prev = ""
         gen = 0
         self._validate(kind, groups, target)
@@ -333,6 +340,12 @@ class GmGuard:
             aw = int(groups[3] or 0) if len(groups) > 3 and groups[3] else 0
             if not self._arena_ok(x, y, z, aw):
                 raise GmRefused(".go xyz %d %d %d: not an arena coordinate" % (x, y, z))
+        elif kind == "additem_self":
+            item, count = int(groups[0]), int(groups[1])
+            if item not in self.ctx.gear_ids:
+                raise GmRefused(".additem %d: not an entry of this trial's gear kit" % item)
+            if count != 1:
+                raise GmRefused(".additem count %d: a kit item is granted once" % count)
         elif kind == "additem":
             item, count = int(groups[0]), int(groups[1])
             if item not in self.ctx.item_ids:

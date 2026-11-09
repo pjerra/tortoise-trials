@@ -12,7 +12,7 @@ SETUP_CHECKS = {
     "player_level", "player_talents", "player_stance", "player_forced_role",
     "player_auras", "bot_present", "bot_level", "bot_spec", "bot_role",
     "bot_items", "bot_mana", "grouped", "mobs_ready", "mob_caster_casts",
-    "cc_mark_set", "config_read", "pet_present",
+    "cc_mark_set", "config_read", "pet_present", "player_gear",
     "walk_report_ok", "boss_fights_present", "practice_marked",
     "extra_bots_present", "extra_bots_role", "extra_bots_in_group",
     # live3: player_visible = the bots saw the player (checked in the fight, required by every
@@ -452,6 +452,13 @@ def validate(trial, spells_path=None):
             _err(errs, "%s: player.stance must be an aura id or null" % tid)
         if player.get("forced_role") not in (None, "tank", "healer", "dps"):
             _err(errs, "%s: bad forced_role %r" % (tid, player.get("forced_role")))
+        if player.get("gear") not in (None, "tier"):
+            _err(errs, "%s: bad player.gear %r (null or \"tier\")" % (tid, player.get("gear")))
+        elif player.get("gear") == "tier":
+            from . import gear as _gear
+            _items, _kit_level, why = _gear.pick_kit(player)
+            if not _items:
+                _err(errs, "%s: player.gear tier: %s" % (tid, why))
         sit = trial.get("situation") or {}
         if not _check_dict(sit, SIT_FIELDS, "situation", tid, "", errs):
             sit = {}

@@ -109,3 +109,33 @@ about 15 a minute; 8 is a little over half of that. A back-off that holds the ve
 fills in, #922) gives 7 or fewer, an idle mage about 0. Under 45 s of mob-alive time the rule is INCONCLUSIVE (a nuke every 3.5 s gives 13 casts in 45 s, enough to tell 8 a minute from 0; a 20 s mob gives 5 and says nothing).
 sweep-1b's step-3 reps would read about 5-6 a minute (2 nukes in 20 s with Frost Nova, Blink and Cone of Cold cast
 in between: the mob was on the mage), i.e. FAIL for a mage that is under attack, which is information, not an artefact.
+
+## 2026-11-09: `player.gear: "tier"` for the tank and DPS trials
+
+Problem: the player of a tank or DPS trial is a GM-levelled character with no items. Its threat is far below a
+real tank's, so the DPS bots sit above 100 percent of it nearly all the time and the threat back-off dominates
+every DPS trial (the rogue Kick before/after on test3 showed it).
+
+Built: a trial option `player.gear: "tier"`. The bench had no player-gear path (the bot is geared with
+`.bot autogear`, which does not apply to the player; the guard's `.additem` was hire-only), so the smallest one was
+added: a data file `data/gear_kits.json` and a new guarded GM kind `additem_self`.
+- Kit choice (per class, role and level; warrior only, levels 40, 45 and 50 as the trials use): the plate piece of
+  highest armor per slot (cloak for the back), required level within 8 below the kit level, quality uncommon or
+  rare, vanilla entries only (below 25000), no random suffix, no reputation/honor/profession/spell requirement, no
+  PvP or placeholder names. Weapons: the highest-dps axe, mace or sword (the skills a warrior starts with) with no
+  proc or on-use effect. Tank kit: one-handed weapon and the highest-armor shield. DPS kit: a two-handed weapon,
+  no shield. Armor totals: tank 4076 / 4716 / 5561, dps 2528 / 3040 / 3658 at levels 40 / 45 / 50.
+- Guard: `additem_self` takes only the kit's entries, once each, only on the player itself. It is reachable only
+  through `send("additem_self", ...)`; a raw `.additem` line still classifies as the hire kind.
+- Verification: the `equipment` read must show every kit item; the evidence is the count and the kit's armor sum
+  (no stats read exists in the agent, so there is no live armor figure).
+
+Where it is on:
+- `dps-*` (four trials: the player is the forced tank in Defensive Stance): the tank kit. This is the case that
+  matters: a geared tank holds threat, so the back-off the trials measure is not the whole fight.
+- `tank-*` (two trials: the player is a forced-DPS warrior in Battle Stance; the bot is the tank): the DPS kit, no
+  shield. Reason: the bot's tanking is the question; a naked player adds almost no threat or damage and dies
+  quickly, which fed the rescue cap. With a two-handed weapon and plate it contributes damage like a real
+  player, and having no off-hand item keeps `player_no_shield` and the role read honest.
+Not measured: how much the gear changes the DPS bots' threat share or the rescue counts (no live run was made for
+this change); the sweep numbers in the earlier entries were taken without gear.

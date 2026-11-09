@@ -11,6 +11,7 @@ import os
 import re
 import time
 
+from .. import gear as gear_mod
 from .agent import norm_guid, wait_until
 from .gm_guard import GmRefused, GmServerError
 from .situations import THREAT_CAST, bring_hire
@@ -124,6 +125,60 @@ def check_level(agent, trial, guard, timeout=8.0):
             lowered = "lowered from %d; " % have
         have = int(agent.status().get("level") or 0)
     return row("player_level", have == want, have, "%slevel %d (target %d)" % (lowered, have, want))
+
+
+def worn_entries(agent):
+    """({item entry}, error text): the entries the player wears, from the agent's `equipment` read."""
+    out = agent.rpc("equipment", {})
+    if isinstance(out, dict) and "_err" in out:
+        return None, "no equipment read in this agent: %s" % str(out["_err"])[:120]
+    rows = out.get("items") if isinstance(out, dict) else out
+    if not isinstance(rows, list):
+        return None, "equipment reply is not a list"
+    return {int(i.get("item_entry") or 0) for i in rows if isinstance(i, dict) and int(i.get("item_entry") or 0)}, ""
+
+
+def check_player_gear(agent, trial, guard, ctx, kits=None, settle=1.0):
+    """`player.gear: "tier"`: grant and equip the player's gear kit, then read the worn items back.
+
+    The player of a tank or DPS trial is a GM-levelled character with no items: its threat is far below a
+    real tank's. The kit (trl/gear.py, data/gear_kits.json) is granted with the guarded self-only `.additem`
+    (one line per item not already worn) and equipped with the agent's `equip`. Verified from the
+    `equipment` read: every kit item must be worn; the evidence carries the count and the kit's armor total
+    (the agent has no stats read, so the figure is the sum of the worn items' armor from the kit data).
+    A missing kit, an unreadable equipment list or a missing item fails the check with the reason.
+    """
+    player = trial["player"]
+    items, kit_level, why = gear_mod.pick_kit(player, kits)
+    if not items:
+        return row("player_gear", False, None, why)
+    worn, err = worn_entries(agent)
+    if worn is None:
+        return row("player_gear", False, None, "cannot verify the gear: %s" % err)
+    todo = [i for i in items if int(i["entry"]) not in worn]
+    for item in todo:
+        guard.send("additem_self", ctx.player_guid, int(item["entry"]), 1)
+    if todo:
+        time.sleep(settle)
+    failures = []
+    for item in todo:
+        out = agent.rpc("equip", {"item_entry": int(item["entry"])})
+        if isinstance(out, dict) and "_err" in out:
+            failures.append("%s (%d): %s" % (item["name"], item["entry"], str(out["_err"])[:80]))
+    worn, err = worn_entries(agent)
+    if worn is None:
+        return row("player_gear", False, None, "cannot verify the gear: %s" % err)
+    missing = [i for i in items if int(i["entry"]) not in worn]
+    armor = sum(int(i.get("armor") or 0) for i in items if int(i["entry"]) in worn)
+    equipped = len(items) - len(missing)
+    role = gear_mod.role_of(player)
+    evidence = "%s %s kit (level %d): %d/%d items worn, kit armor %d" % (
+        player.get("class"), role, kit_level, equipped, len(items), armor)
+    if missing:
+        evidence += "; not worn: %s" % ", ".join("%s (%d)" % (i["name"], i["entry"]) for i in missing)
+    if failures:
+        evidence += "; equip errors: %s" % " | ".join(failures[:3])
+    return row("player_gear", not missing, {"worn": equipped, "kit": len(items), "armor": armor}, evidence)
 
 
 def check_talents(agent, trial, guard, ctx, settle=1.0):
@@ -811,6 +866,8 @@ def run_setup(agent, trial, guard, ledger, ctx, first=True, previous=None, previ
     steps = [("player_level", lambda: check_level(agent, trial, guard))]
     if "player_talents" in wanted:
         steps.append(("player_talents", lambda: check_talents(agent, trial, guard, ctx)))
+    if trial["player"].get("gear") == "tier":
+        steps.append(("player_gear", lambda: check_player_gear(agent, trial, guard, ctx)))
     if trial["player"].get("stance") or {"player_stance", "player_auras"} & wanted:
         steps.append(("player_stance", lambda: check_stance(agent, trial, guard, ctx)))
     if trial["player"].get("auras"):

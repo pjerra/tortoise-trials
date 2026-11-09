@@ -24,6 +24,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from .. import gear as gear_mod
 from . import collect, ladder, lease, pacing, situations, teardown
 from .agent import Agent, RpcError, norm_guid
 from .gm_guard import GmAborted, GmContext, GmGuard, GmRefused, GmServerError
@@ -971,6 +972,7 @@ class Run:
             band_low=int((sit.get("hp_band") or [40, 90])[0]),
             floor_pct=int(sit.get("floor_pct") or 30),
             learn_ids=frozenset(self.learn_ids(trial)),
+            gear_ids=frozenset(gear_mod.kit_entries(trial["player"]) if trial["player"].get("gear") == "tier" else ()),
             aura_ids=frozenset(self.aura_ids(trial)),
             arena_coords=frozenset((int(a.get("map", 0)), int(a["x"]), int(a["y"]),
                                     int(round(float(a.get("z", 0)))))

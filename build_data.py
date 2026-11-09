@@ -392,6 +392,103 @@ def build_mobs(spells_path=None, template_path=None, cspells_path=None):
     return doc
 
 
+# -- tank / DPS gear kits (trial option player.gear: "tier") -----------------------------------------
+
+GEAR_KIT_LEVELS = (40, 45, 50)
+GEAR_KIT_CLASSES = {"warrior": 1}                  # class name -> ChrClasses id (allowable_class bit = 1 << (id - 1))
+GEAR_ARMOR_SLOTS = (            # slot name -> (inventory_type values, item class, item subclass)
+    ("head", (1,), 4, 4), ("shoulder", (3,), 4, 4), ("chest", (5, 20), 4, 4), ("waist", (6,), 4, 4),
+    ("legs", (7,), 4, 4), ("feet", (8,), 4, 4), ("wrist", (9,), 4, 4), ("hands", (10,), 4, 4),
+    ("back", (16,), 4, 1),
+)
+GEAR_MAX_ENTRY = 25000
+GEAR_BAD_NAME = re.compile(r"arena|marshal|sergeant|warlord|general|champion|zzz|test|deprecated|\bold\b|\(|monster|dnd|\bdep\b", re.I)
+WARRIOR_1H_SUBCLASSES = (0, 4, 7)                  # axe, mace, sword: warriors know these from level 1
+WARRIOR_2H_SUBCLASSES = (1, 5, 8)                  # 2H axe, mace, sword
+
+
+def _has_spell(row):
+    """A proc or on-use effect would change the fight the trial measures: weapons without one."""
+    return any(_as_int(row.get("spellid_%d" % i)) for i in range(1, 6))
+
+
+def _weapon_dps(row):
+    delay = _as_int(row.get("delay"))
+    if delay <= 0:
+        return 0.0
+    return (float(row.get("dmg_min1") or 0) + float(row.get("dmg_max1") or 0)) / 2.0 / (delay / 1000.0)
+
+
+def build_gear_kits(path=None):
+    """Per class, role (tank | dps) and kit level: one plain, non-random, unrestricted item per slot.
+
+    Armor: plate (the back slot: cloak), highest armor then item level, required level within 8 levels below the
+    kit level, quality uncommon or rare, no reputation / honor / profession / spell requirement, no random suffix,
+    usable by the class. Tank: a one-handed axe, mace or sword (highest dps) and a shield (highest armor). DPS: a
+    two-handed axe, mace or sword (highest dps), no off-hand. Read from the public core's item_template.
+    """
+    path = path or os.path.join(CORE_SQL, "tw_world_item_template.sql")
+    rows = _parse_table(path, "item_template")
+
+    def usable(row, level, class_bit):
+        if _as_int(row.get("quality")) not in (2, 3):
+            return False
+        req = _as_int(row.get("required_level"))
+        if not level - 8 <= req <= level:
+            return False
+        if _as_int(row.get("allowable_race")) not in (-1, 0, 32767, 1791):
+            return False
+        allowed = _as_int(row.get("allowable_class"))
+        if allowed not in (-1, 0, 32767) and not allowed & class_bit:
+            return False
+        for key in ("required_reputation_faction", "required_honor_rank", "required_city_rank",
+                    "required_spell", "required_skill", "random_property", "start_quest", "set_id"):
+            if _as_int(row.get(key)):
+                return False
+        # vanilla 1.12 entries only (the server's own additions sit above 25000 and are unproven), and no
+        # test, PvP or placeholder names
+        name = str(row.get("name") or "")
+        if _as_int(row.get("entry")) >= GEAR_MAX_ENTRY or GEAR_BAD_NAME.search(name):
+            return False
+        return True
+
+    kits = {}
+    for klass, class_id in GEAR_KIT_CLASSES.items():
+        bit = 1 << (class_id - 1)
+        for role in ("tank", "dps"):
+            for level in GEAR_KIT_LEVELS:
+                items = []
+                pool = [r for r in rows if usable(r, level, bit)]
+                for slot, invs, icls, isub in GEAR_ARMOR_SLOTS:
+                    cands = [r for r in pool if _as_int(r.get("class")) == icls and _as_int(r.get("subclass")) == isub
+                             and _as_int(r.get("inventory_type")) in invs]
+                    if not cands:
+                        continue
+                    best = max(cands, key=lambda r: (_as_int(r.get("armor")), _as_int(r.get("item_level")), -_as_int(r.get("entry"))))
+                    items.append((slot, best))
+                if role == "tank":
+                    weapons = [r for r in pool if _as_int(r.get("class")) == 2 and not _has_spell(r)
+                               and _as_int(r.get("subclass")) in WARRIOR_1H_SUBCLASSES
+                               and _as_int(r.get("inventory_type")) in (13, 21)]
+                    shields = [r for r in pool if _as_int(r.get("class")) == 4 and _as_int(r.get("subclass")) == 6
+                               and _as_int(r.get("inventory_type")) == 14]
+                    if weapons:
+                        items.append(("mainhand", max(weapons, key=lambda r: (_weapon_dps(r), -_as_int(r.get("entry"))))))
+                    if shields:
+                        items.append(("offhand", max(shields, key=lambda r: (_as_int(r.get("armor")), _as_int(r.get("item_level")), -_as_int(r.get("entry"))))))
+                else:
+                    weapons = [r for r in pool if _as_int(r.get("class")) == 2 and not _has_spell(r)
+                               and _as_int(r.get("subclass")) in WARRIOR_2H_SUBCLASSES
+                               and _as_int(r.get("inventory_type")) == 17]
+                    if weapons:
+                        items.append(("twohand", max(weapons, key=lambda r: (_weapon_dps(r), -_as_int(r.get("entry"))))))
+                kits.setdefault(klass, {}).setdefault(role, {})[str(level)] = [
+                    {"slot": slot, "entry": _as_int(r["entry"]), "name": r["name"],
+                     "armor": _as_int(r.get("armor")), "required_level": _as_int(r.get("required_level"))}
+                    for slot, r in items]
+    return kits
+
+
 def main():
     spells = build_spells()
     data_dir = os.path.join(TOOL_ROOT, "data")
@@ -401,6 +498,11 @@ def main():
     mobs = build_mobs()
     with open(os.path.join(data_dir, "mobs.json"), "w") as f:
         json.dump(mobs, f, indent=1, sort_keys=True)
+    kits = build_gear_kits()
+    with open(os.path.join(data_dir, "gear_kits.json"), "w") as f:
+        json.dump(kits, f, indent=1, sort_keys=True)
+    print("gear kits: %s" % ", ".join("%s/%s/%s=%d" % (k, r, lv, len(v)) for k, roles in sorted(kits.items())
+                                      for r, lvls in sorted(roles.items()) for lv, v in sorted(lvls.items())))
     print("spells: %d names, %d ids" % (len(spells["by_name"]), len(spells["by_id"])))
     print("mobs: melee=%d caster=%d humanoid=%d" % (
         len(mobs["melee"]), len(mobs["caster"]), len(mobs["humanoid"])))

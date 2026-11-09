@@ -17,7 +17,8 @@
     "stance": 71,
     "forced_role": "tank",
     "auras": [],
-    "items": []
+    "items": [],
+    "gear": "tier"
   },
   "bot": {
     "class": "mage",
@@ -71,6 +72,7 @@
     "player_level",
     "player_visible",
     "player_talents",
+    "player_gear",
     "player_stance",
     "player_forced_role",
     "bot_present",

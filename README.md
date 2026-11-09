@@ -84,7 +84,8 @@ still there. If a run dies, run `cleanup` on its folder before the next run.
 
 A trial is one JSON file in `trials/<group>/`. Unknown keys are rejected by `validate`.
 
-- `player`: class, level, talents (tree and spell ids), stance, forced role, auras, items.
+- `player`: class, level, talents (tree and spell ids), stance, forced role, auras, items, and `gear`
+  (null or `"tier"`, see below).
 - `bot` (the hire) and `extra_bots` (more hires, for example a second tank): class, spec, role,
   level, gear tier, items.
 - `situation`: how to make the situation, by `kind` (`tank_damage`, `ooc_hurt`, `ooc_buffs`,
@@ -115,6 +116,27 @@ Shortened example (from `trials/healers/priest-holy-pws-def-arms-2tank.json`):
              "pass_if": "== 0", "min_opportunity_s": 90}]
 }
 ```
+
+### Player gear (`player.gear: "tier"`)
+
+The player is a GM-levelled character with no items, so its threat is far below a real tank's and the
+DPS bots sit above 100 percent of it almost all the time: the threat back-off then decides every DPS trial.
+`"gear": "tier"` makes the runner grant and equip a fixed kit before the repeat (setup check `player_gear`,
+after the level and talents):
+
+- The kit comes from `data/gear_kits.json` (made by `build_data.py` from the public core's `item_template`):
+  per class (warrior only so far), per role and per level (40, 45, 50). Role is `tank` when the player's
+  `forced_role` is `tank` (plate, a one-handed weapon and a shield) and `dps` otherwise (plate and a
+  two-handed weapon, no shield, so the player does not read as a tank). A player level between kits takes the
+  highest kit below it, at most 9 levels down. Items are plain vanilla (entry below 25000) plate pieces of
+  the highest armor, weapons without a proc or on-use effect, no reputation, honor or profession requirement.
+- Each item not already worn is granted with the guarded self-only `.additem` (kind `additem_self`: only the
+  kit's entries, once each, only on the player itself; the hire `.additem` is unchanged) and equipped with the
+  agent's `equip`.
+- Verified from the agent's `equipment` read: every kit item must be worn, and the evidence in `setup.json` is
+  the count and the kit's armor total (the agent has no stats read, so the armor figure is the sum of the worn
+  kit items' armor). A class, role or level with no kit fails `validate` and the setup, with the reason; an
+  agent without an `equipment` read fails it too instead of passing unverified.
 
 ### Rule options for latency and filtered rules
 

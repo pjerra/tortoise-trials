@@ -17,7 +17,8 @@
     "stance": 2457,
     "forced_role": "dps",
     "auras": [],
-    "items": []
+    "items": [],
+    "gear": "tier"
   },
   "bot": {
     "class": "warrior",
@@ -66,6 +67,7 @@
     "player_level",
     "player_visible",
     "player_talents",
+    "player_gear",
     "player_stance",
     "player_forced_role",
     "player_no_shield",
