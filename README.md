@@ -131,10 +131,16 @@ after the level and talents):
   highest kit below it, at most 9 levels down. Items are plain vanilla (entry below 25000) plate pieces of
   the highest armor, weapons without a proc or on-use effect, no intellect or spirit, no reputation, honor or
   profession requirement.
-- The kit is put on in this order: an item already worn stays; one already in the bags (left by an earlier
+- The kit is put on in this order: first the armor and weapon proficiencies its items need are learned (a
+  GM-levelled warrior has no Plate Mail 750; Mail is 8737, weapon skills from the kit's item class and
+  subclass; cloth needs none; only the player itself, through the guarded `.learn`, from a fixed table in
+  `trl/gear.py`); an item already worn stays; one already in the bags (left by an earlier
   repeat or trial) is equipped without a new grant; only an item that is neither is granted with the guarded
   self-only `.additem` (kind `additem_self`: only the kit's entries, only on the player itself; the hire
-  `.additem` is unchanged) and equipped with the agent's `equip`. A repeat never piles up duplicates.
+  `.additem` is unchanged) and equipped with the agent's `equip`. A repeat never piles up duplicates. The
+  equip waits for the grant to show in the bags and the read-back waits for the equip to show on the body;
+  a piece still off gets its equip sent again (twice at most). A kit item left by another trial (a level-40
+  kit before a level-50 trial) is stripped first (setup check `player_gear_carryover`, same guarded `-1`).
 - A trial WITHOUT `player.gear` strips first (setup check `player_gear_strip`): the slot character is kept
   between trials, so a gear trial's kit would otherwise stay on the next trial's player (plate and a shield
   fail `player_no_shield` and move every baseline). Every entry of any kit that is worn or in the bags is

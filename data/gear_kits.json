@@ -5,216 +5,276 @@
     {
      "armor": 395,
      "entry": 7922,
+     "item_class": 4,
      "name": "Steel Plate Helm",
      "required_level": 40,
-     "slot": "head"
+     "slot": "head",
+     "subclass": 4
     },
     {
      "armor": 327,
      "entry": 7928,
+     "item_class": 4,
      "name": "Ornate Mithril Shoulder",
      "required_level": 40,
-     "slot": "shoulder"
+     "slot": "shoulder",
+     "subclass": 4
     },
     {
      "armor": 382,
      "entry": 14821,
+     "item_class": 4,
      "name": "Symbolic Breastplate",
      "required_level": 40,
-     "slot": "chest"
+     "slot": "chest",
+     "subclass": 4
     },
     {
      "armor": 215,
      "entry": 8140,
+     "item_class": 4,
      "name": "Chromite Girdle",
      "required_level": 40,
-     "slot": "waist"
+     "slot": "waist",
+     "subclass": 4
     },
     {
      "armor": 417,
      "entry": 7921,
+     "item_class": 4,
      "name": "Heavy Mithril Pants",
      "required_level": 40,
-     "slot": "legs"
+     "slot": "legs",
+     "subclass": 4
     },
     {
      "armor": 294,
      "entry": 8141,
+     "item_class": 4,
      "name": "Chromite Greaves",
      "required_level": 40,
-     "slot": "feet"
+     "slot": "feet",
+     "subclass": 4
     },
     {
      "armor": 167,
      "entry": 8137,
+     "item_class": 4,
      "name": "Chromite Bracers",
      "required_level": 40,
-     "slot": "wrist"
+     "slot": "wrist",
+     "subclass": 4
     },
     {
      "armor": 300,
      "entry": 7938,
+     "item_class": 4,
      "name": "Truesilver Gauntlets",
      "required_level": 40,
-     "slot": "hands"
+     "slot": "hands",
+     "subclass": 4
     },
     {
      "armor": 30,
      "entry": 8120,
+     "item_class": 4,
      "name": "Heraldic Cloak",
      "required_level": 40,
-     "slot": "back"
+     "slot": "back",
+     "subclass": 1
     },
     {
      "armor": 0,
      "entry": 10758,
+     "item_class": 2,
      "name": "X'caliboar",
      "required_level": 35,
-     "slot": "twohand"
+     "slot": "twohand",
+     "subclass": 8
     }
    ],
    "45": [
     {
      "armor": 469,
      "entry": 7934,
+     "item_class": 4,
      "name": "Heavy Mithril Helm",
      "required_level": 42,
-     "slot": "head"
+     "slot": "head",
+     "subclass": 4
     },
     {
      "armor": 327,
      "entry": 7928,
+     "item_class": 4,
      "name": "Ornate Mithril Shoulder",
      "required_level": 40,
-     "slot": "shoulder"
+     "slot": "shoulder",
+     "subclass": 4
     },
     {
      "armor": 536,
      "entry": 7930,
+     "item_class": 4,
      "name": "Heavy Mithril Breastplate",
      "required_level": 41,
-     "slot": "chest"
+     "slot": "chest",
+     "subclass": 4
     },
     {
      "armor": 270,
      "entry": 12406,
+     "item_class": 4,
      "name": "Thorium Belt",
      "required_level": 45,
-     "slot": "waist"
+     "slot": "waist",
+     "subclass": 4
     },
     {
      "armor": 429,
      "entry": 13074,
+     "item_class": 4,
      "name": "Golem Shard Leggings",
      "required_level": 41,
-     "slot": "legs"
+     "slot": "legs",
+     "subclass": 4
     },
     {
      "armor": 382,
      "entry": 7933,
+     "item_class": 4,
      "name": "Heavy Mithril Boots",
      "required_level": 42,
-     "slot": "feet"
+     "slot": "feet",
+     "subclass": 4
     },
     {
      "armor": 223,
      "entry": 13076,
+     "item_class": 4,
      "name": "Giantslayer Bracers",
      "required_level": 43,
-     "slot": "wrist"
+     "slot": "wrist",
+     "subclass": 4
     },
     {
      "armor": 300,
      "entry": 14846,
+     "item_class": 4,
      "name": "Sunscale Gauntlets",
      "required_level": 45,
-     "slot": "hands"
+     "slot": "hands",
+     "subclass": 4
     },
     {
      "armor": 35,
      "entry": 13109,
+     "item_class": 4,
      "name": "Blackflame Cape",
      "required_level": 44,
-     "slot": "back"
+     "slot": "back",
+     "subclass": 1
     },
     {
      "armor": 0,
      "entry": 13046,
+     "item_class": 2,
      "name": "Blanchard's Stout",
      "required_level": 45,
-     "slot": "twohand"
+     "slot": "twohand",
+     "subclass": 5
     }
    ],
    "50": [
     {
      "armor": 683,
      "entry": 17734,
+     "item_class": 4,
      "name": "Helm of the Mountain",
      "required_level": 48,
-     "slot": "head"
+     "slot": "head",
+     "subclass": 4
     },
     {
      "armor": 403,
      "entry": 13066,
+     "item_class": 4,
      "name": "Wyrmslayer Spaulders",
      "required_level": 46,
-     "slot": "shoulder"
+     "slot": "shoulder",
+     "subclass": 4
     },
     {
      "armor": 577,
      "entry": 11678,
+     "item_class": 4,
      "name": "Carapace of Anub'shiah",
      "required_level": 50,
-     "slot": "chest"
+     "slot": "chest",
+     "subclass": 4
     },
     {
      "armor": 484,
      "entry": 11703,
+     "item_class": 4,
      "name": "Stonewall Girdle",
      "required_level": 50,
-     "slot": "waist"
+     "slot": "waist",
+     "subclass": 4
     },
     {
      "armor": 496,
      "entry": 17711,
+     "item_class": 4,
      "name": "Elemental Rockridge Leggings",
      "required_level": 49,
-     "slot": "legs"
+     "slot": "legs",
+     "subclass": 4
     },
     {
      "armor": 397,
      "entry": 12555,
+     "item_class": 4,
      "name": "Battlechaser's Greaves",
      "required_level": 50,
-     "slot": "feet"
+     "slot": "feet",
+     "subclass": 4
     },
     {
      "armor": 244,
      "entry": 12550,
+     "item_class": 4,
      "name": "Runed Golem Shackles",
      "required_level": 48,
-     "slot": "wrist"
+     "slot": "wrist",
+     "subclass": 4
     },
     {
      "armor": 317,
      "entry": 8314,
+     "item_class": 4,
      "name": "Alabaster Plate Gauntlets",
      "required_level": 48,
-     "slot": "hands"
+     "slot": "hands",
+     "subclass": 4
     },
     {
      "armor": 39,
      "entry": 12552,
+     "item_class": 4,
      "name": "Blisterbane Wrap",
      "required_level": 50,
-     "slot": "back"
+     "slot": "back",
+     "subclass": 1
     },
     {
      "armor": 0,
      "entry": 13046,
+     "item_class": 2,
      "name": "Blanchard's Stout",
      "required_level": 45,
-     "slot": "twohand"
+     "slot": "twohand",
+     "subclass": 5
     }
    ]
   },
@@ -223,237 +283,303 @@
     {
      "armor": 395,
      "entry": 7922,
+     "item_class": 4,
      "name": "Steel Plate Helm",
      "required_level": 40,
-     "slot": "head"
+     "slot": "head",
+     "subclass": 4
     },
     {
      "armor": 327,
      "entry": 7928,
+     "item_class": 4,
      "name": "Ornate Mithril Shoulder",
      "required_level": 40,
-     "slot": "shoulder"
+     "slot": "shoulder",
+     "subclass": 4
     },
     {
      "armor": 382,
      "entry": 14821,
+     "item_class": 4,
      "name": "Symbolic Breastplate",
      "required_level": 40,
-     "slot": "chest"
+     "slot": "chest",
+     "subclass": 4
     },
     {
      "armor": 215,
      "entry": 8140,
+     "item_class": 4,
      "name": "Chromite Girdle",
      "required_level": 40,
-     "slot": "waist"
+     "slot": "waist",
+     "subclass": 4
     },
     {
      "armor": 417,
      "entry": 7921,
+     "item_class": 4,
      "name": "Heavy Mithril Pants",
      "required_level": 40,
-     "slot": "legs"
+     "slot": "legs",
+     "subclass": 4
     },
     {
      "armor": 294,
      "entry": 8141,
+     "item_class": 4,
      "name": "Chromite Greaves",
      "required_level": 40,
-     "slot": "feet"
+     "slot": "feet",
+     "subclass": 4
     },
     {
      "armor": 167,
      "entry": 8137,
+     "item_class": 4,
      "name": "Chromite Bracers",
      "required_level": 40,
-     "slot": "wrist"
+     "slot": "wrist",
+     "subclass": 4
     },
     {
      "armor": 300,
      "entry": 7938,
+     "item_class": 4,
      "name": "Truesilver Gauntlets",
      "required_level": 40,
-     "slot": "hands"
+     "slot": "hands",
+     "subclass": 4
     },
     {
      "armor": 30,
      "entry": 8120,
+     "item_class": 4,
      "name": "Heraldic Cloak",
      "required_level": 40,
-     "slot": "back"
+     "slot": "back",
+     "subclass": 1
     },
     {
      "armor": 0,
      "entry": 9359,
+     "item_class": 2,
      "name": "Wirt's Third Leg",
      "required_level": 40,
-     "slot": "mainhand"
+     "slot": "mainhand",
+     "subclass": 4
     },
     {
      "armor": 1287,
      "entry": 9404,
+     "item_class": 4,
      "name": "Olaf's All Purpose Shield",
      "required_level": 37,
-     "slot": "offhand"
+     "slot": "offhand",
+     "subclass": 6
     }
    ],
    "45": [
     {
      "armor": 469,
      "entry": 7934,
+     "item_class": 4,
      "name": "Heavy Mithril Helm",
      "required_level": 42,
-     "slot": "head"
+     "slot": "head",
+     "subclass": 4
     },
     {
      "armor": 327,
      "entry": 7928,
+     "item_class": 4,
      "name": "Ornate Mithril Shoulder",
      "required_level": 40,
-     "slot": "shoulder"
+     "slot": "shoulder",
+     "subclass": 4
     },
     {
      "armor": 536,
      "entry": 7930,
+     "item_class": 4,
      "name": "Heavy Mithril Breastplate",
      "required_level": 41,
-     "slot": "chest"
+     "slot": "chest",
+     "subclass": 4
     },
     {
      "armor": 270,
      "entry": 12406,
+     "item_class": 4,
      "name": "Thorium Belt",
      "required_level": 45,
-     "slot": "waist"
+     "slot": "waist",
+     "subclass": 4
     },
     {
      "armor": 429,
      "entry": 13074,
+     "item_class": 4,
      "name": "Golem Shard Leggings",
      "required_level": 41,
-     "slot": "legs"
+     "slot": "legs",
+     "subclass": 4
     },
     {
      "armor": 382,
      "entry": 7933,
+     "item_class": 4,
      "name": "Heavy Mithril Boots",
      "required_level": 42,
-     "slot": "feet"
+     "slot": "feet",
+     "subclass": 4
     },
     {
      "armor": 223,
      "entry": 13076,
+     "item_class": 4,
      "name": "Giantslayer Bracers",
      "required_level": 43,
-     "slot": "wrist"
+     "slot": "wrist",
+     "subclass": 4
     },
     {
      "armor": 300,
      "entry": 14846,
+     "item_class": 4,
      "name": "Sunscale Gauntlets",
      "required_level": 45,
-     "slot": "hands"
+     "slot": "hands",
+     "subclass": 4
     },
     {
      "armor": 35,
      "entry": 13109,
+     "item_class": 4,
      "name": "Blackflame Cape",
      "required_level": 44,
-     "slot": "back"
+     "slot": "back",
+     "subclass": 1
     },
     {
      "armor": 50,
      "entry": 7946,
+     "item_class": 2,
      "name": "Runed Mithril Hammer",
      "required_level": 44,
-     "slot": "mainhand"
+     "slot": "mainhand",
+     "subclass": 4
     },
     {
      "armor": 1676,
      "entry": 2040,
+     "item_class": 4,
      "name": "Troll Protector",
      "required_level": 43,
-     "slot": "offhand"
+     "slot": "offhand",
+     "subclass": 6
     }
    ],
    "50": [
     {
      "armor": 683,
      "entry": 17734,
+     "item_class": 4,
      "name": "Helm of the Mountain",
      "required_level": 48,
-     "slot": "head"
+     "slot": "head",
+     "subclass": 4
     },
     {
      "armor": 403,
      "entry": 13066,
+     "item_class": 4,
      "name": "Wyrmslayer Spaulders",
      "required_level": 46,
-     "slot": "shoulder"
+     "slot": "shoulder",
+     "subclass": 4
     },
     {
      "armor": 577,
      "entry": 11678,
+     "item_class": 4,
      "name": "Carapace of Anub'shiah",
      "required_level": 50,
-     "slot": "chest"
+     "slot": "chest",
+     "subclass": 4
     },
     {
      "armor": 484,
      "entry": 11703,
+     "item_class": 4,
      "name": "Stonewall Girdle",
      "required_level": 50,
-     "slot": "waist"
+     "slot": "waist",
+     "subclass": 4
     },
     {
      "armor": 496,
      "entry": 17711,
+     "item_class": 4,
      "name": "Elemental Rockridge Leggings",
      "required_level": 49,
-     "slot": "legs"
+     "slot": "legs",
+     "subclass": 4
     },
     {
      "armor": 397,
      "entry": 12555,
+     "item_class": 4,
      "name": "Battlechaser's Greaves",
      "required_level": 50,
-     "slot": "feet"
+     "slot": "feet",
+     "subclass": 4
     },
     {
      "armor": 244,
      "entry": 12550,
+     "item_class": 4,
      "name": "Runed Golem Shackles",
      "required_level": 48,
-     "slot": "wrist"
+     "slot": "wrist",
+     "subclass": 4
     },
     {
      "armor": 317,
      "entry": 8314,
+     "item_class": 4,
      "name": "Alabaster Plate Gauntlets",
      "required_level": 48,
-     "slot": "hands"
+     "slot": "hands",
+     "subclass": 4
     },
     {
      "armor": 39,
      "entry": 12552,
+     "item_class": 4,
      "name": "Blisterbane Wrap",
      "required_level": 50,
-     "slot": "back"
+     "slot": "back",
+     "subclass": 1
     },
     {
      "armor": 0,
      "entry": 11702,
+     "item_class": 2,
      "name": "Grizzle's Skinner",
      "required_level": 50,
-     "slot": "mainhand"
+     "slot": "mainhand",
+     "subclass": 0
     },
     {
      "armor": 1903,
      "entry": 11631,
+     "item_class": 4,
      "name": "Stoneshell Guard",
      "required_level": 47,
-     "slot": "offhand"
+     "slot": "offhand",
+     "subclass": 6
     }
    ]
   }

@@ -12,6 +12,7 @@ import re
 import time
 from dataclasses import dataclass, field
 
+from .. import gear as _gear
 from .agent import RpcError, norm_guid
 
 TEMPLATES = {
@@ -292,7 +293,9 @@ class GmGuard:
                 raise GmRefused(".levelup %d out of range" % n)
         elif kind == "learn":
             spell = int(groups[0])
-            if spell not in self.ctx.learn_ids:
+            # the armor / weapon proficiencies a gear kit needs (trl/gear.py PROFICIENCY, a fixed table: kit data cannot widen it), a closed set,
+            # self-only like every `.learn`
+            if spell not in self.ctx.learn_ids and spell not in _gear.PROFICIENCY_SPELLS:
                 raise GmRefused(".learn %d: not a trial talent/data spell" % spell)
         elif kind == "aura":
             spell = int(groups[0])

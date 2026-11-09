@@ -488,7 +488,8 @@ def build_gear_kits(path=None):
                         items.append(("twohand", max(weapons, key=lambda r: (_weapon_dps(r), -_as_int(r.get("entry"))))))
                 kits.setdefault(klass, {}).setdefault(role, {})[str(level)] = [
                     {"slot": slot, "entry": _as_int(r["entry"]), "name": r["name"],
-                     "armor": _as_int(r.get("armor")), "required_level": _as_int(r.get("required_level"))}
+                     "armor": _as_int(r.get("armor")), "required_level": _as_int(r.get("required_level")),
+                     "item_class": _as_int(r.get("class")), "subclass": _as_int(r.get("subclass"))}
                     for slot, r in items]
     return kits
 

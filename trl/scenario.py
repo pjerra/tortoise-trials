@@ -12,7 +12,7 @@ SETUP_CHECKS = {
     "player_level", "player_talents", "player_stance", "player_forced_role",
     "player_auras", "bot_present", "bot_level", "bot_spec", "bot_role",
     "bot_items", "bot_mana", "grouped", "mobs_ready", "mob_caster_casts",
-    "cc_mark_set", "config_read", "pet_present", "player_gear", "player_gear_strip",
+    "cc_mark_set", "config_read", "pet_present", "player_gear", "player_gear_strip", "player_gear_carryover",
     "walk_report_ok", "boss_fights_present", "practice_marked",
     "extra_bots_present", "extra_bots_role", "extra_bots_in_group",
     # live3: player_visible = the bots saw the player (checked in the fight, required by every

@@ -55,6 +55,52 @@ def pick_kit(player, kits=None):
     return items, kit_level, ""
 
 
+# The proficiency spell a kit item needs. A GM-levelled character never learned them (a warrior's Plate Mail
+# 750 is a level-40 trainer spell), and an item it has no proficiency for cannot be equipped. Cloth (9078)
+# is known by every class and is not listed. Keys are (item class, subclass): class 4 armor, class 2 weapon.
+PROFICIENCY = {
+    (4, 2): 9077,      # leather
+    (4, 3): 8737,      # mail
+    (4, 4): 750,       # plate
+    (4, 6): 9116,      # shield
+    (2, 0): 196,       # one-handed axe
+    (2, 1): 197,       # two-handed axe
+    (2, 2): 264,       # bow
+    (2, 3): 266,       # gun
+    (2, 4): 198,       # one-handed mace
+    (2, 5): 199,       # two-handed mace
+    (2, 6): 200,       # polearm
+    (2, 7): 201,       # one-handed sword
+    (2, 8): 202,       # two-handed sword
+    (2, 10): 227,      # staff
+    (2, 13): 15590,    # fist weapon
+    (2, 15): 1180,     # dagger
+    (2, 16): 2567,     # thrown
+    (2, 18): 5011,     # crossbow
+    (2, 19): 5009,     # wand
+}
+PROFICIENCY_SPELLS = frozenset(PROFICIENCY.values())
+# A kit entry without item_class / subclass (a kit file from before they were recorded) falls back to its
+# slot: the armor slots of a kit are plate, the back slot is cloth, a weapon slot needs nothing it can name.
+SLOT_ARMOR_SUBCLASS = {"head": 4, "shoulder": 4, "chest": 4, "waist": 4, "legs": 4, "feet": 4, "wrist": 4,
+                       "hands": 4, "back": 1}
+
+
+def proficiency_spells(items):
+    """Sorted spell ids of the armor and weapon proficiencies the kit's items need (cloth needs none)."""
+    out = set()
+    for item in items or []:
+        klass, sub = item.get("item_class"), item.get("subclass")
+        if klass is None or sub is None:
+            if item.get("slot") not in SLOT_ARMOR_SUBCLASS:
+                continue
+            klass, sub = 4, SLOT_ARMOR_SUBCLASS[item["slot"]]
+        spell = PROFICIENCY.get((int(klass), int(sub)))
+        if spell:
+            out.add(spell)
+    return sorted(out)
+
+
 def kit_entries(player, kits=None):
     items, _lvl, _why = pick_kit(player, kits)
     return [int(i["entry"]) for i in items or []]

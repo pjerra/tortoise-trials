@@ -164,7 +164,7 @@ class SetupCheckTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = self.ctx(trial, kits)
             return setup.check_player_gear(agent, trial or self.TRIAL,
-                                           gm_guard.GmGuard(agent, tl.new_ledger(tmp), ctx), ctx, kits=kits, settle=0.0)
+                                           gm_guard.GmGuard(agent, tl.new_ledger(tmp), ctx), ctx, kits=kits, settle=0.0, wait=0.0, poll=0.0)
 
     def test_the_kit_is_granted_equipped_and_verified(self):
         agent = GearAgent()
@@ -240,7 +240,7 @@ class StripTest(unittest.TestCase):
             ctx = tl.ctx_for(gear_ids=frozenset(gear.kit_entries(player(level=50))),
                              strip_ids=frozenset(gear.all_entries()))
             guard = gm_guard.GmGuard(agent, tl.new_ledger(tmp), ctx)
-            row = setup.check_player_gear(agent, {"id": "g", "player": player(level=50)}, guard, ctx, settle=0.0)
+            row = setup.check_player_gear(agent, {"id": "g", "player": player(level=50)}, guard, ctx, settle=0.0, wait=0.0, poll=0.0)
             self.assertTrue(row["ok"])
             self.assertGreaterEqual(len(agent.worn), 10)
             agent.bags[7922] = agent.bags.get(7922, 0) + 1          # a leftover copy in the bags too

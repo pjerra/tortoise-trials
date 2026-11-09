@@ -153,3 +153,17 @@ with `.additem <id> -1` through the same guarded self-only kind (kit entries onl
 any item would open a destroy command the closed set should not have, and the healer trials only need the off-hand
 and plate gone. A trial WITH gear equips from the bags first and grants only what is neither worn nor bagged, so
 a repeat never duplicates a kit.
+
+### Kit proficiencies and kit carry-over between gear trials
+
+A GM-levelled warrior never learns Plate Mail (750), so 8 of 11 plate pieces of a tier kit stayed in the bags and
+every rep was INVALID; editing 750 into three trial files hid it for those trials only. Chosen: the gear step learns
+the proficiencies the kit needs (`trl/gear.py` PROFICIENCY: plate 750, mail 8737, leather 9077, shield 9116, weapon
+skills by item subclass; cloth none) for the player itself, only those it does not know, before the equip. The kit
+data now records `item_class` and `subclass` (build_data.py); an entry without them falls back to its slot. The
+guard's `.learn` accepts this fixed table beside the trial's own spells, still self-only. A level-40 kit left on the
+slot character failed a level-50 trial: a gear trial now strips every kit item first when the player carries one
+that is not in its own kit (`player_gear_carryover`, the same guarded `.additem <id> -1`; a different level means
+different items, so the leftover itself is the trigger). The equip waits for the grant to show in the bags, the
+read-back waits for the equip to show, and an unworn piece is equipped again (twice): the likely cause of the piece
+that stayed off at random. Not found offline: why rep 1 of the level-40 control was always INVALID.
