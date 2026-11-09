@@ -89,7 +89,7 @@
   "rules": [
     {
       "id": "TNK-DRU-ADD-PICKUP",
-      "desc": "A mob that hits the healer (extra1) or the DPS player gets a taunt (Taunt, Mocking Blow or Challenging Shout) on it within 5 s, at least 70 percent of the time (one trigger per mob per 12 s, one counted answer per 10 s: Taunt's cooldown). A scheduled second mob joins about a minute in (refill_every_s 60) while the first still lives, so its triggers arrive while the single-target taunt may be on cooldown from the first mob",
+      "desc": "A mob that hits the healer (extra1) or the DPS player gets Growl on it within 5 s, at least 70 percent of the time (one trigger per mob per 12 s, one counted answer per 10 s: Growl's cooldown). A scheduled second mob joins about a minute in (refill_every_s 60) while the first still lives, so its triggers arrive while the single-target taunt may be on cooldown from the first mob Only hits after 55 s count (trigger t_from 55): the scheduled refill_every_s 60 add lands about a minute into the fight, so earlier hits on the first mob are not triggers.",
       "source": "ai/playerbot/strategy/druid/TankFeralDruidStrategy.cpp:55-63 (lose aggro -> growl and party member attacked -> growl on attacker, both at ACTION_MOVE); TortoiseBots upstream/dev abb91ff62",
       "expect_today": "?",
       "why_expect": "the scheduled add opens on the player while the first mob still lives; both growl rows sit at ACTION_MOVE, so whether the bear answers the add while already tanking is the question. Expected UNKNOWN on TortoiseBots upstream/dev abb91ff62",
@@ -101,7 +101,8 @@
           "dst": [
             "$player",
             "$extra1"
-          ]
+          ],
+          "t_from": 55
         },
         "response": {
           "kind": "cast",

@@ -85,6 +85,11 @@
   "duration_s": 180,
   "repeats": 3,
   "min_valid_s": 120,
+  "opportunity": {
+    "unit": "$bot",
+    "hp_lt": 50,
+    "in_combat": true
+  },
   "rules": [
     {
       "id": "TNK-DRU-FRENZIED",
@@ -101,7 +106,8 @@
           "src_hp_le": 50
         }
       },
-      "pass_if": ">= 1"
+      "pass_if": ">= 1",
+      "min_opportunity_s": 30
     },
     {
       "id": "TNK-DRU-DEFENSIVE-FORM",

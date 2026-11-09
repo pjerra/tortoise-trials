@@ -246,36 +246,35 @@ Common set-up for all of them:
   `src_threat_pct_of_tank`. Unblocks trial 11 and would turn the outcome rules of trials 3, 4 and 6 into
   direct ones.
 
-## Sweep-tanks: the 21 new tank trials
+## Sweep-tanks: the 18 tank trials (round 1 fixes, 2026-11-09)
 
 Written 2026-11-09, no live runs. Each trial tests ONE behaviour for warrior (protection), druid
 (bear) or paladin (protection); every rule cites `ai/playerbot/` code at `abb91ff62` and carries
 `expect_today` with the one-line reason. Offline tests in `tests/test_rules_tanks_dps.py` score every
-rule PASS and FAIL (or INCONCLUSIVE at `min_n`) through `score_rep`.
+rule PASS and FAIL (or INCONCLUSIVE at `min_n` / `min_opportunity_s`) through `score_rep`.
+Round 1 (this pass) fixed the always-PASS/FAIL shapes found in cold review; the per-item notes are
+under the table.
 
 | file | behaviour | expect_today |
 |---|---|---|
 | `tank-bear-growl-maul.json` | Growl latency, Maul rate, Dire Bear Form uptime | `?` / PASS / PASS |
 | `tank-bear-hold-single.json` | holds 1 mob (`<= 0.3` of hits on non-tanks) | `?` |
 | `tank-bear-hold-three.json` | holds 3 mobs (`<= 0.4`) | `?` |
-| `tank-bear-no-growl-tank-player.json` | no Growl on a mob a player tank holds (control) | PASS |
-| `tank-bear-add-pickup.json` | picks up a scheduled second mob (refill_every_s 60) | `?` |
+| `tank-bear-no-growl-tank-player.json` | no Growl on a mob a player tank holds (control) + bot-fought guard | PASS / PASS |
+| `tank-bear-add-pickup.json` | picks up the scheduled refill add (trigger `t_from` 55) | `?` |
 | `tank-bear-bash-caster.json` | Bash interrupt (60 s cooldown, min_n 3) + form precondition | `?` / PASS |
-| `tank-bear-cc-respect.json` | no Swipe damage on the sheep + Swipe precondition | PASS / PASS |
-| `tank-bear-defensives.json` | Frenzied Regeneration at `src_hp_le` 50 + form precondition | `?` / PASS |
+| `tank-bear-defensives.json` | Frenzied Regeneration at `src_hp_le` 50 + 30 s opportunity under 50 | `?` / PASS |
 | `tank-paladin-taunt-off-healer.json` | Hand of Reckoning latency | `?` |
 | `tank-paladin-hold-three.json` | holds 3 mobs (`<= 0.4`) | `?` |
-| `tank-paladin-no-taunt-tank-player.json` | no Reckoning on a mob a player tank holds (control) | PASS |
-| `tank-paladin-add-pickup.json` | picks up a scheduled second mob | `?` |
+| `tank-paladin-no-taunt-tank-player.json` | no Reckoning on a mob a player tank holds (control) + bot-fought guard | PASS / PASS |
+| `tank-paladin-add-pickup.json` | picks up the scheduled refill add (trigger `t_from` 55) | `?` |
 | `tank-paladin-hoj-caster.json` | Hammer of Justice stun (60 s cooldown, min_n 3) | `?` |
-| `tank-paladin-cc-respect.json` | no Consecration damage on the sheep + Consecration precondition | PASS / PASS |
 | `tank-paladin-defensives.json` | Holy Shield rate + Bulwark count + RF precondition | PASS / `?` / PASS |
-| `tank-warrior-pack-spread.json` | engage latency, Thunder Clap count, 3-mob share | `?` / PASS / `?` |
-| `tank-warrior-defensives.json` | Shield Wall (low hp) + Last Stand (critical hp) | `?` / `?` |
-| `tank-warrior-shield-bash-caster.json` | Shield Bash interrupt + stance precondition | PASS / PASS |
-| `tank-warrior-no-taunt-tank-player.json` | no Taunt on a mob a player tank holds (control) | PASS |
-| `tank-warrior-add-pickup.json` | picks up a scheduled second mob | PASS |
-| `tank-warrior-cc-respect.json` | no Thunder Clap damage on the sheep + Clap precondition | PASS / PASS |
+| `tank-warrior-pack-spread.json` | Thunder Clap count + 3-mob share (engage rule removed) | PASS / `?` |
+| `tank-warrior-defensives.json` | Shield Wall (low hp) + Last Stand (critical hp), 30 s opportunity under 50 | `?` / `?` |
+| `tank-warrior-shield-bash-caster.json` | Shield Bash interrupt (12 s cooldown) + stance precondition | `?` / PASS |
+| `tank-warrior-no-taunt-tank-player.json` | no Taunt/Mocking Blow/Challenging Shout on a mob a player tank holds (control) + bot-fought guard | PASS / PASS |
+| `tank-warrior-add-pickup.json` | picks up the scheduled refill add (trigger `t_from` 55) | PASS |
 
 Dropped while writing: `tank-warrior-hold-single`, `tank-paladin-hold-single` (the 1-mob outcome
 is the existing `TNK-WAR-MOBS-ON-TANK` / `TNK-PAL-MOBS-ON-TANK` ratio in the taunt/RF trials) and
@@ -283,6 +282,21 @@ is the existing `TNK-WAR-MOBS-ON-TANK` / `TNK-PAL-MOBS-ON-TANK` ratio in the tau
 limits found: HoJ/Bash need `min_n` 3, not 5 (a 60 s cooldown answers at most 3 casts per 180 s
 repeat); `victim: bot` starts no fight (nothing pulls), so the defensives trials keep
 `victim: player` and gate on the bot's own hp (`src_hp_le`).
+
+Round 1 removals (need a new kind): `tank-warrior-cc-respect`, `tank-bear-cc-respect`,
+`tank-paladin-cc-respect` always PASSed — nothing in them casts Polymorph (a tank bot plus a priest
+extra), so the "damage on a sheeped mob == 0" count is 0. A CC-respect trial for a tank needs a
+CC-casting extra bot that `cc moon` targets.
+
+Round 1 fixes: defensives rules carry an `opportunity` block (unit `$bot`, `hp_lt` 50, in combat)
+with `min_opportunity_s` 30, so a rep where the bot never got that low is INCONCLUSIVE; the
+add-pickup triggers gate on `t_from` 55 (the `refill_every_s` 60 add lands about a minute into the
+fight — the real spawn time in `trl/live/situations.py`, not the first mob's hits); the
+no-taunt controls carry a bot-fought precondition (5+ casts on the mob) and the warrior control
+counts Mocking Blow and Challenging Shout too; `tank-warrior-shield-bash-caster` is `?` (no baseline
+proves the bot reaches melee on a caster) with the 12 s Shield Bash cooldown in text and responder
+debounce; `TNK-WAR-PACK-SHARE` cites `ProtectionWarriorStrategy.cpp:344-355` and says
+"at abb91ff62" once in every changed reason.
 
 ## Tool findings while writing these
 

@@ -89,9 +89,9 @@
     {
       "id": "TNK-DRU-HOLD-THREE",
       "desc": "At most 40 percent of the mob damage events (hits counted, not amounts) land on the healer or the DPS player; the rest on the bear",
-      "source": "ai/playerbot/strategy/druid/TankFeralDruidStrategy.cpp:211-226 (loose adds near -> challenging roar at INTERRUPT + 2, melee medium aoe -> demoralizing roar and swipe); ai/playerbot/strategy/triggers/GenericTriggers.cpp:365-410 (LooseAddsNearTrigger, ShouldAoeTaunt); TortoiseBots upstream/dev abb91ff62",
+      "source": "ai/playerbot/strategy/druid/TankFeralDruidStrategy.cpp:211-226 (loose adds near -> challenging roar at INTERRUPT + 2, melee medium aoe -> demoralizing roar and swipe); ai/playerbot/strategy/triggers/GenericTriggers.cpp:351-396 (LooseAddsNearTrigger, ShouldAoeTaunt); TortoiseBots upstream/dev abb91ff62",
       "expect_today": "?",
-      "why_expect": "three mobs at -2, one 10 s growl cooldown, the roar and the swipe rows carry the spread; whether the outcome holds under a geared DPS player is the question. Expected UNKNOWN on TortoiseBots upstream/dev abb91ff62",
+      "why_expect": "three mobs at -2, one 10 s growl cooldown, the roar and the swipe rows carry the spread; whether the outcome holds under a geared DPS player is the question. Expected UNKNOWN at abb91ff62",
       "check": {
         "metric": "ratio",
         "num": {
@@ -115,7 +115,7 @@
       "desc": "Precondition: Battle Stance (aura 2457) stays on the player through the fight",
       "source": "precondition, no bot code: setup check player_stance proves the stance at the start, this uptime proves it in the fight",
       "expect_today": "PASS",
-      "why_expect": "the stance is cast in set-up and nothing in the fight removes it; a repeat where it drops shows here instead of passing silently",
+      "why_expect": "the stance is cast in set-up and nothing in the fight removes it; a repeat where it drops shows here instead of passing silently at abb91ff62.",
       "check": {
         "metric": "uptime",
         "unit": "$player",

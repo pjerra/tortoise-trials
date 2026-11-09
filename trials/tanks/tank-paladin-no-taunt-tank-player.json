@@ -109,6 +109,22 @@
       "pass_if": "== 0"
     },
     {
+      "id": "TNK-PAL-NO-TAUNT-FOUGHT",
+      "desc": "Precondition: the Protection paladin casts on the mob at least 5 times in the fight, so an idle or dead bot cannot pass the control",
+      "source": "precondition, no bot code: the bot's own casts prove it fought",
+      "expect_today": "PASS",
+      "why_expect": "a tank that fights casts every few seconds; a repeat with fewer casts shows here instead of passing silently",
+      "check": {
+        "metric": "count",
+        "where": {
+          "kind": "cast",
+          "src": "$bot",
+          "dst": "$mob"
+        }
+      },
+      "pass_if": ">= 5"
+    },
+    {
       "id": "TNK-PAL-NO-TAUNT-STANCE",
       "desc": "Precondition: Defensive Stance (aura 71) stays on the player through the fight",
       "source": "precondition, no bot code: setup check player_stance proves the stance at the start, this uptime proves it in the fight",

@@ -89,7 +89,7 @@
   "rules": [
     {
       "id": "TNK-WAR-ADD-PICKUP",
-      "desc": "A mob that hits the healer (extra1) or the DPS player gets a taunt (Taunt, Mocking Blow or Challenging Shout) on it within 5 s, at least 70 percent of the time (one trigger per mob per 12 s, one counted answer per 10 s: Taunt's cooldown). A scheduled second mob joins about a minute in (refill_every_s 60) while the first still lives, so its triggers arrive while the single-target taunt may be on cooldown from the first mob",
+      "desc": "A mob that hits the healer (extra1) or the DPS player gets a taunt (Taunt, Mocking Blow or Challenging Shout) on it within 5 s, at least 70 percent of the time (one trigger per mob per 12 s, one counted answer per 10 s: Taunt's cooldown). A scheduled second mob joins about a minute in (refill_every_s 60) while the first still lives, so its triggers arrive while the single-target taunt may be on cooldown from the first mob Only hits after 55 s count (trigger t_from 55): the scheduled refill_every_s 60 add lands about a minute into the fight, so earlier hits on the first mob are not triggers.",
       "source": "ai/playerbot/strategy/warrior/ProtectionWarriorStrategy.cpp:126-138 (lose aggro -> taunt at INTERRUPT + 1, party member attacked -> taunt on attacker at INTERRUPT + 1); ai/playerbot/strategy/triggers/GenericTriggers.cpp:312-349 (LoseAggroTrigger); TortoiseBots upstream/dev abb91ff62",
       "expect_today": "PASS",
       "why_expect": "the scheduled add opens on the player (the runner attacks every refill) while the first mob still lives, so the add's triggers arrive with the bot's single-target taunt possibly spent; taunt on attacker answers at INTERRUPT+1 when off cooldown. Expected PASS on TortoiseBots upstream/dev abb91ff62",
@@ -101,7 +101,8 @@
           "dst": [
             "$player",
             "$extra1"
-          ]
+          ],
+          "t_from": 55
         },
         "response": {
           "kind": "cast",

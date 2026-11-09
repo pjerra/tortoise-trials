@@ -88,10 +88,10 @@
   "rules": [
     {
       "id": "TNK-WAR-SHIELD-BASH",
-      "desc": "The Protection warrior casts Shield Bash on the mob within 3 s of an interruptible cast start, at least 60 percent of the time (one trigger per mob per 10 s, one counted answer per 10 s: Shield Bash has no cooldown but the window keeps one answer per cast)",
+      "desc": "The Protection warrior casts Shield Bash on the mob within 3 s of an interruptible cast start, at least 60 percent of the time (one trigger per mob per 10 s, one counted answer per 12 s: Shield Bash has a 12 s cooldown)",
       "source": "ai/playerbot/strategy/warrior/ProtectionWarriorStrategy.cpp:67-69 (shield bash at ACTION_INTERRUPT), :498-513 (protection cc: concussion blow, shield bash, shield bash on enemy healer); ai/playerbot/strategy/warrior/WarriorTriggers.h:133 (ShieldBashInterruptSpellTrigger); TortoiseBots upstream/dev abb91ff62",
-      "expect_today": "PASS",
-      "why_expect": "the interrupt row outranks the whole rotation and Shield Bash works in Defensive Stance, so a tank facing the caster should answer most casts. Expected PASS on TortoiseBots upstream/dev abb91ff62",
+      "expect_today": "?",
+      "why_expect": "the interrupt row outranks the rotation, but no baseline proves the hire reaches melee on a kiting caster within 3 s, and the 12 s cooldown caps answers at one per 12 s. Expected UNKNOWN at abb91ff62",
       "check": {
         "metric": "latency",
         "trigger": {
@@ -107,7 +107,7 @@
         "response_dst": "$trigger.src",
         "within_s": 3,
         "trigger_debounce_s": 10,
-        "debounce_responder_s": 10
+        "debounce_responder_s": 12
       },
       "pass_if": ">= 0.6",
       "min_n": 5

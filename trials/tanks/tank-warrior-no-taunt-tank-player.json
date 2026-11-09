@@ -87,20 +87,40 @@
   "rules": [
     {
       "id": "TNK-WAR-NO-TAUNT",
-      "desc": "The Protection warrior casts no Taunt on a mob the player tank holds (the mob's victim is the player): LoseAggroTrigger returns false when the victim is a tank player",
-      "source": "ai/playerbot/strategy/triggers/GenericTriggers.cpp:330-343 (LoseAggroTrigger: the victim is a tank player -> false); ai/playerbot/strategy/values/AttackerOfNonTankTargetValue.cpp:44 (taunt on attacker reads the victim's tank role); ai/playerbot/PlayerbotAI.cpp:4026-4047 (IsTank: the forced role decides first); TortoiseBots upstream/dev abb91ff62",
+      "desc": "The Protection warrior casts no Taunt, Mocking Blow or Challenging Shout on a mob the player tank holds (the mob's victim is the player): LoseAggroTrigger returns false when the victim is a tank player",
+      "source": "ai/playerbot/strategy/triggers/GenericTriggers.cpp:330-343 (LoseAggroTrigger: the victim is a tank player -> false); ai/playerbot/strategy/values/AttackerOfNonTankTargetValue.cpp:44 (taunt on attacker reads the victim's tank role); ai/playerbot/strategy/warrior/ProtectionWarriorStrategy.cpp:129-131 (mocking blow taunt); ai/playerbot/PlayerbotAI.cpp:4026-4047 (IsTank: the forced role decides first); TortoiseBots upstream/dev abb91ff62",
       "expect_today": "PASS",
-      "why_expect": "the player is forced to tank (PlayerbotAI.cpp:4028-4030) and pulls every mob, so every mob's victim is a tank player and both taunt rows stay silent. Expected PASS on TortoiseBots upstream/dev abb91ff62",
+      "why_expect": "the player is forced to tank (PlayerbotAI.cpp:4028-4030) and pulls every mob, so every mob's victim is a tank player and all three taunt rows stay silent. Expected PASS on TortoiseBots upstream/dev abb91ff62",
       "check": {
         "metric": "count",
         "where": {
           "kind": "cast",
           "src": "$bot",
-          "spell": "Taunt",
+          "spell": [
+            "Taunt",
+            "Mocking Blow",
+            "Challenging Shout"
+          ],
           "dst_target_of": "$player"
         }
       },
       "pass_if": "== 0"
+    },
+    {
+      "id": "TNK-WAR-NO-TAUNT-FOUGHT",
+      "desc": "Precondition: the Protection warrior casts on the mob at least 5 times in the fight, so an idle or dead bot cannot pass the control",
+      "source": "precondition, no bot code: the bot's own casts prove it fought",
+      "expect_today": "PASS",
+      "why_expect": "a tank that fights casts every few seconds; a repeat with fewer casts shows here instead of passing silently",
+      "check": {
+        "metric": "count",
+        "where": {
+          "kind": "cast",
+          "src": "$bot",
+          "dst": "$mob"
+        }
+      },
+      "pass_if": ">= 5"
     },
     {
       "id": "TNK-WAR-NO-TAUNT-STANCE",

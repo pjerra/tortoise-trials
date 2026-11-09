@@ -95,9 +95,9 @@
     {
       "id": "TNK-PAL-HOJ",
       "desc": "The Protection paladin casts Hammer of Justice on the mob within 3 s of an interruptible cast start, at least 60 percent of the time (one trigger per mob per 10 s, one counted answer per 60 s: Hammer of Justice has a 60 s cooldown)",
-      "source": "ai/playerbot/strategy/paladin/ProtectionPaladinStrategy.cpp:373-379 (protection cc: hammer of justice on enemy at ACTION_INTERRUPT); ai/playerbot/strategy/paladin/PaladinStrategy.cpp (PaladinCcStrategy: hammer of justice interrupt at ACTION_INTERRUPT); TortoiseBots upstream/dev abb91ff62",
+      "source": "ai/playerbot/strategy/paladin/ProtectionPaladinStrategy.cpp:373-379 (protection cc: hammer of justice on enemy at ACTION_INTERRUPT); ai/playerbot/strategy/paladin/PaladinStrategy.cpp:339-341 (PaladinCcStrategy: hammer of justice interrupt at ACTION_INTERRUPT); TortoiseBots upstream/dev abb91ff62",
       "expect_today": "?",
-      "why_expect": "the stun answers the cast but its 60 s cooldown means the bot can only catch about one cast a minute; whether most triggers get an answer is the question. Expected UNKNOWN on TortoiseBots upstream/dev abb91ff62",
+      "why_expect": "the stun answers the cast but its 60 s cooldown means the bot can only catch about one cast a minute; whether most triggers get an answer is the question. Expected UNKNOWN at abb91ff62",
       "check": {
         "metric": "latency",
         "trigger": {
@@ -123,7 +123,7 @@
       "desc": "Precondition: Defensive Stance (aura 71) stays on the player through the fight",
       "source": "precondition, no bot code: setup check player_stance proves the stance at the start, this uptime proves it in the fight",
       "expect_today": "PASS",
-      "why_expect": "the stance is cast in set-up and nothing in the fight removes it; a repeat where it drops shows here instead of passing silently",
+      "why_expect": "the stance is cast in set-up and nothing in the fight removes it; a repeat where it drops shows here instead of passing silently at abb91ff62.",
       "check": {
         "metric": "uptime",
         "unit": "$player",
