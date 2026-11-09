@@ -973,6 +973,8 @@ class Run:
             floor_pct=int(sit.get("floor_pct") or 30),
             learn_ids=frozenset(self.learn_ids(trial)),
             gear_ids=frozenset(gear_mod.kit_entries(trial["player"]) if trial["player"].get("gear") == "tier" else ()),
+            proficiency_ids=frozenset(gear_mod.proficiency_spells(gear_mod.pick_kit(trial["player"])[0])
+                                      if trial["player"].get("gear") == "tier" else ()),
             strip_ids=frozenset(gear_mod.all_entries()),
             aura_ids=frozenset(self.aura_ids(trial)),
             arena_coords=frozenset((int(a.get("map", 0)), int(a["x"]), int(a["y"]),

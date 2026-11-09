@@ -12,7 +12,6 @@ import re
 import time
 from dataclasses import dataclass, field
 
-from .. import gear as _gear
 from .agent import RpcError, norm_guid
 
 TEMPLATES = {
@@ -129,6 +128,7 @@ class GmContext:
     learn_ids: frozenset = frozenset()
     aura_ids: frozenset = frozenset()
     item_ids: frozenset = frozenset()
+    proficiency_ids: frozenset = frozenset()   # the proficiency spells this trial's gear kit needs (`.learn`)
     gear_ids: frozenset = frozenset()      # the player's gear kit entries (`.additem` on the player itself)
     strip_ids: frozenset = frozenset()     # every kit entry of every kit: `.additem <id> -1` removes one from the player
     trial_id: str = ""
@@ -293,9 +293,9 @@ class GmGuard:
                 raise GmRefused(".levelup %d out of range" % n)
         elif kind == "learn":
             spell = int(groups[0])
-            # the armor / weapon proficiencies a gear kit needs (trl/gear.py PROFICIENCY, a fixed table: kit data cannot widen it), a closed set,
-            # self-only like every `.learn`
-            if spell not in self.ctx.learn_ids and spell not in _gear.PROFICIENCY_SPELLS:
+            # the trial's own spells, plus the armor / weapon proficiencies THIS trial's gear kit needs
+            # (trl/gear.py proficiency_spells); self-only like every `.learn`
+            if spell not in self.ctx.learn_ids and spell not in self.ctx.proficiency_ids:
                 raise GmRefused(".learn %d: not a trial talent/data spell" % spell)
         elif kind == "aura":
             spell = int(groups[0])

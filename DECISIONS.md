@@ -182,3 +182,21 @@ the apply makes the rep INVALID with the link found as evidence. It runs on ever
 send is idempotent). The marker table comes from the client's Talent.dbc / TalentTab.dbc and TB's premade links
 (its header says how); a trial whose bot spec has no marker is rejected by a test, not silently unchecked.
 
+### Gear setup after review (FIX FIRST round 1)
+
+- Slot characters are bench-owned; the strip removes only kit items foreign to the trial. A gear trial strips the kit
+  entries that are NOT in its own kit (every copy of each, one guarded `-1` per copy) and never touches its own
+  kit's entries; a player carrying none gets no GM line. No durable per-grant provenance is kept: the characters the
+  bench logs in are its own, and the guard still limits the removal to kit entries on the player itself.
+- Learned proficiencies are kept on the slot character (Plate Mail, Mail, weapon skills): there is no unlearn, the
+  next trial of the same character needs them anyway, and an armor skill has no effect on a trial that wears no such
+  armor.
+- One deadline for the whole gear setup: GEAR_SETUP_BUDGET_S (90 s) is started at the first gear step of a rep and
+  shared by the carry-over strip, the proficiency learn, the grants, the equips and both `_retry` passes. Every
+  wait is capped by what is left, a spent budget stops the sends, and the evidence says which phase ran out. A piece
+  the server refused (no proficiency, wrong slot) is not retried or waited for.
+- The guard's `.learn` accepts the trial's own spells plus the proficiencies of THIS trial's kit only. A kit entry
+  with no item class (missing, None or 0) fails the rep with "kit data lacks item class": there is no plate guess
+  from the slot, and build_data.py writes None for a missing column. The strip read-back waits for the bags and the
+  body to settle the same way the equip read-back does.
+

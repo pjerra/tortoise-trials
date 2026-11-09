@@ -79,23 +79,23 @@ PROFICIENCY = {
     (2, 18): 5011,     # crossbow
     (2, 19): 5009,     # wand
 }
-PROFICIENCY_SPELLS = frozenset(PROFICIENCY.values())
-# A kit entry without item_class / subclass (a kit file from before they were recorded) falls back to its
-# slot: the armor slots of a kit are plate, the back slot is cloth, a weapon slot needs nothing it can name.
-SLOT_ARMOR_SUBCLASS = {"head": 4, "shoulder": 4, "chest": 4, "waist": 4, "legs": 4, "feet": 4, "wrist": 4,
-                       "hands": 4, "back": 1}
+
+
+def missing_class(items):
+    """The kit entries without item class data (a kit file from before build_data recorded it, or an item table
+    that lacked the column: build_data writes None). Such a kit fails closed: the bench cannot say what the item
+    needs, so it never guesses plate from the slot. Item class 0 is a consumable: never a kit item."""
+    return [i for i in items or [] if not i.get("item_class") or i.get("subclass") is None]
 
 
 def proficiency_spells(items):
-    """Sorted spell ids of the armor and weapon proficiencies the kit's items need (cloth needs none)."""
+    """Sorted spell ids of the armor and weapon proficiencies the kit's items need (cloth needs none).
+    An entry without class data (see missing_class) contributes nothing."""
     out = set()
     for item in items or []:
-        klass, sub = item.get("item_class"), item.get("subclass")
-        if klass is None or sub is None:
-            if item.get("slot") not in SLOT_ARMOR_SUBCLASS:
-                continue
-            klass, sub = 4, SLOT_ARMOR_SUBCLASS[item["slot"]]
-        spell = PROFICIENCY.get((int(klass), int(sub)))
+        if missing_class([item]):
+            continue
+        spell = PROFICIENCY.get((int(item["item_class"]), int(item["subclass"])))
         if spell:
             out.add(spell)
     return sorted(out)

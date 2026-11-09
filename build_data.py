@@ -407,6 +407,13 @@ WARRIOR_1H_SUBCLASSES = (0, 4, 7)                  # axe, mace, sword: warriors 
 WARRIOR_2H_SUBCLASSES = (1, 5, 8)                  # 2H axe, mace, sword
 
 
+def _opt_int(value):
+    """An int, or None when the column is missing or empty (the kit data must not read a missing item class as 0)."""
+    if value is None or str(value).strip() == "":
+        return None
+    return _as_int(value)
+
+
 def _has_spell(row):
     """A proc or on-use effect would change the fight the trial measures: weapons without one."""
     return any(_as_int(row.get("spellid_%d" % i)) for i in range(1, 6))
@@ -489,7 +496,7 @@ def build_gear_kits(path=None):
                 kits.setdefault(klass, {}).setdefault(role, {})[str(level)] = [
                     {"slot": slot, "entry": _as_int(r["entry"]), "name": r["name"],
                      "armor": _as_int(r.get("armor")), "required_level": _as_int(r.get("required_level")),
-                     "item_class": _as_int(r.get("class")), "subclass": _as_int(r.get("subclass"))}
+                     "item_class": _opt_int(r.get("class")), "subclass": _opt_int(r.get("subclass"))}
                     for slot, r in items]
     return kits
 
