@@ -219,4 +219,3 @@ send is idempotent). The marker table comes from the client's Talent.dbc / Talen
 - TB re-gears a hire after a build change (UpgradeGearBest, or the tier-kit refit). The evidence records the hire's
   gear after the apply (`.bot inv`), and a trial's `bot.gear` step runs after the talents, so the gear is the trial's.
   Baselines from before this change ran with rolled builds and rolled gear.
-\n
