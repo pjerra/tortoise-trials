@@ -1,0 +1,124 @@
+{
+  "id": "priest-holy-low-mana-fight",
+  "title": "Holy priest at 15 percent mana in a fight: keeps healing, spends no mana on damage spells",
+  "group": "healers",
+  "class": "priest",
+  "spec": "holy",
+  "player": {
+    "class": "warrior",
+    "level": 40,
+    "talents": {
+      "tree": "arms",
+      "spells": [
+        16462,
+        12286
+      ]
+    },
+    "stance": 71,
+    "forced_role": null,
+    "auras": [],
+    "items": []
+  },
+  "bot": {
+    "class": "priest",
+    "spec": "holy",
+    "role": "healer",
+    "level": 40,
+    "gear": "blue",
+    "items": [
+      {
+        "name": "Sweet Nectar",
+        "count": 20
+      }
+    ],
+    "mana_pct": 15,
+    "cc_mark": null
+  },
+  "situation": {
+    "kind": "tank_damage",
+    "mobs": {
+      "role": "melee",
+      "count": 1,
+      "level_delta": -2,
+      "refill": true
+    },
+    "hp_band": [
+      35,
+      80
+    ],
+    "floor_pct": 12,
+    "victim": "player",
+    "pull_after_s": 0,
+    "ooc_wait_s": 0,
+    "debuff": null,
+    "max_rescues_per_min": 12
+  },
+  "setup_checks": [
+    "player_level",
+    "player_visible",
+    "player_talents",
+    "player_stance",
+    "player_forced_role",
+    "bot_present",
+    "bot_level",
+    "bot_role",
+    "bot_spec",
+    "bot_items",
+    "bot_mana",
+    "grouped",
+    "mobs_ready",
+    "config_read"
+  ],
+  "duration_s": 180,
+  "repeats": 2,
+  "min_valid_s": 120,
+  "rules": [
+    {
+      "id": "PRI-LOWMANA-NO-NUKE",
+      "desc": "A Holy priest with under 60 percent mana casts no Smite, Holy Fire, Mind Blast or Shadow Word: Pain on the mob: its own mana is kept for heals",
+      "source": "ai/playerbot/HealerManaPolicy.h:103-130 (HealerDpsManaFloor: 70 percent on an easy or even fight, 85 on a hard one; HealerDpsManaAllows); ai/playerbot/strategy/triggers/GenericTriggers.cpp:205-224 (healer should attack: the mana floor); ai/playerbot/strategy/priest/PriestStrategy.cpp:675 (the row); TortoiseBots upstream/dev 0c56cf649",
+      "expect_today": "PASS",
+      "why_expect": "the bot starts at 15 percent and heals only spend mana, so it never reaches the 70 percent floor of the off-spec row inside a 180 s fight; the wand (Shoot, no mana) is not counted. Expected PASS on TortoiseBots upstream/dev 0c56cf649",
+      "check": {
+        "metric": "count",
+        "where": {
+          "kind": "cast",
+          "src": "$bot",
+          "dst": "$mob",
+          "spell": [
+            "Smite",
+            "Holy Fire",
+            "Mind Blast",
+            "Shadow Word: Pain"
+          ],
+          "src_power_lt": 60
+        }
+      },
+      "pass_if": "== 0"
+    },
+    {
+      "id": "PRI-LOWMANA-HEALS",
+      "desc": "A Holy priest at low mana still casts heals or shields on the player: at least 3 casts by the bot on the player in the fight (a drained healer that stalls fails here)",
+      "source": "ai/playerbot/HealerManaPolicy.h:55-69 (ShouldStartHeal never vetoes a target at or under lowHealth; only LOW-efficiency heals are held back under the mana reserve line); ai/playerbot/strategy/priest/HolyPriestStrategy.cpp:29-72; TortoiseBots upstream/dev 0c56cf649",
+      "expect_today": "?",
+      "why_expect": "the player falls under 50 percent several times (hp_band 35-80), where no heal is vetoed, but 15 percent of a level 40 priest's mana is a handful of casts; whether it is 3 or more is the open question",
+      "check": {
+        "metric": "count",
+        "where": {
+          "kind": "cast",
+          "src": "$bot",
+          "dst": "$player",
+          "spell": [
+            "Flash Heal",
+            "Greater Heal",
+            "Heal",
+            "Lesser Heal",
+            "Renew",
+            "Power Word: Shield"
+          ]
+        }
+      },
+      "pass_if": ">= 3"
+    }
+  ]
+}

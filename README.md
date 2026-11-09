@@ -69,6 +69,8 @@ only.
 ```
 
 `--trial` can repeat. `--class` and `--spec` select trials by the class and spec in the trial file.
+`--trial ID@VARIANT` runs one variant of a trial (see "Variants" below), `--trial 'ID@*'` runs all of them;
+a bare id, a glob without `@` and `--class` run base trials only.
 `--dry-run` shows the slots it would use and touches nothing. `--parallel` is at most 3 and uses one
 slot (own account and character) per worker.
 
@@ -116,6 +118,37 @@ Shortened example (from `trials/healers/priest-holy-pws-def-arms-2tank.json`):
              "pass_if": "== 0", "min_opportunity_s": 90}]
 }
 ```
+
+### Variants
+
+A trial may carry `variants`: named, small overrides of the base trial, for the same behaviour at another level,
+with another kit or another group.
+
+```json
+"variants": [
+  {"name": "lvl60", "title": "level 60",
+   "override": {"level": 60, "player": {"gear": null}, "situation": {"mobs": {"level_delta": -2}}}}
+]
+```
+
+- `override` may hold `level` (a shortcut: sets `player.level`, `bot.level` and every `extra_bots[].level`),
+  `player`, `bot`, `extra_bots`, `situation` and `rules`. Dicts merge key by key (so `{"situation": {"mobs":
+  {"level_delta": -2}}}` changes that one number), a list or a scalar replaces what the base has (`extra_bots` is
+  replaced whole) and `null` clears a value (`"gear": null`). Explicit fields win over the `level` shortcut.
+- `rules` is `{"RULE-ID": {"pass_if": ..., "min_n": ..., "min_opportunity_s": ...}}`: those three thresholds
+  are the only part of a rule a variant can change, and only for a rule that exists. A variant never adds,
+  drops or rewrites a rule (its `check`, `source`, `expect_today` stay the base's): one behaviour per trial.
+- The class, spec and role of the player's class and of the hire cannot change (`player.class`, `bot.class`,
+  `bot.spec`, `bot.role`), and a hire (the main bot or an extra) must be level 35 or more: the talent proof
+  (`bot_talents`) needs a marker talent that the premade build of level 35 has, and the builds of levels 20 to 30 stop
+  short of it for every class (see DECISIONS.md).
+- `validate` merges each variant onto the base and runs the ordinary validation on the result, so a bad override
+  (a player level with no gear kit, a victim with no extra behind it, an unknown situation field) is refused with the
+  variant's name. At most 6 variants per trial; raid trials take none.
+- Each variant is its own trial id, `<trial>@<variant>`: its own run folder (`runs/<run>/<trial>@<variant>/`), its
+  own `trial.json`, its own rows in `card.md`/`card.json`, and its own key in `compare` and `pr-block` (the baseline
+  diff keys on `(trial id, rule id)`, so `x@lvl60` is compared with `x@lvl60` and never folded into `x`). A trial with no
+  variants is unchanged. `trials.sh list` shows the variants as their own lines.
 
 ### Player gear (`player.gear: "tier"`)
 

@@ -230,3 +230,65 @@ instead of 15. `read_rows`, `read_lines`, `read_inventory`, `party_guid`, the ta
 included) and the gear step's spell read carry the deadline, and the GM guard caps its 10 s selection RPCs by the
 deadline of the step that is using it. A send that started just inside the budget can still run to its 1 s floor.
 
+
+## 2026-11-10: trial variants, and the edge-case trials (trials/edge)
+
+Variants (`variants` in a trial file, README "Variants"): chosen to keep the format small. An override is deep-merged
+onto the base trial and the merged trial goes through the ordinary validation (`scenario.merge_variant`), so a
+variant can never be looser than a trial file; the only rule edits allowed are `pass_if`, `min_n` and
+`min_opportunity_s` by rule id (the brief: "rule thresholds, only where the level changes them"), and the rules list,
+every `check` and every `expect_today` stay the base's. The id is `<trial>@<variant>` end to end: the run folder, the
+`trial.json`, the card rows and the compare/pr-block key. The ids are not folded into the base because a level 60 run
+is a different measurement, and a baseline of one level must not be compared with another. Selection: a bare id, a glob
+without `@` and `--class` reach base trials only (a sweep of `tank-*` must not start three times the runs); a
+variant is asked for as `id@variant` or `id@*`. Rejected: a per-variant rules list (it would make two behaviours of
+one trial), a `variants` file beside the trial (one more place to look), variants that change the hire's class, spec
+or role (a different bot is a different trial).
+
+Level variants are 50 and 60, not 20. The sweep brief asked for 20 / 40 / 60 on one heal, one tank and one DPS trial.
+Level 20 cannot be run: `bot_talents` proves a hire's build by a marker talent (`trl/talents.py`) that the level-35
+premade link has. Read from TB `aiplayerbot.conf.dist.in` (`PremadeSpecLink.<class>.<spec>.<level>`, upstream/dev
+`0c56cf649`) with the bench's own marker functions: the marker rank is 0 at levels 20, 25 and 30 for Holy priest,
+Protection warrior, Fire mage, Protection paladin, Combat rogue and Feral druid (the Fire mage has it from 30, the
+others from 35), so every repeat of a level 20 trial would be INVALID on the talent proof. `validate` refuses a variant
+whose hire is under level 35. The levels used are 40 (the file), 50 and 60:
+
+| trial | variants | notes |
+|---|---|---|
+| `priest-holy-heal-latency` (heal) | `lvl50`, `lvl60` | `lvl60` mobs `level_delta` -2 (the mob table has melee at 57-59) |
+| `tank-warrior-taunt-off-healer` (tank) | `lvl50`, `lvl60` | the gear kit exists for 40, 45, 50 only (at most 9 levels down), so `lvl60` runs with `player.gear: null`; `level_delta` -2 |
+| `dps-mage-threat-cap` (DPS) | `lvl50`, `lvl60` | same: `lvl60` has no gear kit, `level_delta` -3 |
+
+None of the level numbers has been run: the `level_delta` of the level 60 variants is a guess at a fight a gearless
+player survives (the gear kits exist because an ungeared player is a weak tank and moves the DPS trials' threat back-off). The player's talent spell
+ids are `.learn`ed whatever the level, so they are not varied.
+
+Edge-case trials (`trials/edge/`, a folder of their own so the per-folder test lists of tanks, dps and healers stay
+as they were; each file's `group` is still the runner's group). Written 2026-11-10 with no live run; every rule carries
+`expect_today` and a TB file:line at `upstream/dev` `0c56cf649` (the earlier tank trials cite `abb91ff62`; the
+ProtectionWarrior row lines agree between the two). Per edge:
+
+- Two bot tanks: `tank-warrior-two-bot-tanks` (a Protection paladin as `extra1`, tank role). The question is the
+  warrior's taunt on a mob whose current target is the paladin (`dst_target_of: $extra1`), counted 10 s into the
+  fight and outside 8 s after a refill (both tanks may answer a fresh mob on the DPS player in the same second; the
+  loser of that race would otherwise score as a steal). A precondition rule proves the paladin took 5 hits.
+  "A player tank against a bot tank, as a variant": that case already exists as
+  `tank-warrior-no-taunt-tank-player`; it gets the variant `bot-offtank` (a second, paladin bot tank in the group).
+  A variant of the two-tank trial that swaps the other tank for the player cannot exist yet: the rule names its
+  alias, and `dst_target_of` takes one alias (see "needs a new kind" in `docs/next-trials.md`).
+- Resources: `priest-holy-low-mana-drinks` (ooc window, `bot.mana_pct` 15, variants `mana-5` and `mana-50`; the
+  high mana trigger opens under 65 percent), `priest-holy-low-mana-fight` (no off-spec nuke under 60 percent mana,
+  at least 3 heals on the player), `priest-holy-low-mana-potion` (Greater Mana Potion x3 given by name, a
+  `Restore Mana` cast within 30 s), `tank-warrior-zero-rage-opening` (`pull_after_s` 20 so the rage has decayed, a
+  precondition that the first hits come at under 30 percent rage), `dps-rogue-low-energy` (swings while under 25
+  percent energy) and `dps-rogue-thistle-tea` (level 60, Thistle Tea given by name; the tea action is level-60 only).
+  Rage and energy cannot be set (the guard has `.modify mana` for hires only), so "0 rage" and "no energy" are the
+  natural states the trials wait for and prove with a rule.
+- Not written, listed as needing a new kind: the tank dying mid-fight, and the bot stunned, silenced, feared or
+  rooted (`docs/next-trials.md`).
+
+Open items a run has to settle: the item names `Greater Mana Potion` and `Thistle Tea` (the bot_items check will say if
+the server does not know them), whether the bot's own `Drink` aura and `Restore Mana`/`Restore Energy` casts reach the
+event stream for a hire (the drinks trial has an uptime rule from samples beside the event rule, so the two can be told
+apart), and the 60 percent mana line of `PRI-LOWMANA-NO-NUKE`, chosen under the code's 70 percent floor so a drained
+healer that has recovered a little is not scored.

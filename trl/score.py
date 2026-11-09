@@ -407,15 +407,8 @@ def score_run(run_dir):
     run_doc = _read_json(os.path.join(run_dir, "RUN.json"), {}) or {}
     for tid in run_doc.get("trials") or []:
         tdir = os.path.join(run_dir, tid)
-        trial = None
-        for path in _scenario.trial_files():
-            try:
-                cand = _scenario.load_trial(path)
-            except (OSError, ValueError):
-                continue
-            if cand.get("id") == tid:
-                trial = cand
-                break
+        # a plain id or `<trial>@<variant>` (the merged variant trial)
+        trial = _scenario.find_trial_by_id(tid)
         if trial is None:
             for path in glob.glob(os.path.join(_scenario._tool_dir, "trials", "_fixtures", "*.json")):
                 try:

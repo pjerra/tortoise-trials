@@ -1,0 +1,121 @@
+{
+  "id": "priest-holy-low-mana-potion",
+  "title": "Holy priest at 15 percent mana with mana potions: drinks one in the fight",
+  "group": "healers",
+  "class": "priest",
+  "spec": "holy",
+  "player": {
+    "class": "warrior",
+    "level": 40,
+    "talents": {
+      "tree": "arms",
+      "spells": [
+        16462,
+        12286
+      ]
+    },
+    "stance": 71,
+    "forced_role": null,
+    "auras": [],
+    "items": []
+  },
+  "bot": {
+    "class": "priest",
+    "spec": "holy",
+    "role": "healer",
+    "level": 40,
+    "gear": "blue",
+    "items": [
+      {
+        "name": "Sweet Nectar",
+        "count": 20
+      },
+      {
+        "name": "Greater Mana Potion",
+        "count": 3
+      }
+    ],
+    "mana_pct": 15,
+    "cc_mark": null
+  },
+  "situation": {
+    "kind": "tank_damage",
+    "mobs": {
+      "role": "melee",
+      "count": 1,
+      "level_delta": -2,
+      "refill": true
+    },
+    "hp_band": [
+      35,
+      80
+    ],
+    "floor_pct": 12,
+    "victim": "player",
+    "pull_after_s": 0,
+    "ooc_wait_s": 0,
+    "debuff": null,
+    "max_rescues_per_min": 12
+  },
+  "setup_checks": [
+    "player_level",
+    "player_visible",
+    "player_talents",
+    "player_stance",
+    "player_forced_role",
+    "bot_present",
+    "bot_level",
+    "bot_role",
+    "bot_spec",
+    "bot_items",
+    "bot_mana",
+    "grouped",
+    "mobs_ready",
+    "config_read"
+  ],
+  "duration_s": 180,
+  "repeats": 2,
+  "min_valid_s": 120,
+  "rules": [
+    {
+      "id": "PRI-LOWMANA-POTION",
+      "desc": "A Holy priest at low mana that carries mana potions uses one (the potion's spell is Restore Mana) within 30 s of the fight starting",
+      "source": "ai/playerbot/strategy/generic/UsePotionsStrategy.cpp:49-67 (medium mana and high mana -> mana potion at ACTION_EMERGENCY; the action is possible only with a potion in the bags and off cooldown); ai/playerbot/strategy/actions/UseItemAction.h:173-176 (UseManaPotionAction); TortoiseBots upstream/dev 0c56cf649",
+      "expect_today": "PASS",
+      "why_expect": "15 percent is under both mana lines (medium and high) and the row sits at ACTION_EMERGENCY, above every heal; the hire carries 3 potions. Expected PASS on TortoiseBots upstream/dev 0c56cf649; a FAIL points at the potion row or at the item not reaching the bags",
+      "check": {
+        "metric": "first",
+        "where": {
+          "kind": "cast",
+          "src": "$bot",
+          "spell": "Restore Mana"
+        }
+      },
+      "pass_if": "<= 30"
+    },
+    {
+      "id": "PRI-LOWMANA-POTION-HEALS",
+      "desc": "Companion: the priest still casts at least 3 heals or shields on the player in the fight, so a bot that drinks the potion and then stalls fails",
+      "source": "ai/playerbot/HealerManaPolicy.h:55-69; ai/playerbot/strategy/priest/HolyPriestStrategy.cpp:29-72; TortoiseBots upstream/dev 0c56cf649",
+      "expect_today": "PASS",
+      "why_expect": "with the potion's mana back the healer has the pool for the same heals",
+      "check": {
+        "metric": "count",
+        "where": {
+          "kind": "cast",
+          "src": "$bot",
+          "dst": "$player",
+          "spell": [
+            "Flash Heal",
+            "Greater Heal",
+            "Heal",
+            "Lesser Heal",
+            "Renew",
+            "Power Word: Shield"
+          ]
+        }
+      },
+      "pass_if": ">= 3"
+    }
+  ]
+}

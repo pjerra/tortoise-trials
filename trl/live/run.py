@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from .. import gear as gear_mod
+from .. import scenario
 from . import collect, ladder, lease, pacing, situations, teardown
 from .agent import Agent, RpcError, norm_guid
 from .gm_guard import GmAborted, GmContext, GmGuard, GmRefused, GmServerError
@@ -116,6 +117,9 @@ def binary_version(binary):
 
 
 def load_trial(path):
+    # `path` is a trial file, or `path@variant` for one of its variants (the merged trial, id `<id>@<variant>`)
+    if not os.path.exists(path) and scenario.VARIANT_SEP in path:
+        return scenario.load_selected(path)
     with open(path) as f:
         return json.load(f)
 

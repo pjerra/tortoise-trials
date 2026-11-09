@@ -138,5 +138,34 @@
       },
       "pass_if": ">= 0.9"
     }
+  ],
+  "variants": [
+    {
+      "name": "bot-offtank",
+      "title": "a Protection paladin bot tank beside the player tank",
+      "override": {
+        "extra_bots": [
+          {
+            "class": "priest",
+            "spec": "holy",
+            "role": "healer",
+            "level": 40,
+            "items": [
+              {
+                "name": "Sweet Nectar",
+                "count": 20
+              }
+            ]
+          },
+          {
+            "class": "paladin",
+            "spec": "protection",
+            "role": "tank",
+            "level": 40,
+            "items": []
+          }
+        ]
+      }
+    }
   ]
 }

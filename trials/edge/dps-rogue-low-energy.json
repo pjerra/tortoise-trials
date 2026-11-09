@@ -1,0 +1,143 @@
+{
+  "id": "dps-rogue-low-energy",
+  "title": "Combat rogue with its energy spent: keeps swinging and acting, no stall",
+  "group": "tanks-melee",
+  "class": "rogue",
+  "spec": "combat",
+  "player": {
+    "class": "warrior",
+    "level": 40,
+    "talents": {
+      "tree": "arms",
+      "spells": [
+        16462,
+        12286
+      ]
+    },
+    "stance": 71,
+    "forced_role": "tank",
+    "auras": [],
+    "items": [],
+    "gear": "tier"
+  },
+  "bot": {
+    "class": "rogue",
+    "spec": "combat",
+    "role": "dps",
+    "level": 40,
+    "gear": "blue",
+    "items": [],
+    "mana_pct": null,
+    "cc_mark": null
+  },
+  "extra_bots": [
+    {
+      "class": "priest",
+      "spec": "holy",
+      "role": "healer",
+      "level": 40,
+      "items": [
+        {
+          "name": "Sweet Nectar",
+          "count": 20
+        }
+      ]
+    }
+  ],
+  "situation": {
+    "kind": "tank_damage",
+    "mobs": {
+      "role": "melee",
+      "count": 1,
+      "level_delta": -1,
+      "refill": true
+    },
+    "hp_band": [
+      40,
+      90
+    ],
+    "floor_pct": 12,
+    "victim": "player",
+    "pull_after_s": 0,
+    "ooc_wait_s": 0,
+    "debuff": null,
+    "max_rescues_per_min": 30
+  },
+  "setup_checks": [
+    "player_level",
+    "player_visible",
+    "player_talents",
+    "player_gear",
+    "player_stance",
+    "player_forced_role",
+    "bot_present",
+    "bot_level",
+    "bot_role",
+    "bot_spec",
+    "bot_items",
+    "grouped",
+    "extra_bots_present",
+    "extra_bots_role",
+    "extra_bots_in_group",
+    "mobs_ready",
+    "config_read"
+  ],
+  "duration_s": 180,
+  "repeats": 3,
+  "min_valid_s": 120,
+  "opportunity": {
+    "unit": "$player",
+    "in_combat": true
+  },
+  "rules": [
+    {
+      "id": "DPS-ROG-LOWENERGY-SWINGS",
+      "desc": "A Combat rogue keeps attacking while its energy is under 25 percent: at least 8 damage events by the rogue on the mob at those moments in the fight (white swings carry it between ability casts)",
+      "source": "ai/playerbot/strategy/rogue/RogueStrategy.cpp:72-75 (the default combat action is melee at ACTION_IDLE); ai/playerbot/strategy/rogue/CombatRogueStrategy.cpp:12-45 (the ability rows, each gated on its own energy cost); ai/playerbot/strategy/triggers/GenericTriggers.cpp:316-319 (EnergyAvailable: an ability row waits for its energy); ai/playerbot/strategy/rogue/RogueStrategy.cpp:88-90 and ai/playerbot/strategy/actions/UseItemAction.h:402-412 (Thistle Tea answers an empty bar only at level 60 and above, so a level 40 rogue has no energy tool); TortoiseBots upstream/dev 0c56cf649",
+      "expect_today": "PASS",
+      "why_expect": "a rogue spends its energy on every global cooldown it can, so it sits under 25 percent most of the time; the default melee action keeps swinging while the ability rows wait. A FAIL means the rogue stands idle or runs away when empty. Expected PASS on TortoiseBots upstream/dev 0c56cf649",
+      "check": {
+        "metric": "count",
+        "where": {
+          "kind": "damage",
+          "src": "$bot",
+          "dst": "$mob",
+          "src_power_lt": 25
+        }
+      },
+      "pass_if": ">= 8"
+    },
+    {
+      "id": "DPS-ROG-LOWENERGY-ACTIVE",
+      "desc": "A Combat rogue deals damage to the mob at least 20 times a minute over the fight (white swings and abilities together)",
+      "source": "ai/playerbot/strategy/rogue/RogueStrategy.cpp:72-75 (the default combat action is melee at ACTION_IDLE); ai/playerbot/strategy/rogue/CombatRogueStrategy.cpp:12-45 (the ability rows, each gated on its own energy cost); ai/playerbot/strategy/triggers/GenericTriggers.cpp:316-319 (EnergyAvailable: an ability row waits for its energy); ai/playerbot/strategy/rogue/RogueStrategy.cpp:88-90 and ai/playerbot/strategy/actions/UseItemAction.h:402-412 (Thistle Tea answers an empty bar only at level 60 and above, so a level 40 rogue has no energy tool); TortoiseBots upstream/dev 0c56cf649",
+      "expect_today": "PASS",
+      "why_expect": "a 2 s swing alone is 30 events a minute; below 20 the rogue is out of the fight for a third of the time",
+      "check": {
+        "metric": "rate",
+        "where": {
+          "kind": "damage",
+          "src": "$bot",
+          "dst": "$mob"
+        }
+      },
+      "pass_if": ">= 20"
+    },
+    {
+      "id": "DPS-ROG-LOWENERGY-STANCE",
+      "desc": "Precondition: Defensive Stance (aura 71) stays on the player through the fight",
+      "source": "precondition, no bot code: setup check player_stance proves the stance at the start, this uptime proves it in the fight",
+      "expect_today": "PASS",
+      "why_expect": "the stance is cast in set-up and nothing in the fight removes it; a repeat where it drops shows here instead of passing silently",
+      "check": {
+        "metric": "uptime",
+        "unit": "$player",
+        "aura": [
+          71
+        ],
+        "phase": "in_combat"
+      },
+      "pass_if": ">= 0.9"
+    }
+  ]
+}

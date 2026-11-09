@@ -178,5 +178,29 @@
       },
       "pass_if": ">= 0.9"
     }
+  ],
+  "variants": [
+    {
+      "name": "lvl50",
+      "title": "level 50",
+      "override": {
+        "level": 50
+      }
+    },
+    {
+      "name": "lvl60",
+      "title": "level 60 (no gear kit above level 50)",
+      "override": {
+        "level": 60,
+        "player": {
+          "gear": null
+        },
+        "situation": {
+          "mobs": {
+            "level_delta": -2
+          }
+        }
+      }
+    }
   ]
 }

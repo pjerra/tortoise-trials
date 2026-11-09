@@ -1,0 +1,171 @@
+{
+  "id": "tank-warrior-two-bot-tanks",
+  "title": "Protection warrior: never taunts a mob a second bot tank (Protection paladin) holds",
+  "group": "tanks-melee",
+  "class": "warrior",
+  "spec": "protection",
+  "player": {
+    "class": "warrior",
+    "level": 40,
+    "talents": {
+      "tree": "arms",
+      "spells": [
+        16462,
+        12286
+      ]
+    },
+    "stance": 2457,
+    "forced_role": "dps",
+    "auras": [],
+    "items": [],
+    "gear": "tier"
+  },
+  "bot": {
+    "class": "warrior",
+    "spec": "protection",
+    "role": "tank",
+    "level": 40,
+    "gear": "blue",
+    "items": [],
+    "mana_pct": null,
+    "cc_mark": null
+  },
+  "extra_bots": [
+    {
+      "class": "paladin",
+      "spec": "protection",
+      "role": "tank",
+      "level": 40,
+      "items": []
+    },
+    {
+      "class": "priest",
+      "spec": "holy",
+      "role": "healer",
+      "level": 40,
+      "items": [
+        {
+          "name": "Sweet Nectar",
+          "count": 20
+        }
+      ]
+    }
+  ],
+  "situation": {
+    "kind": "tank_damage",
+    "mobs": {
+      "role": "melee",
+      "count": 1,
+      "level_delta": 0,
+      "refill": true
+    },
+    "hp_band": [
+      35,
+      99
+    ],
+    "floor_pct": 12,
+    "victim": "player",
+    "pull_after_s": 0,
+    "ooc_wait_s": 0,
+    "debuff": null,
+    "max_rescues_per_min": 12
+  },
+  "setup_checks": [
+    "player_level",
+    "player_visible",
+    "player_talents",
+    "player_gear",
+    "player_stance",
+    "player_forced_role",
+    "player_no_shield",
+    "bot_present",
+    "bot_level",
+    "bot_role",
+    "bot_spec",
+    "grouped",
+    "extra_bots_present",
+    "extra_bots_role",
+    "extra_bots_in_group",
+    "mobs_ready",
+    "config_read"
+  ],
+  "duration_s": 180,
+  "repeats": 3,
+  "min_valid_s": 120,
+  "rules": [
+    {
+      "id": "TNK-WAR-2T-NO-STEAL",
+      "desc": "The Protection warrior casts no Taunt, Mocking Blow or Challenging Shout on a mob whose current target is the second bot tank (extra1, a Protection paladin). Only casts 10 s or more into the fight and outside 8 s after a refill count: a fresh mob opens on the DPS player and both tanks may answer it in the same second",
+      "source": "ai/playerbot/strategy/triggers/GenericTriggers.cpp:326-363 (LoseAggroTrigger: a tank target's victim that IsTank -> false); ai/playerbot/policy/combat/AttackerOfNonTankPolicy.h:34-38 (victimIsTank: no taunt needed); ai/playerbot/strategy/values/AttackerOfNonTankTargetValue.cpp:33-44 (the victim is read as a Player, bots included, and its IsTank decides); ai/playerbot/PlayerbotAI.cpp:4220-4241 (IsTank: a hire's tank strategy or forced role); ai/playerbot/strategy/warrior/ProtectionWarriorStrategy.cpp:126-138 (lose aggro and party member attacked rows); TortoiseBots upstream/dev 0c56cf649",
+      "expect_today": "PASS",
+      "why_expect": "once the paladin holds a mob its victim IsTank, so LoseAggro stays false (GenericTriggers.cpp:345-355) and the taunt-on-attacker pick drops it (AttackerOfNonTankPolicy.h:36). Expected PASS on TortoiseBots upstream/dev 0c56cf649; a FAIL with the precondition rule passing means the warrior taunts off another tank",
+      "check": {
+        "metric": "count",
+        "where": {
+          "kind": "cast",
+          "src": "$bot",
+          "spell": [
+            "Taunt",
+            "Mocking Blow",
+            "Challenging Shout"
+          ],
+          "dst_target_of": "$extra1",
+          "t_from": 10,
+          "not_within_s_after_mark": {
+            "kind": "refill",
+            "s": 8
+          }
+        }
+      },
+      "pass_if": "== 0"
+    },
+    {
+      "id": "TNK-WAR-2T-OTHER-HELD",
+      "desc": "Precondition: the second bot tank held a mob and took at least 5 hits from it, so a warrior that never meets a mob on the other tank cannot pass the rule above",
+      "source": "precondition, no bot code: the mob's own hits on extra1 prove the paladin held it",
+      "expect_today": "PASS",
+      "why_expect": "a Protection paladin hire in the tank role taunts a mob that is on the DPS player (its own taunt rows at ACTION_MOVE) or wins it on threat; a repeat where it never holds one shows here instead of passing silently",
+      "check": {
+        "metric": "count",
+        "where": {
+          "kind": "damage",
+          "src": "$mob",
+          "dst": "$extra1"
+        }
+      },
+      "pass_if": ">= 5"
+    },
+    {
+      "id": "TNK-WAR-2T-FOUGHT",
+      "desc": "Precondition: the Protection warrior casts on the mob at least 5 times in the fight, so an idle or dead bot cannot pass",
+      "source": "precondition, no bot code: the bot's own casts prove it fought",
+      "expect_today": "PASS",
+      "why_expect": "a tank that fights casts every few seconds; a repeat with fewer casts shows here instead of passing silently",
+      "check": {
+        "metric": "count",
+        "where": {
+          "kind": "cast",
+          "src": "$bot",
+          "dst": "$mob"
+        }
+      },
+      "pass_if": ">= 5"
+    },
+    {
+      "id": "TNK-WAR-2T-STANCE",
+      "desc": "Precondition: Battle Stance (aura 2457) stays on the player through the fight",
+      "source": "precondition, no bot code: setup check player_stance proves the stance at the start, this uptime proves it in the fight",
+      "expect_today": "PASS",
+      "why_expect": "the stance is cast in set-up and nothing in the fight removes it; a repeat where it drops shows here instead of passing silently",
+      "check": {
+        "metric": "uptime",
+        "unit": "$player",
+        "aura": [
+          2457
+        ],
+        "phase": "in_combat"
+      },
+      "pass_if": ">= 0.9"
+    }
+  ]
+}

@@ -4,7 +4,8 @@ Design notes for the trials after the healer set. All code lines are from Tortoi
 `abb91ff62` (paths are relative to the TortoiseBots repository). The trials marked **written** are in
 `trials/tanks/` and `trials/dps/`, with offline tests in `tests/test_rules_tanks_dps.py`. The sweep
 added 21 tank trials (sweep-tanks); the remaining rows need a situation feature that does not exist
-yet (listed at the end).
+yet (listed at the end). Edge cases (group shape, resources, variants) are in their own section below, with
+the ones that need a new kind.
 
 ## How the list is ranked
 
@@ -297,6 +298,76 @@ counts Mocking Blow and Challenging Shout too; `tank-warrior-shield-bash-caster`
 proves the bot reaches melee on a caster) with the 12 s Shield Bash cooldown in text and responder
 debounce; `TNK-WAR-PACK-SHARE` cites `ProtectionWarriorStrategy.cpp:344-355` and says
 "at abb91ff62" once in every changed reason.
+
+## Edge cases and variants (2026-11-10, no live runs)
+
+`trials/edge/` holds the edge-case trials; variants (README "Variants") carry the level and group variations of
+existing trials. Every rule cites TortoiseBots `upstream/dev` at `0c56cf649` and carries `expect_today`. Offline tests:
+`tests/test_edge_trials.py` (every rule scored PASS and FAIL through `score_rep`) and `tests/test_variants.py`.
+
+| id | behaviour | rules (expect_today) | code |
+|---|---|---|---|
+| `tank-warrior-two-bot-tanks` | a Protection warrior bot never taunts a mob a second bot tank (Protection paladin, `extra1`) holds | no taunt on a mob targeting `$extra1`, after 10 s and outside 8 s after a refill (PASS); the paladin took 5 hits (PASS, precondition); the warrior fought; stance | `GenericTriggers.cpp:326-363` (LoseAggro: the victim IsTank -> false), `AttackerOfNonTankPolicy.h:34-38`, `AttackerOfNonTankTargetValue.cpp:33-44`, `PlayerbotAI.cpp:4220-4241` |
+| `tank-warrior-no-taunt-tank-player@bot-offtank` | the player-tank control with a second, paladin bot tank in the group | the base rules (PASS) | as the control; `PlayerbotAI.cpp:4220-4241` |
+| `priest-holy-low-mana-drinks` (+ `@mana-5`, `@mana-50`) | a healer low on mana drinks between pulls (ooc window) | Drink aura within 30 s (PASS); Drink uptime >= 25 percent (PASS) | `UseFoodStrategy.cpp:49-54`, `GenericTriggers.cpp:81-86` (under 65), `MaintenanceValues.h:295-345` (stop line 85), `UseItemAction.h:692-774` |
+| `priest-holy-low-mana-fight` | at 15 percent mana in a fight: no off-spec nuke under 60 percent mana, still heals | no Smite/Holy Fire/Mind Blast/SW:P (PASS); at least 3 heals on the player (`?`) | `HealerManaPolicy.h:55-69,103-130`, `GenericTriggers.cpp:205-224` |
+| `priest-holy-low-mana-potion` | with mana potions in the bags the healer uses one | `Restore Mana` cast within 30 s (PASS); at least 3 heals (PASS) | `UsePotionsStrategy.cpp:49-67`, `UseItemAction.h:173-176` |
+| `tank-warrior-zero-rage-opening` | a Protection warrior starting the pull with no rage opens with Bloodrage and melee, no stall | Bloodrage within 10 s (`?`); damage on the mob within 8 s (PASS); rage under 30 percent at the first hits (PASS, precondition); stance | `ProtectionWarriorStrategy.cpp:39-42,236-246` |
+| `dps-rogue-low-energy` | a Combat rogue keeps swinging with its energy spent | at least 8 damage events at under 25 percent energy (PASS); at least 20 damage events a minute (PASS); stance | `RogueStrategy.cpp:72-75,88-90`, `CombatRogueStrategy.cpp:12-45`, `GenericTriggers.cpp:316-319`, `UseItemAction.h:402-412` |
+| `dps-rogue-thistle-tea` | a level 60 Combat rogue with Thistle Tea uses it when under 20 energy | `Restore Energy` cast within 90 s (`?`); the same activity rule; stance | `RogueStrategy.cpp:88-90`, `GenericTriggers.h:65-74`, `UseItemAction.h:402-412` |
+
+Level variants (README, DECISIONS 2026-11-10): `priest-holy-heal-latency@lvl50|lvl60`,
+`tank-warrior-taunt-off-healer@lvl50|lvl60`, `dps-mage-threat-cap@lvl50|lvl60`. Level 20 is refused: the premade build
+of levels 20 to 30 does not carry the marker talent the `bot_talents` proof needs.
+
+### Needs a new kind (not written, nothing invented)
+
+1. **The tank dies mid-fight: does a bot off-tank or a DPS pick the mob up?** No situation kills a tank on a
+   schedule. What it would take: a situation field such as `drop_tank_at_s: N` with `tank: "bot"|"extraN"` that sends
+   the guarded `.modify hp 1 <max>` to a hire (the guard already allows `modify_hp` on a hire; the governor uses it)
+   once, N s into the fight, and a marker `tank_down` (a runner mark, like `refill`) the rules can use with
+   `not_within_s_after_mark` or `t_from`. The rule side: a latency trigger on the new `death` event kind (`death` is
+   in `KIND_ENUM` but not in `EVENT_TRIGGER_KINDS`) with a response of any taunt cast by the surviving tank
+   (`dst: $trigger.src` does not fit a death trigger; it would need `response_dst` of the mob that was on the
+   victim) or damage by a DPS on that mob. Expected today `?`: with a second bot tank,
+   `ProtectionWarriorStrategy.cpp:126-138` (lose aggro and party member attacked, INTERRUPT + 1) says the off-tank taunts
+   within a tick; with no second tank the mob goes to the healer (`AttackerOfNonTankPolicy.h:45-71` ranks a healer
+   victim first) and nobody holds it, which is the finding.
+2. **The bot under control: stunned, silenced, feared or rooted. Does it use its break-free and resume within N s?**
+   Three gaps, in the order they bite:
+   - **The CC cannot be aimed at the bot.** The `debuff` situation applies a GM `.aura` to `situation.victim`, and
+     `victim: bot` starts no fight (nothing pulls), so a debuffed hire never fights. What it would take: a
+     `debuff.target: "bot"` (the guard's `aura` kind already allows a hire, and lists the ids the trial file names) so the
+     player pulls as usual while the aura lands on the hire, re-applied when it expires (the loop already does that
+     for the victim). Aura ids on hand in `data/spells.json`: Cheap Shot 1833 (stun), Hammer of Justice 5589
+     (stun), Psychic Scream 8122 and Fear 5782 (fear), Frost Nova 122 (root), Silence 15487.
+   - **Mob data cannot name a mob that casts them.** `data/mobs.json` rows hold entry, faction, level range and name;
+     `build_data.py` reads the creature spell tables only for the interruptible-caster flag, and the situation picks a
+     mob by role and level window, not by entry. A real "the mob stuns the bot" trial needs `build_data.py` to record
+     the CC mechanic each creature casts, and `mobs.cc: "stun|fear|root|silence"` or a `mobs.entry` pin (and the mob
+     must pick the bot as its target, which the player's pull does not do). The GM aura above is the cheaper route
+     and tests the bot, not the mob.
+   - **The race of the hire is not chosen.** The break-free is a racial: Will of the Forsaken 7744 (fear, charm, sleep;
+     `GenericTriggers.h:1340-1362`) and Escape Artist 20589 (rooted; `GenericTriggers.h:1386`), both at priority 71 in
+     `RacialsStrategy.cpp:27-33`; a Berserker Rage row for warriors against fear/sleep/sap
+     (`FearSleepSapTrigger`, `GenericTriggers.h:1364-1372`). A trial needs `bot.race` (or a setup check that reads
+     the hire's race and makes the rep INVALID when it has no break-free), or it measures only the resume.
+   The rules need nothing new: latency with trigger `aura_on` of the CC aura on `$bot` and response a cast of the
+   racial within 3 s, and latency with trigger `aura_off` and response any cast or damage by `$bot` within N s
+   (both kinds exist). Expected today: `?` for the racial (the rows exist; whether the hire's race has one is the
+   open part), `?` for the resume.
+3. **A variant of `tank-warrior-two-bot-tanks` with the player as the other tank.** The count rule names its alias
+   (`dst_target_of: $extra1`), and `dst_target_of` takes one alias, so the same rules cannot read "the other tank" as the
+   player in a variant (the rules list is not variable). What it would take: `dst_target_of` accepting a list of aliases
+   or a `$tanks` alias for every forced or hired tank other than the bot. Covered today by
+   `tank-warrior-no-taunt-tank-player` and its `bot-offtank` variant.
+4. **Rage and energy cannot be set.** `bot.mana_pct` runs `.modify mana`, which the guard allows for a hire and only
+   for mana. The rage and energy trials wait for the natural empty state (rage decays out of combat, `pull_after_s` 20;
+   energy empties in seconds) and prove it with a rule. A `bot.power_pct` for rage and energy needs a guarded
+   `.modify rage` / `.modify energy` kind and a `bot_power` setup check.
+5. **Level 20 hires.** A talent proof by marker per level band (today the marker is the level-35 premade's), so a level
+   20 to 30 hire can be proven: the table in `trl/talents.py` would hold one marker per band, from the premade link of
+   that band.
 
 ## Tool findings while writing these
 

@@ -22,12 +22,19 @@ from trl import scenario  # noqa: E402
 def _all_trials():
     paths = scenario.trial_files()
     trials = []
+    kept = []
     for path in paths:
         try:
-            trials.append(scenario.load_trial(path))
+            trial = scenario.load_trial(path)
         except (OSError, ValueError):
             continue
-    return trials, paths
+        trials.append(trial)
+        kept.append(path)
+        # each valid variant is its own entry, `<trial>@<variant>`, reached as "path@variant"
+        for name, merged in scenario.expand_variants(trial):
+            trials.append(merged)
+            kept.append("%s%s%s" % (path, scenario.VARIANT_SEP, name))
+    return trials, kept
 
 
 def _close_ids(want, trials):

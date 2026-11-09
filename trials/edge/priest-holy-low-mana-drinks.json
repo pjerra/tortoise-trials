@@ -1,0 +1,139 @@
+{
+  "id": "priest-holy-low-mana-drinks",
+  "title": "Holy priest low on mana: drinks between pulls",
+  "group": "healers",
+  "class": "priest",
+  "spec": "holy",
+  "player": {
+    "class": "warrior",
+    "level": 40,
+    "talents": {
+      "tree": "arms",
+      "spells": [
+        16462,
+        12286
+      ]
+    },
+    "stance": null,
+    "forced_role": null,
+    "auras": [],
+    "items": []
+  },
+  "bot": {
+    "class": "priest",
+    "spec": "holy",
+    "role": "healer",
+    "level": 40,
+    "gear": "blue",
+    "items": [
+      {
+        "name": "Sweet Nectar",
+        "count": 20
+      }
+    ],
+    "mana_pct": 15,
+    "cc_mark": null
+  },
+  "situation": {
+    "kind": "ooc_buffs",
+    "mobs": {
+      "role": "melee",
+      "count": 0,
+      "level_delta": 0
+    },
+    "hp_band": [
+      40,
+      90
+    ],
+    "floor_pct": 30,
+    "victim": "player",
+    "pull_after_s": 0,
+    "ooc_wait_s": 60,
+    "debuff": null
+  },
+  "setup_checks": [
+    "player_level",
+    "player_visible",
+    "player_talents",
+    "player_forced_role",
+    "bot_present",
+    "bot_level",
+    "bot_role",
+    "bot_spec",
+    "bot_items",
+    "bot_mana",
+    "grouped",
+    "config_read"
+  ],
+  "duration_s": 60,
+  "repeats": 2,
+  "min_valid_s": 45,
+  "rules": [
+    {
+      "id": "PRI-LOWMANA-DRINK",
+      "desc": "A Holy priest at low mana puts the Drink aura on itself within 30 s of the out-of-combat window opening (nobody fights: the party is between pulls)",
+      "source": "ai/playerbot/strategy/generic/UseFoodStrategy.cpp:49-54 (high mana and resume drink -> drink, non-combat rows); ai/playerbot/strategy/triggers/GenericTriggers.cpp:81-86 (HighManaTrigger: mana under 65); ai/playerbot/strategy/values/MaintenanceValues.h:295-345 (should drink: stop line 85, a still player never blocks it); ai/playerbot/SurvivePolicy.h:35-45; ai/playerbot/strategy/actions/UseItemAction.h:692-774 (DrinkAction); TortoiseBots upstream/dev 0c56cf649",
+      "expect_today": "PASS",
+      "why_expect": "15 percent is under the 65 percent line of the high mana trigger and under the 85 stop line, the player stands still (ShouldDrinkValue returns true), the hire carries Sweet Nectar, and the group is not fighting (DrinkAction::isUseful). Expected PASS on TortoiseBots upstream/dev 0c56cf649",
+      "check": {
+        "metric": "first",
+        "where": {
+          "kind": "aura_on",
+          "dst": "$bot",
+          "spell": "Drink"
+        }
+      },
+      "pass_if": "<= 30"
+    },
+    {
+      "id": "PRI-LOWMANA-DRINK-UPTIME",
+      "desc": "Companion: the Drink aura is on the priest for at least 25 percent of the window's samples, so a drink that starts and stops at once does not count",
+      "source": "ai/playerbot/strategy/actions/UseItemAction.h:692-774 (DrinkAction: a drink lasts until mana reaches the stop line); ai/playerbot/strategy/generic/UseFoodStrategy.cpp:52-54 (resume drink); TortoiseBots upstream/dev 0c56cf649",
+      "expect_today": "PASS",
+      "why_expect": "a drink from 15 percent runs for many seconds (resume drink picks up a cut-short one), so the aura stays on for most of a 60 s window",
+      "check": {
+        "metric": "uptime",
+        "unit": "$bot",
+        "aura": [
+          430,
+          431,
+          432,
+          1133,
+          1135,
+          1137,
+          10250,
+          22734,
+          24355,
+          25696,
+          26261,
+          26402,
+          26473,
+          26475,
+          29007
+        ],
+        "phase": "out_of_combat"
+      },
+      "pass_if": ">= 0.25"
+    }
+  ],
+  "variants": [
+    {
+      "name": "mana-5",
+      "title": "5 percent mana",
+      "override": {
+        "bot": {
+          "mana_pct": 5
+        }
+      }
+    },
+    {
+      "name": "mana-50",
+      "title": "50 percent mana",
+      "override": {
+        "bot": {
+          "mana_pct": 50
+        }
+      }
+    }
+  ]
+}

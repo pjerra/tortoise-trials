@@ -102,5 +102,26 @@
       "pass_if": ">= 0.8",
       "min_n": 5
     }
+  ],
+  "variants": [
+    {
+      "name": "lvl50",
+      "title": "level 50",
+      "override": {
+        "level": 50
+      }
+    },
+    {
+      "name": "lvl60",
+      "title": "level 60",
+      "override": {
+        "level": 60,
+        "situation": {
+          "mobs": {
+            "level_delta": -2
+          }
+        }
+      }
+    }
   ]
 }

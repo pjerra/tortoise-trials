@@ -1,5 +1,6 @@
 """Load and validate trial files. The schema is the contract with briefs 1, 3, 4."""
 
+import copy
 import glob as _glob
 import json
 import os
@@ -51,7 +52,7 @@ THRESHOLD_ALIASES = {"$critical", "$low", "$medium"}
 TOP_FIELDS = {"id", "title", "group", "class", "spec", "player", "bot",
               "situation", "setup_checks", "duration_s", "repeats",
               "min_valid_s", "opportunity", "rules", "boss", "live", "spec_ids",
-              "extra_bots"}
+              "extra_bots", "variants"}
 PLAYER_FIELDS = {"class", "level", "talents", "stance", "forced_role",
                  "auras", "items", "mana_pct", "cc_mark", "gear", "role", "spec"}
 BOT_FIELDS = {"class", "spec", "role", "level", "gear", "items", "mana_pct",
@@ -388,6 +389,227 @@ def _extra_alias_uses(node, found):
         found.add(node)
 
 
+# --- variants -------------------------------------------------------------------------
+# A trial may carry `variants`: named, small overrides of the base trial. Each runs as its own trial id
+# `<trial>@<variant>` (own run folder, own report rows, own baseline key). The override is deep-merged onto
+# the base and the merged trial goes through the ordinary validation, so a variant can never be looser than
+# a trial file. A variant never changes the rules list: only the three thresholds below, and only by rule id.
+VARIANT_SEP = "@"
+MAX_VARIANTS = 6
+VARIANT_FIELDS = {"name", "title", "override"}
+# `level` is a shortcut that sets player.level, bot.level and every extra_bots[].level; the rest merge as
+# written (dicts merge key by key, a list or a scalar replaces, null clears). `rules` is {rule id: {...}}.
+OVERRIDE_FIELDS = {"level", "player", "bot", "extra_bots", "situation", "rules"}
+OVERRIDE_FROZEN = {"player": {"class"}, "bot": {"class", "spec", "role"}}
+RULE_OVERRIDE_FIELDS = {"pass_if", "min_n", "min_opportunity_s"}
+
+
+def deep_merge(base, override):
+    """A copy of `base` with `override` laid over it: dicts merge key by key, anything else replaces."""
+    if isinstance(base, dict) and isinstance(override, dict):
+        out = copy.deepcopy(base)
+        for key, val in override.items():
+            out[key] = deep_merge(base[key], val) if key in base else copy.deepcopy(val)
+        return out
+    return copy.deepcopy(override)
+
+
+def split_variant_id(tid):
+    """'trial@variant' -> ('trial', 'variant'); a plain id -> (id, None)."""
+    if isinstance(tid, str) and VARIANT_SEP in tid:
+        base, name = tid.split(VARIANT_SEP, 1)
+        return base, name
+    return tid, None
+
+
+def apply_override(base, override):
+    """(merged trial or None, errors) for one override. The merged trial keeps the BASE id (the caller names it)."""
+    errs = []
+    tid = base.get("id", "?")
+    if not isinstance(override, dict) or not override:
+        return None, ["%s: variant override must be a non-empty object" % tid]
+    for key in override:
+        if key not in OVERRIDE_FIELDS:
+            errs.append("%s: variant override may not touch %r (allowed: %s)"
+                        % (tid, key, ", ".join(sorted(OVERRIDE_FIELDS))))
+    for key, frozen in OVERRIDE_FROZEN.items():
+        part = override.get(key)
+        if isinstance(part, dict):
+            for fld in sorted(frozen & set(part)):
+                errs.append("%s: variant override may not change %s.%s" % (tid, key, fld))
+        elif key in override:
+            errs.append("%s: variant override %s must be an object" % (tid, key))
+    rules = override.get("rules")
+    if rules is not None:
+        have = {r.get("id") for r in (base.get("rules") or []) if isinstance(r, dict)}
+        if not isinstance(rules, dict) or not rules:
+            errs.append("%s: variant override rules must be {rule id: {thresholds}}" % tid)
+        else:
+            for rid, tweak in rules.items():
+                if rid not in have:
+                    errs.append("%s: variant override names unknown rule %r" % (tid, rid))
+                    continue
+                if not isinstance(tweak, dict) or not tweak:
+                    errs.append("%s/%s: variant rule override must be a non-empty object" % (tid, rid))
+                    continue
+                for fld in tweak:
+                    if fld not in RULE_OVERRIDE_FIELDS:
+                        errs.append("%s/%s: variant may not change rule field %r (only %s)"
+                                    % (tid, rid, fld, ", ".join(sorted(RULE_OVERRIDE_FIELDS))))
+                if "pass_if" in tweak and (not isinstance(tweak["pass_if"], str)
+                                           or not PASS_IF_RE.match(tweak["pass_if"].strip())):
+                    errs.append("%s/%s: bad variant pass_if %r" % (tid, rid, tweak["pass_if"]))
+                if "min_n" in tweak and (isinstance(tweak["min_n"], bool) or not isinstance(tweak["min_n"], int)
+                                         or tweak["min_n"] < 1):
+                    errs.append("%s/%s: variant min_n must be an int >= 1" % (tid, rid))
+                if "min_opportunity_s" in tweak and (isinstance(tweak["min_opportunity_s"], bool)
+                                                     or not isinstance(tweak["min_opportunity_s"], (int, float))
+                                                     or tweak["min_opportunity_s"] < 0):
+                    errs.append("%s/%s: variant min_opportunity_s must be a number >= 0" % (tid, rid))
+    lvl = override.get("level")
+    if "level" in override and (isinstance(lvl, bool) or not isinstance(lvl, int) or not 1 <= lvl <= 60):
+        errs.append("%s: variant level must be an int 1-60" % tid)
+    if errs:
+        return None, errs
+    merged = copy.deepcopy(base)
+    merged.pop("variants", None)
+    if "level" in override:
+        merged.setdefault("player", {})["level"] = lvl
+        merged.setdefault("bot", {})["level"] = lvl
+        for bot in merged.get("extra_bots") or []:
+            if isinstance(bot, dict):
+                bot["level"] = lvl
+    for key in ("player", "bot", "situation"):
+        if key in override:
+            merged[key] = deep_merge(merged.get(key) or {}, override[key])
+    if "extra_bots" in override:
+        merged["extra_bots"] = copy.deepcopy(override["extra_bots"])
+    for rid, tweak in (rules or {}).items():
+        for rule in merged["rules"]:
+            if rule.get("id") == rid:
+                rule.update(copy.deepcopy(tweak))
+    return merged, []
+
+
+# The talent proof (setup check bot_talents) needs the spec's marker talent, a talent the premade build of level 35
+# already has (trl/talents.py); the premade links of levels 20-30 stop short of it for every class with a marker.
+MIN_HIRE_LEVEL = 35
+
+
+def _hires(trial):
+    """[(label, class, spec, level)] of the main hire and every extra hire."""
+    out = []
+    bot = trial.get("bot") if isinstance(trial.get("bot"), dict) else {}
+    out.append(("bot", trial.get("class"), trial.get("spec"), bot.get("level")))
+    for i, ex in enumerate(trial.get("extra_bots") or [], start=1):
+        if isinstance(ex, dict):
+            out.append(("extra_bots[%d]" % i, ex.get("class"), ex.get("spec"), ex.get("level")))
+    return out
+
+
+def merge_variant(trial, var, spells_path=None):
+    """(merged trial or None, errors) for one variant entry of `trial`: the shape of the entry, the override, the
+    ordinary validation of the merged trial, the hire level floor, and the rules list left as it was."""
+    tid = trial.get("id", "?")
+    name = var.get("name") if isinstance(var, dict) else None
+    label = "%s variants[%s]" % (tid, name)
+    if not isinstance(var, dict):
+        return None, ["%s: not an object" % label]
+    errs = []
+    for key in var:
+        if key not in VARIANT_FIELDS:
+            errs.append("%s: unknown field %r" % (label, key))
+    if not isinstance(name, str) or not ID_RE.match(name):
+        return None, errs + ["%s: bad name %r (lower-case letters, digits and -)" % (label, name)]
+    if "title" in var and not isinstance(var["title"], str):
+        errs.append("%s: title must be a string" % label)
+    base = {k: v for k, v in trial.items() if k != "variants"}
+    merged, oerrs = apply_override(base, var.get("override"))
+    if oerrs:
+        return None, errs + ["%s: %s" % (label, e.split(": ", 1)[-1]) for e in oerrs]
+    for e in validate(merged, spells_path):
+        errs.append("%s: merged trial: %s" % (label, e))
+    for who, klass, spec, lvl in _hires(merged):
+        from . import talents as _talents
+        if (_talents.marker_for(klass, spec) is not None and isinstance(lvl, int)
+                and not isinstance(lvl, bool) and lvl < MIN_HIRE_LEVEL):
+            errs.append("%s: %s is level %d: below level %d no hire can carry the talent marker its build is "
+                        "proven by (the premade link of that level stops short of it), so every repeat would be "
+                        "INVALID" % (label, who, lvl, MIN_HIRE_LEVEL))
+    if [r.get("id") for r in merged.get("rules") or []] != [r.get("id") for r in trial.get("rules") or []]:
+        errs.append("%s: the variant changed the rules list" % label)
+    return (None if errs else merged), errs
+
+
+def _check_variants(trial, tid, spells_path=None):
+    """Errors for the `variants` list: its shape, then every variant's merged trial (ordinary validation)."""
+    variants = trial.get("variants")
+    errs = []
+    if trial.get("group") == "raid":
+        return ["%s: raid trials take no variants" % tid]
+    if not isinstance(variants, list) or not variants:
+        return ["%s: variants must be a non-empty list (leave it out)" % tid]
+    if len(variants) > MAX_VARIANTS:
+        errs.append("%s: %d variants, at most %d" % (tid, len(variants), MAX_VARIANTS))
+    seen = set()
+    for var in variants:
+        name = var.get("name") if isinstance(var, dict) else None
+        if isinstance(name, str) and name in seen:
+            errs.append("%s: duplicate variant name %r" % (tid, name))
+        seen.add(name)
+        errs.extend(merge_variant(trial, var, spells_path)[1])
+    return errs
+
+
+def expand_variants(trial):
+    """[(variant name, merged trial)] for a trial's VALID variants, ids `<trial>@<variant>`. A trial without
+    variants (or with a bad list) gives []; `validate` is what reports the problems."""
+    out = []
+    variants = trial.get("variants") if isinstance(trial, dict) else None
+    if not isinstance(variants, list) or trial.get("group") == "raid":
+        return out
+    for var in variants:
+        merged, errs = merge_variant(trial, var)
+        if errs or merged is None:
+            continue
+        merged["id"] = "%s%s%s" % (trial.get("id"), VARIANT_SEP, var["name"])
+        if var.get("title"):
+            merged["title"] = "%s [%s]" % (trial.get("title") or trial.get("id"), var["title"])
+        out.append((var["name"], merged))
+    return out
+
+
+def load_selected(spec):
+    """Load `path` (the base trial) or `path@variant` (the merged variant); ValueError when the variant is missing."""
+    if not os.path.exists(spec) and VARIANT_SEP in spec:
+        path, name = spec.rsplit(VARIANT_SEP, 1)
+        trial = load_trial(path)
+        for vname, merged in expand_variants(trial):
+            if vname == name:
+                return merged
+        raise ValueError("%s: no valid variant %r" % (path, name))
+    return load_trial(spec)
+
+
+def find_trial_by_id(tid, root=None):
+    """The trial (or merged variant) with this id from the trial files, else None."""
+    base_id, name = split_variant_id(tid)
+    for path in trial_files(root):
+        try:
+            cand = load_trial(path)
+        except (OSError, ValueError):
+            continue
+        if cand.get("id") != base_id:
+            continue
+        if name is None:
+            return cand
+        for vname, merged in expand_variants(cand):
+            if vname == name:
+                return merged
+        return None
+    return None
+
+
 def validate(trial, spells_path=None):
     """Return a list of error strings (empty = valid)."""
     errs = []
@@ -404,6 +626,8 @@ def validate(trial, spells_path=None):
         _err(errs, "%s: bad group %r" % (tid, group))
         return errs
     if group == "raid":
+        if "variants" in trial:
+            _err(errs, "%s: raid trials take no variants" % tid)
         for key in ("boss", "live"):
             if key not in trial:
                 _err(errs, "%s: raid trial missing %s" % (tid, key))
@@ -573,6 +797,8 @@ def validate(trial, spells_path=None):
         return errs
     for rule in rules:
         _check_rule(rule, tid, errs, spells_path)
+    if "variants" in trial and group != "raid":
+        errs.extend(_check_variants(trial, tid, spells_path))
     return errs
 
 
@@ -587,6 +813,9 @@ def match_selector(sel, entries):
     a bare id that two files carry -> ValueError.
     """
     import fnmatch as _fn
+    if VARIANT_SEP not in str(sel):
+        # a selector without "@" reaches base trials only: a glob such as `tank-*` never starts variants
+        entries = [(tid, p) for (tid, p) in entries if not (isinstance(tid, str) and VARIANT_SEP in tid)]
     exact = [p for (tid, p) in entries if tid == sel]
     if exact:
         if len(exact) > 1:
@@ -626,10 +855,14 @@ def find_trials(selector=None, root=None, trials=None, bot_class=None, spec=None
         kept = []
         for path in paths:
             try:
-                trials.append(load_trial(path))
-                kept.append(path)
+                trial = load_trial(path)
             except (OSError, ValueError):
                 continue
+            trials.append(trial)
+            kept.append(path)
+            for name, merged in expand_variants(trial):
+                trials.append(merged)
+                kept.append("%s%s%s" % (path, VARIANT_SEP, name))
         paths = kept
     else:
         paths = paths or []
@@ -641,6 +874,8 @@ def find_trials(selector=None, root=None, trials=None, bot_class=None, spec=None
         return resolve_selectors(sels, entries)
     out = []
     for trial, (tid, path) in zip(trials, entries):
+        if isinstance(tid, str) and VARIANT_SEP in tid:
+            continue    # a class or spec selection runs base trials; a variant is asked for by id
         if bot_class and trial.get("class") != bot_class:
             continue
         if spec and trial.get("spec") != spec:
