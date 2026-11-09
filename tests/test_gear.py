@@ -158,7 +158,9 @@ class SetupCheckTest(unittest.TestCase):
 
     def ctx(self, trial=None, kits=None):
         kit = [i["entry"] for i in (gear.pick_kit((trial or self.TRIAL)["player"], kits)[0] or [])]
-        return tl.ctx_for(gear_ids=frozenset(kit), strip_ids=frozenset(gear.all_entries()))
+        profs = gear.proficiency_spells(gear.pick_kit((trial or self.TRIAL)["player"], kits)[0])
+        return tl.ctx_for(gear_ids=frozenset(kit), strip_ids=frozenset(gear.all_entries()),
+                          proficiency_ids=frozenset(profs))
 
     def run_check(self, agent, trial=None, kits=None):
         with tempfile.TemporaryDirectory() as tmp:
@@ -232,19 +234,21 @@ class StripTest(unittest.TestCase):
     def strip(self, agent):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = tl.ctx_for(strip_ids=frozenset(gear.all_entries()))
-            return setup.strip_player_gear(agent, gm_guard.GmGuard(agent, tl.new_ledger(tmp), ctx), ctx)
+            return setup.strip_player_gear(agent, gm_guard.GmGuard(agent, tl.new_ledger(tmp), ctx), ctx,
+                                           wait=0.0, poll=0.0)
 
     def test_a_gear_trial_then_a_no_gear_trial_ends_with_nothing_of_the_kit_worn(self):
         agent = GearAgent()
         with tempfile.TemporaryDirectory() as tmp:
             ctx = tl.ctx_for(gear_ids=frozenset(gear.kit_entries(player(level=50))),
+                             proficiency_ids=frozenset(gear.proficiency_spells(gear.pick_kit(player(level=50))[0])),
                              strip_ids=frozenset(gear.all_entries()))
             guard = gm_guard.GmGuard(agent, tl.new_ledger(tmp), ctx)
             row = setup.check_player_gear(agent, {"id": "g", "player": player(level=50)}, guard, ctx, settle=0.0, wait=0.0, poll=0.0)
             self.assertTrue(row["ok"])
             self.assertGreaterEqual(len(agent.worn), 10)
             agent.bags[7922] = agent.bags.get(7922, 0) + 1          # a leftover copy in the bags too
-            row = setup.strip_player_gear(agent, guard, ctx)         # the next trial has no gear option
+            row = setup.strip_player_gear(agent, guard, ctx, wait=0.0, poll=0.0)   # the next trial has no gear option
         self.assertTrue(row["ok"], row["evidence"])
         self.assertEqual(agent.worn & gear.all_entries(), set())
         self.assertEqual(agent.bags, {})
@@ -256,6 +260,8 @@ class StripTest(unittest.TestCase):
         def run_one(agent, tmp, trial):
             ctx = tl.ctx_for(gear_ids=frozenset(gear.kit_entries(trial["player"])
                                                 if trial["player"].get("gear") == "tier" else ()),
+                             proficiency_ids=frozenset(gear.proficiency_spells(gear.pick_kit(trial["player"])[0])
+                                                       if trial["player"].get("gear") == "tier" else ()),
                              strip_ids=frozenset(gear.all_entries()))
             guard = gm_guard.GmGuard(agent, tl.new_ledger(tmp), ctx)
             with unittest.mock.patch.multiple(

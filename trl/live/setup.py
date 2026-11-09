@@ -64,12 +64,16 @@ def row(cid, ok, value=None, evidence=""):
     return {"id": cid, "ok": bool(ok), "value": value, "evidence": evidence}
 
 
-def _retry(fn, attempts=2):
+def _retry(fn, attempts=2, deadline=None):
+    """Run a check up to `attempts` times; with a `deadline` a spent one ends the retries (the last result,
+    whose evidence names the phase that ran out, stands)."""
     out = None
     for _ in range(attempts):
         out = fn()
         if out.get("ok"):
             return out
+        if deadline is not None and deadline.expired():
+            break
     return out
 
 
@@ -154,6 +158,39 @@ def bagged_entries(agent):
     return counts, ""
 
 
+GEAR_STEP_IDS = {"player_gear_carryover", "player_gear", "player_gear_strip"}
+GEAR_SETUP_BUDGET_S = 90.0     # the whole gear setup of one rep: carry-over strip, proficiencies, grants, equips
+
+
+class Deadline:
+    """One monotonic deadline for a whole setup phase: every wait is capped by what is left of it, and a step
+    that finds it spent stops sending and says which phase ran out."""
+
+    def __init__(self, budget=GEAR_SETUP_BUDGET_S, clock=time.monotonic):
+        self.budget = float(budget)
+        self.clock = clock
+        self.end = clock() + self.budget
+
+    def left(self):
+        return max(0.0, self.end - self.clock())
+
+    def expired(self):
+        return self.left() <= 0.0
+
+    def cap(self, seconds):
+        return min(float(seconds), self.left())
+
+
+def _no_deadline():
+    return Deadline(float("inf"))
+
+
+def _timeout_evidence(timed_out, deadline):
+    if not timed_out:
+        return ""
+    return "; setup deadline (%.0f s) ran out in: %s" % (deadline.budget, ", ".join(timed_out))
+
+
 def _wait_worn(agent, entries, wait, poll):
     """True once every entry shows in the `equipment` read (an equip is a packet: the server's reply, and so
     the read, can trail the call by a moment)."""
@@ -163,10 +200,11 @@ def _wait_worn(agent, entries, wait, poll):
     return bool(wait_until(all_worn, timeout=wait, poll=poll))
 
 
-def _learn_proficiencies(agent, spells, guard, ctx, settle, wait, poll):
+def _learn_proficiencies(agent, spells, guard, ctx, settle, wait, poll, deadline, timed_out):
     """Learn the kit's armor / weapon proficiencies the player lacks (a GM-levelled character never learned
     Plate Mail 750 or Mail 8737, and an item without its proficiency cannot be equipped). Only for the player
-    itself, through the guarded `.learn`; a spell already known gets no line. Returns (learned, still missing)."""
+    itself, through the guarded `.learn`; a spell already known gets no line. Returns (learned, still missing).
+    Every wait is capped by the deadline; a spent deadline stops the sends and notes the phase in timed_out."""
     try:
         have = agent.spell_ids()
     except Exception:  # noqa: BLE001 - an unreadable spell list: learn them all, verified below
@@ -176,16 +214,22 @@ def _learn_proficiencies(agent, spells, guard, ctx, settle, wait, poll):
     for _attempt in (1, 2):
         if not todo:
             break
+        if deadline.expired():
+            timed_out.append("proficiency learn")
+            break
         for sp in todo:
+            if deadline.expired():
+                timed_out.append("proficiency learn")
+                break
             guard.send("learn", ctx.player_guid, sp)
-        time.sleep(settle)
+        time.sleep(deadline.cap(settle))
 
         def known():
             try:
                 return set(todo) <= agent.spell_ids()
             except Exception:  # noqa: BLE001
                 return False
-        wait_until(known, timeout=wait, poll=poll)
+        wait_until(known, timeout=deadline.cap(wait), poll=poll)
         try:
             have = agent.spell_ids()
         except Exception:  # noqa: BLE001
@@ -195,7 +239,7 @@ def _learn_proficiencies(agent, spells, guard, ctx, settle, wait, poll):
     return learned, todo
 
 
-def check_player_gear(agent, trial, guard, ctx, kits=None, settle=1.0, wait=5.0, poll=0.25):
+def check_player_gear(agent, trial, guard, ctx, kits=None, settle=1.0, wait=5.0, poll=0.25, deadline=None):
     """`player.gear: "tier"`: equip the player's gear kit (granting only what is missing), read it back.
 
     The player of a tank or DPS trial is a GM-levelled character with no items: its threat is far below a
@@ -206,15 +250,25 @@ def check_player_gear(agent, trial, guard, ctx, kits=None, settle=1.0, wait=5.0,
     self-only `.additem`. So a repeat never piles up duplicates. The equip waits for the grant to show in the
     bags, and the read-back waits for the equip to show on the body (an equip sent before the bag read showed
     the item, or a worn read right behind the equip, left one piece "unworn" at random); a piece still off
-    gets its equip sent again, twice at most. Verified from the `equipment` read: every kit item must be worn;
-    the evidence carries the count and the kit's armor total (the agent has no stats read, so the figure is the
-    sum of the worn items' armor from the kit data). A missing kit, an unreadable equipment or inventory list,
-    or a missing item fails the check with the reason.
+    and not refused gets its equip sent again, twice at most. A piece the server REFUSED (no proficiency,
+    wrong slot) is not retried or waited for. A kit entry without item class data fails the check ("kit data
+    lacks item class"), never a guess from the slot. All waits share one deadline (`deadline`, default
+    unbounded here, GEAR_SETUP_BUDGET_S in run_setup, shared with the carry-over strip and both `_retry`
+    passes); when it runs out the sends stop and the evidence names the phase. Verified from the `equipment`
+    read: every kit item must be worn; the evidence carries the count and the kit's armor total (the agent
+    has no stats read, so the figure is the sum of the worn items' armor from the kit data). A missing kit,
+    an unreadable equipment or inventory list, or a missing item fails the check with the reason.
     """
+    deadline = deadline or _no_deadline()
+    timed_out = []
     player = trial["player"]
     items, kit_level, why = gear_mod.pick_kit(player, kits)
     if not items:
         return row("player_gear", False, None, why)
+    lacking = gear_mod.missing_class(items)
+    if lacking:
+        return row("player_gear", False, None, "kit data lacks item class: %s (rebuild data/gear_kits.json)"
+                   % ", ".join("%s (%d)" % (i.get("name"), int(i["entry"])) for i in lacking[:5]))
     worn, err = worn_entries(agent)
     if worn is None:
         return row("player_gear", False, None, "cannot verify the gear: %s" % err)
@@ -226,29 +280,46 @@ def check_player_gear(agent, trial, guard, ctx, kits=None, settle=1.0, wait=5.0,
     learned, unlearned = [], []
     if to_equip:
         learned, unlearned = _learn_proficiencies(agent, gear_mod.proficiency_spells(items), guard, ctx,
-                                                  settle, wait, poll)
+                                                  settle, wait, poll, deadline, timed_out)
+    granted_now = []
     for item in to_grant:
+        if deadline.expired():
+            timed_out.append("grant")
+            break
         guard.send("additem_self", ctx.player_guid, int(item["entry"]), 1)
-    if to_grant:
-        time.sleep(settle)
-        granted = [int(i["entry"]) for i in to_grant]
-        wait_until(lambda: (lambda b: b is not None and all(e in b for e in granted))(bagged_entries(agent)[0]),
-                   timeout=wait, poll=poll)
-    errors = {}
+        granted_now.append(int(item["entry"]))
+    if granted_now:
+        time.sleep(deadline.cap(settle))
+        wait_until(lambda: (lambda b: b is not None and all(e in b for e in granted_now))(bagged_entries(agent)[0]),
+                   timeout=deadline.cap(wait), poll=poll)
+    errors = {}                 # entry -> the server's refusal: not retried, not waited for
     pending = to_equip
     for _attempt in range(3):
-        if not pending:
+        live = [i for i in pending if int(i["entry"]) not in errors]
+        if not live:
             break
-        errors = {}
-        for item in pending:
+        if deadline.expired():
+            timed_out.append("equip")
+            break
+        for item in live:
+            if deadline.expired():
+                timed_out.append("equip")
+                break
             out = agent.rpc("equip", {"item_entry": int(item["entry"])})
             if isinstance(out, dict) and "_err" in out:
                 errors[int(item["entry"])] = "%s (%d): %s" % (item["name"], item["entry"], str(out["_err"])[:80])
-        _wait_worn(agent, [int(i["entry"]) for i in pending], wait, poll)
+        waiting = [int(i["entry"]) for i in live if int(i["entry"]) not in errors]
+        if waiting and not _wait_worn(agent, waiting, deadline.cap(wait), poll):
+            if deadline.expired():
+                timed_out.append("equip read-back")
         worn, err = worn_entries(agent)
         if worn is None:
             return row("player_gear", False, None, "cannot verify the gear: %s" % err)
         pending = [i for i in pending if int(i["entry"]) not in worn]
+        if deadline.expired():
+            if any(int(i["entry"]) not in errors for i in pending) and "equip read-back" not in timed_out:
+                timed_out.append("equip read-back")
+            break
     failures = [errors[int(i["entry"])] for i in pending if int(i["entry"]) in errors]
     worn, err = worn_entries(agent)
     if worn is None:
@@ -258,7 +329,7 @@ def check_player_gear(agent, trial, guard, ctx, kits=None, settle=1.0, wait=5.0,
     equipped = len(items) - len(missing)
     role = gear_mod.role_of(player)
     evidence = "%s %s kit (level %d): %d/%d items worn (%d granted, %d equipped from the bags), kit armor %d" % (
-        player.get("class"), role, kit_level, equipped, len(items), len(to_grant),
+        player.get("class"), role, kit_level, equipped, len(items), len(granted_now),
         len(to_equip) - len(to_grant), armor)
     if learned:
         evidence += "; learned proficiency spell(s) %s" % ", ".join(str(sp) for sp in learned)
@@ -268,55 +339,77 @@ def check_player_gear(agent, trial, guard, ctx, kits=None, settle=1.0, wait=5.0,
         evidence += "; not worn: %s" % ", ".join("%s (%d)" % (i["name"], i["entry"]) for i in missing)
     if failures:
         evidence += "; equip errors: %s" % " | ".join(failures[:3])
+    evidence += _timeout_evidence(list(dict.fromkeys(timed_out)), deadline)
     return row("player_gear", not missing, {"worn": equipped, "kit": len(items), "armor": armor,
-                                            "granted": len(to_grant), "learned": learned}, evidence)
+                                            "granted": len(granted_now), "learned": learned}, evidence)
 
 
-def strip_player_gear(agent, guard, ctx, kits=None, keep=None, row_id="player_gear_strip"):
+def strip_player_gear(agent, guard, ctx, kits=None, keep=None, row_id="player_gear_strip",
+                      wait=5.0, poll=0.25, deadline=None):
     """Take kit items off the player before a trial's own gear step.
 
     A trial WITHOUT `player.gear` starts from a player that wears no kit item (keep is empty). A trial WITH
     `player.gear` passes its own kit as `keep`: the slot character is kept between trials, so a level-40
     kit left by the last trial was still on (or in the bags of) the level-50 trial's player and failed
-    every rep. When the player carries any kit item that is not in the trial's kit, the whole kit set is
-    taken off (the kept entries too: a clean grant, never a half-old half-new mix); a player that carries
-    only this trial's own items, or none, gets no GM line at all.
-    Every kit entry (of any kit) worn or in the bags is removed with the guarded self-only `.additem <id> -1`
-    (the core takes equipped items away too), once per copy, then the `equipment` and `inventory` reads must
-    show none left. Items that belong to no kit (a character's own starting gear) are not touched; the
-    evidence counts what the player still wears. An agent without the reads cannot be checked: the row passes
-    and says UNVERIFIED, like the off-hand read.
+    every rep. Only the FOREIGN kit entries are taken off: every entry of any kit that is not in `keep`,
+    worn or in the bags, with the guarded self-only `.additem <id> -1` (the core takes equipped items away
+    too), once per copy. The trial's own kit entries are never touched, and a player that carries none of
+    the foreign entries gets no GM line at all. Slot characters are bench-owned (DECISIONS.md), so the kit
+    entries on them are the bench's own. The read-back waits for the bags and the body to settle (a removal is
+    a packet too), within the shared deadline, then the `equipment` and `inventory` reads must show no foreign
+    entry left. Items that belong to no kit (a character's own starting gear) are not touched; the evidence
+    counts what the player still wears. An agent without the reads cannot be checked: the row passes and
+    says UNVERIFIED, like the off-hand read.
     """
+    deadline = deadline or _no_deadline()
+    timed_out = []
     strip_ids = set(ctx.strip_ids) if ctx.strip_ids else gear_mod.all_entries(kits)
     keep = set(keep or ())
+    targets = strip_ids - keep
     worn, err = worn_entries(agent)
     bags, err2 = bagged_entries(agent)
     if worn is None or bags is None:
         return row(row_id, True, "unreadable",
                    "UNVERIFIED: %s" % (err or err2))
-    if keep:
-        foreign = sorted(strip_ids & (worn | set(bags)) - keep)
-        if not foreign:
-            return row(row_id, True, {"removed": 0, "left": 0, "other_worn": len(worn - strip_ids)},
-                       "no kit item of another trial on the player")
+    if keep and not (targets & (worn | set(bags))):
+        return row(row_id, True, {"removed": 0, "left": 0, "other_worn": len(worn - strip_ids)},
+                   "no kit item of another trial on the player")
     removed = []
-    for entry in sorted(strip_ids & worn):
+    for entry in sorted(targets & worn):
+        if deadline.expired():
+            timed_out.append("strip")
+            break
         guard.send("additem_self", ctx.player_guid, entry, -1)
         removed.append(entry)
-    for entry in sorted(strip_ids & set(bags)):
-        copies = bags[entry]
-        for _ in range(copies):
+    for entry in sorted(targets & set(bags)):
+        for _ in range(bags[entry]):
+            if deadline.expired():
+                timed_out.append("strip")
+                break
             guard.send("additem_self", ctx.player_guid, entry, -1)
-        removed.extend([entry] * copies)
-    worn, err = worn_entries(agent)
-    bags, err2 = bagged_entries(agent)
+            removed.append(entry)
+
+    def reads():
+        w, e1 = worn_entries(agent)
+        b, e2 = bagged_entries(agent)
+        return w, b, (e1 or e2)
+
+    def clean():
+        w, b, _e = reads()
+        return w is not None and b is not None and not (targets & w) and not (targets & set(b))
+    if removed and not clean():
+        wait_until(clean, timeout=deadline.cap(wait), poll=poll)
+        if deadline.expired():
+            timed_out.append("strip read-back")
+    worn, bags, err = reads()
     if worn is None or bags is None:
-        return row(row_id, False, None, "cannot verify the strip: %s" % (err or err2))
-    left = sorted((strip_ids & worn) | (strip_ids & set(bags)))
+        return row(row_id, False, None, "cannot verify the strip: %s" % err)
+    left = sorted((targets & worn) | (targets & set(bags)))
     evidence = "removed %d kit item(s); %d kit item(s) left; %d other item(s) worn" % (
         len(removed), len(left), len(worn - strip_ids))
     if left:
         evidence += " (kit entries left: %s)" % ", ".join(str(e) for e in left[:8])
+    evidence += _timeout_evidence(list(dict.fromkeys(timed_out)), deadline)
     return row(row_id, not left, {"removed": len(removed), "left": len(left),
                                   "other_worn": len(worn - strip_ids)}, evidence)
 
@@ -1003,17 +1096,18 @@ def run_setup(agent, trial, guard, ledger, ctx, first=True, previous=None, previ
         result["invalid_reason"] = visible["evidence"]
         return result
 
+    gear_dl = None       # one deadline for the whole gear setup (carry-over strip + kit), started at its first step
     steps = [("player_level", lambda: check_level(agent, trial, guard))]
     if "player_talents" in wanted:
         steps.append(("player_talents", lambda: check_talents(agent, trial, guard, ctx)))
     if trial["player"].get("gear") == "tier":
         # a kit left by an earlier trial (another level or role) comes off before this trial's own kit goes on
         steps.append(("player_gear_carryover", lambda: strip_player_gear(
-            agent, guard, ctx, keep=set(ctx.gear_ids), row_id="player_gear_carryover")))
-        steps.append(("player_gear", lambda: check_player_gear(agent, trial, guard, ctx)))
+            agent, guard, ctx, keep=set(ctx.gear_ids), row_id="player_gear_carryover", deadline=gear_dl)))
+        steps.append(("player_gear", lambda: check_player_gear(agent, trial, guard, ctx, deadline=gear_dl)))
     else:
         # no gear option: whatever kit an earlier gear trial left on this slot character comes off first
-        steps.append(("player_gear_strip", lambda: strip_player_gear(agent, guard, ctx)))
+        steps.append(("player_gear_strip", lambda: strip_player_gear(agent, guard, ctx, deadline=gear_dl)))
     if trial["player"].get("stance") or {"player_stance", "player_auras"} & wanted:
         steps.append(("player_stance", lambda: check_stance(agent, trial, guard, ctx)))
     if trial["player"].get("auras"):
@@ -1021,7 +1115,12 @@ def run_setup(agent, trial, guard, ledger, ctx, first=True, previous=None, previ
     steps.append(("player_forced_role", lambda: check_forced_role(agent, trial, guard, ledger)))
 
     for cid, fn in steps:
-        checks.append(_retry(fn))
+        if cid in GEAR_STEP_IDS:
+            if gear_dl is None:
+                gear_dl = Deadline(GEAR_SETUP_BUDGET_S)
+            checks.append(_retry(fn, deadline=gear_dl))
+        else:
+            checks.append(_retry(fn))
 
     # the player's off-hand is recorded for every trial; the no-shield check is the Arms/Battle trials'
     offhand = read_offhand(agent)
