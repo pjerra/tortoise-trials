@@ -412,9 +412,9 @@ class TankRulesTest(RepMixin, unittest.TestCase):
             self.assertEqual(self.verdict(tid, fought, swings, series(200, player=(71,))), "PASS", tid)
             self.assertEqual(self.verdict(tid, fought, swings[:4], series(200, player=(71,))), "FAIL", tid)
             idle = [event(12, "cast", BOT, MOB, sid(spell))]
-            samples = series(200, player=(71,))
-            samples = [s for s in samples if s["guid"] != MOB] + [sample(12, MARKED, target="")]
-            self.assertEqual(self.verdict(tid, rid, idle, samples), "PASS", tid)
+            on_bot = [dict(s, target=BOT) if s["guid"] == MOB else s
+                      for s in series(200, player=(71,))]
+            self.assertEqual(self.verdict(tid, rid, idle, on_bot), "PASS", tid)
         # the warrior control counts all three taunts, not only Taunt
         for spell in ("Mocking Blow", "Challenging Shout"):
             held = [event(12, "cast", BOT, MOB, sid(spell))]
