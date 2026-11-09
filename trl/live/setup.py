@@ -539,9 +539,7 @@ def check_player_no_shield(offhand):
 
 def read_bot_offhand(agent, name):
     """The off-hand (slot 16) of a hire, from its `.bot inv` listing (TBM:INV_EQ|slot|item|...)."""
-    since = agent.tbm("inv %s" % name, deadline=deadline) if deadline is not None else agent.tbm("inv %s" % name)
-    if deadline is not None and deadline.expired():
-        return {}, False
+    since = agent.tbm("inv %s" % name)
     want = name.strip().lower()
 
     def done(text):
