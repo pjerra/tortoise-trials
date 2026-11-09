@@ -49,7 +49,7 @@ CLASSIFY = [
     (re.compile(r"\.modify mana (\d{1,6}) (\d{1,6})"), "modify_mana"),
     (re.compile(r"\.npc summon (\d{1,6})"), "npc_summon"),
     (re.compile(r"\.go xyz (-?\d{1,6}) (-?\d{1,6}) (-?\d{1,6})(?: (\d{1,2}))?"), "go_xyz"),
-    (re.compile(r"\.additem (\d{1,6}) (\d{1,2})"), "additem"),
+    (re.compile(r"\.additem (\d{1,6}) (-?\d{1,2})"), "additem"),
     (re.compile(r"\.cooldown"), "cooldown"),
     (re.compile(r"\.die"), "die"),
     (re.compile(r"\.lookup item ([A-Za-z0-9 ':.\-]{1,60})"), "lookup_item"),
@@ -129,6 +129,7 @@ class GmContext:
     aura_ids: frozenset = frozenset()
     item_ids: frozenset = frozenset()
     gear_ids: frozenset = frozenset()      # the player's gear kit entries (`.additem` on the player itself)
+    strip_ids: frozenset = frozenset()     # every kit entry of every kit: `.additem <id> -1` removes one from the player
     trial_id: str = ""
     hire_guid: str = ""
     # the extra_bots hires' party guids; with hire_guid they are the whole hire set
@@ -342,10 +343,16 @@ class GmGuard:
                 raise GmRefused(".go xyz %d %d %d: not an arena coordinate" % (x, y, z))
         elif kind == "additem_self":
             item, count = int(groups[0]), int(groups[1])
-            if item not in self.ctx.gear_ids:
-                raise GmRefused(".additem %d: not an entry of this trial's gear kit" % item)
-            if count != 1:
-                raise GmRefused(".additem count %d: a kit item is granted once" % count)
+            if count == 1:
+                if item not in self.ctx.gear_ids:
+                    raise GmRefused(".additem %d: not an entry of this trial's gear kit" % item)
+            elif count == -1:
+                # the core's .additem takes a negative count away (equipped items too): a kit item is
+                # removed one at a time, only from the player itself
+                if item not in self.ctx.strip_ids:
+                    raise GmRefused(".additem %d -1: not an entry of any gear kit" % item)
+            else:
+                raise GmRefused(".additem count %d: a kit item is granted or removed one at a time" % count)
         elif kind == "additem":
             item, count = int(groups[0]), int(groups[1])
             if item not in self.ctx.item_ids:

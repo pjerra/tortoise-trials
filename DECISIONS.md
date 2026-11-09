@@ -124,7 +124,7 @@ added: a data file `data/gear_kits.json` and a new guarded GM kind `additem_self
   rare, vanilla entries only (below 25000), no random suffix, no reputation/honor/profession/spell requirement, no
   PvP or placeholder names. Weapons: the highest-dps axe, mace or sword (the skills a warrior starts with) with no
   proc or on-use effect. Tank kit: one-handed weapon and the highest-armor shield. DPS kit: a two-handed weapon,
-  no shield. Armor totals: tank 4076 / 4716 / 5561, dps 2528 / 3040 / 3658 at levels 40 / 45 / 50.
+  no shield. No item has intellect or spirit (the first cloak pick was a healer's). Armor totals: tank 3814 / 4697 / 5543, dps 2527 / 2971 / 3640 at levels 40 / 45 / 50.
 - Guard: `additem_self` takes only the kit's entries, once each, only on the player itself. It is reachable only
   through `send("additem_self", ...)`; a raw `.additem` line still classifies as the hire kind.
 - Verification: the `equipment` read must show every kit item; the evidence is the count and the kit's armor sum
@@ -139,3 +139,17 @@ Where it is on:
   player, and having no off-hand item keeps `player_no_shield` and the role read honest.
 Not measured: how much the gear changes the DPS bots' threat share or the rescue counts (no live run was made for
 this change); the sweep numbers in the earlier entries were taken without gear.
+
+### Gear carry-over (follow-up, same day)
+
+The slot character is kept between trials, so a gear trial left its kit on the next healer trial's player
+(`player_no_shield` failed on the seven `priest-holy-pws-*` trials, and the other baselines moved). The agent has no
+unequip or destroy call, but the core's `.additem <id> <negative count>` takes items away, equipped ones too
+(`DestroyItemCount`, Commands.cpp HandleAddItemCommand). Chosen: a trial WITHOUT `player.gear` strips first
+(`player_gear_strip`, recorded in `setup.json`): every entry of any kit that is worn or in the bags is removed
+with `.additem <id> -1` through the same guarded self-only kind (kit entries only, one at a time), then the
+`equipment` and `inventory` reads must show no kit entry left. The strip set is the union of all kits, not
+"whatever is worn": a character's own starting gear stays (counted in the evidence), because widening the guard to
+any item would open a destroy command the closed set should not have, and the healer trials only need the off-hand
+and plate gone. A trial WITH gear equips from the bags first and grants only what is neither worn nor bagged, so
+a repeat never duplicates a kit.

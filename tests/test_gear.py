@@ -70,6 +70,20 @@ class GuardTest(unittest.TestCase):
             self.assertEqual(g.send("additem_self", tl.PLAYER, 7922, 1), ".additem 7922 1")
             self.assertEqual(agent.gm, [".additem 7922 1"])
 
+    def test_a_kit_item_is_taken_away_one_at_a_time_from_the_player_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            agent = tl.FakeAgent()
+            g = gm_guard.GmGuard(agent, tl.new_ledger(tmp), tl.ctx_for(strip_ids=frozenset({7922})))
+            self.assertEqual(g.send("additem_self", tl.PLAYER, 7922, -1), ".additem 7922 -1")
+            for args in ((7922, -2), (12345, -1), (7922, 0)):
+                with self.assertRaises(gm_guard.GmRefused):
+                    g.send("additem_self", tl.PLAYER, *args)
+            with self.assertRaises(gm_guard.GmRefused):
+                g.send("additem_self", tl.HIRE, 7922, -1)
+            with self.assertRaises(gm_guard.GmRefused):
+                g.send_text(".additem 7922 -1", target=tl.PLAYER)       # the raw line is the hire kind: refused
+            self.assertEqual(agent.gm, [".additem 7922 -1"])
+
     def test_anything_else_is_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
             agent, g = self.guard(tmp, {7922})
@@ -92,40 +106,65 @@ class GuardTest(unittest.TestCase):
 
 
 class GearAgent(tl.FakeAgent):
-    """`.additem` puts the entry in the bags; `equip` wears it (a list of entries can be refused)."""
+    """A player's items: `.additem N` puts a copy in the bags, `.additem N -1` takes one away (worn first, like
+    the core's DestroyItemCount), `equip` wears one from the bags (an entry in refuse_equip is refused)."""
 
-    def __init__(self, worn=(), refuse_equip=(), equipment_error=False):
+    def __init__(self, worn=(), bags=(), refuse_equip=(), equipment_error=False, inventory_error=False):
         super().__init__()
-        self.worn, self.bags = set(worn), set()
+        self.worn, self.bags = set(worn), {int(e): 1 for e in bags}
         self.refuse_equip, self.equipment_error = set(refuse_equip), equipment_error
+        self.inventory_error = inventory_error
         self.equips = []
 
     def rpc(self, method, params=None, timeout=None):
         if method == "gm" and (params or {}).get("text", "").startswith(".additem"):
-            self.bags.add(int(params["text"].split()[1]))
+            _cmd, entry, count = params["text"].split()
+            entry, count = int(entry), int(count)
+            if count > 0:
+                self.bags[entry] = self.bags.get(entry, 0) + count
+            elif entry in self.worn:
+                self.worn.discard(entry)
+            elif self.bags.get(entry):
+                self.bags[entry] -= 1
+                if not self.bags[entry]:
+                    del self.bags[entry]
         elif method == "equipment":
             if self.equipment_error:
                 return {"_err": "unknown method: equipment"}
             return [{"slot": i, "item_entry": e} for i, e in enumerate(sorted(self.worn))]
+        elif method == "inventory":
+            if self.inventory_error:
+                return {"_err": "unknown method: inventory"}
+            return [{"bag": 255, "slot": 23 + i, "item_entry": e, "count": c}
+                    for i, (e, c) in enumerate(sorted(self.bags.items()))]
         elif method == "equip":
             entry = int(params["item_entry"])
             self.equips.append(entry)
-            if entry in self.refuse_equip or entry not in self.bags:
+            if entry in self.refuse_equip or not self.bags.get(entry):
                 return {"_err": "cannot equip item %d" % entry}
+            self.bags[entry] -= 1
+            if not self.bags[entry]:
+                del self.bags[entry]
             self.worn.add(entry)
             return {"entry": entry}
         return super().rpc(method, params, timeout)
+
+    def additem_lines(self):
+        return [g for g in self.gm if g.startswith(".additem")]
 
 
 class SetupCheckTest(unittest.TestCase):
     TRIAL = {"id": "t", "player": player(level=50, role="tank")}
 
+    def ctx(self, trial=None, kits=None):
+        kit = [i["entry"] for i in (gear.pick_kit((trial or self.TRIAL)["player"], kits)[0] or [])]
+        return tl.ctx_for(gear_ids=frozenset(kit), strip_ids=frozenset(gear.all_entries()))
+
     def run_check(self, agent, trial=None, kits=None):
         with tempfile.TemporaryDirectory() as tmp:
-            kit = [i["entry"] for i in (gear.pick_kit((trial or self.TRIAL)["player"], kits)[0] or [])]
-            ctx = tl.ctx_for(gear_ids=frozenset(kit))
-            return setup.check_player_gear(agent, trial or self.TRIAL, gm_guard.GmGuard(agent, tl.new_ledger(tmp), ctx),
-                                           ctx, kits=kits, settle=0.0)
+            ctx = self.ctx(trial, kits)
+            return setup.check_player_gear(agent, trial or self.TRIAL,
+                                           gm_guard.GmGuard(agent, tl.new_ledger(tmp), ctx), ctx, kits=kits, settle=0.0)
 
     def test_the_kit_is_granted_equipped_and_verified(self):
         agent = GearAgent()
@@ -135,14 +174,32 @@ class SetupCheckTest(unittest.TestCase):
         self.assertEqual(row["value"]["worn"], len(items))
         self.assertEqual(row["value"]["armor"], sum(i["armor"] for i in items))
         self.assertIn("%d/%d items worn" % (len(items), len(items)), row["evidence"])
-        self.assertEqual(len([g for g in agent.gm if g.startswith(".additem")]), len(items))
+        self.assertEqual(len(agent.additem_lines()), len(items))
 
     def test_an_item_already_worn_is_not_granted_again(self):
         items = gear.pick_kit(self.TRIAL["player"])[0]
         agent = GearAgent(worn={items[0]["entry"]})
         row = self.run_check(agent)
         self.assertTrue(row["ok"])
-        self.assertEqual(len([g for g in agent.gm if g.startswith(".additem")]), len(items) - 1)
+        self.assertEqual(len(agent.additem_lines()), len(items) - 1)
+
+    def test_a_kit_already_in_the_bags_is_equipped_without_a_new_grant(self):
+        # a repeat (or an earlier gear trial) left the kit in the bags: equip it, grant nothing, no duplicates
+        items = gear.pick_kit(self.TRIAL["player"])[0]
+        agent = GearAgent(bags=[i["entry"] for i in items])
+        row = self.run_check(agent)
+        self.assertTrue(row["ok"], row["evidence"])
+        self.assertEqual(agent.additem_lines(), [])
+        self.assertEqual(agent.bags, {})
+        self.assertIn("0 granted, %d equipped from the bags" % len(items), row["evidence"])
+
+    def test_a_second_run_of_the_same_check_grants_nothing(self):
+        agent = GearAgent()
+        self.run_check(agent)
+        granted = len(agent.additem_lines())
+        row = self.run_check(agent)
+        self.assertTrue(row["ok"])
+        self.assertEqual(len(agent.additem_lines()), granted)
 
     def test_a_missing_kit_fails_clearly_and_grants_nothing(self):
         agent = GearAgent()
@@ -150,7 +207,7 @@ class SetupCheckTest(unittest.TestCase):
         row = self.run_check(agent, trial)
         self.assertFalse(row["ok"])
         self.assertIn("no mage tank gear kit", row["evidence"])
-        self.assertEqual([g for g in agent.gm if g.startswith(".additem")], [])
+        self.assertEqual(agent.additem_lines(), [])
 
     def test_an_item_that_will_not_equip_is_named(self):
         items = gear.pick_kit(self.TRIAL["player"])[0]
@@ -160,10 +217,105 @@ class SetupCheckTest(unittest.TestCase):
         self.assertIn(items[3]["name"], row["evidence"])
         self.assertIn("equip errors", row["evidence"])
 
-    def test_an_unreadable_equipment_list_fails_instead_of_passing(self):
+    def test_an_unreadable_equipment_or_inventory_list_fails_instead_of_passing(self):
         row = self.run_check(GearAgent(equipment_error=True))
         self.assertFalse(row["ok"])
         self.assertIn("cannot verify the gear", row["evidence"])
+        row = self.run_check(GearAgent(inventory_error=True))
+        self.assertFalse(row["ok"])
+        self.assertIn("cannot read the bags", row["evidence"])
+
+
+class StripTest(unittest.TestCase):
+    """A no-gear trial after a gear trial on the same slot character starts with no kit on the player."""
+
+    def strip(self, agent):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = tl.ctx_for(strip_ids=frozenset(gear.all_entries()))
+            return setup.strip_player_gear(agent, gm_guard.GmGuard(agent, tl.new_ledger(tmp), ctx), ctx)
+
+    def test_a_gear_trial_then_a_no_gear_trial_ends_with_nothing_of_the_kit_worn(self):
+        agent = GearAgent()
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = tl.ctx_for(gear_ids=frozenset(gear.kit_entries(player(level=50))),
+                             strip_ids=frozenset(gear.all_entries()))
+            guard = gm_guard.GmGuard(agent, tl.new_ledger(tmp), ctx)
+            row = setup.check_player_gear(agent, {"id": "g", "player": player(level=50)}, guard, ctx, settle=0.0)
+            self.assertTrue(row["ok"])
+            self.assertGreaterEqual(len(agent.worn), 10)
+            agent.bags[7922] = agent.bags.get(7922, 0) + 1          # a leftover copy in the bags too
+            row = setup.strip_player_gear(agent, guard, ctx)         # the next trial has no gear option
+        self.assertTrue(row["ok"], row["evidence"])
+        self.assertEqual(agent.worn & gear.all_entries(), set())
+        self.assertEqual(agent.bags, {})
+        self.assertEqual(row["value"]["left"], 0)
+        self.assertGreaterEqual(row["value"]["removed"], 11)
+
+    def test_run_setup_strips_a_no_gear_trial_and_equips_a_gear_trial(self):
+        # a gear trial, then a no-gear trial, through run_setup on one character
+        def run_one(agent, tmp, trial):
+            ctx = tl.ctx_for(gear_ids=frozenset(gear.kit_entries(trial["player"])
+                                                if trial["player"].get("gear") == "tier" else ()),
+                             strip_ids=frozenset(gear.all_entries()))
+            guard = gm_guard.GmGuard(agent, tl.new_ledger(tmp), ctx)
+            with unittest.mock.patch.multiple(
+                    setup, check_level=lambda *a, **k: setup.row("player_level", True, 40, "ok"),
+                    check_talents=lambda *a, **k: setup.row("player_talents", True, [], "ok"),
+                    check_stance=lambda *a, **k: setup.row("player_stance", True, 71, "ok"),
+                    check_forced_role=lambda *a, **k: setup.row("player_forced_role", True, "x", "ok"),
+                    read_offhand=lambda a: {"readable": True, "item_entry": None, "evidence": "empty"}):
+                return setup.run_setup(agent, trial, guard, tl.new_ledger(tmp), ctx, first=False)
+
+        agent = GearAgent()
+        gear_trial = {"id": "g", "player": dict(player(level=40, role="tank"), stance=71),
+                      "bot": {"class": "mage"}, "situation": {"kind": "tank_damage"}, "setup_checks": []}
+        plain_trial = {"id": "p", "player": {"class": "warrior", "level": 40, "forced_role": "dps", "stance": 2457},
+                       "bot": {"class": "priest"}, "situation": {"kind": "tank_damage"}, "setup_checks": []}
+        with tempfile.TemporaryDirectory() as tmp:
+            first = run_one(agent, tmp, gear_trial)
+            ids = [c["id"] for c in first["checks"]]
+            self.assertIn("player_gear", ids)
+            self.assertNotIn("player_gear_strip", ids)
+            self.assertGreaterEqual(len(agent.worn), 10)
+            second = run_one(agent, tmp, plain_trial)
+        ids = [c["id"] for c in second["checks"]]
+        self.assertIn("player_gear_strip", ids)          # recorded in setup.json
+        self.assertNotIn("player_gear", ids)
+        strip = [c for c in second["checks"] if c["id"] == "player_gear_strip"][0]
+        self.assertTrue(strip["ok"], strip["evidence"])
+        self.assertEqual(agent.worn & gear.all_entries(), set())     # nothing of the kit on before the healer's checks
+
+    def test_other_worn_items_are_not_touched_and_are_counted(self):
+        agent = GearAgent(worn={999001, 999002, 7922})
+        row = self.strip(agent)
+        self.assertTrue(row["ok"])
+        self.assertEqual(agent.worn, {999001, 999002})
+        self.assertEqual(row["value"]["other_worn"], 2)
+        self.assertIn("2 other item(s) worn", row["evidence"])
+
+    def test_a_clean_player_gets_no_gm_line(self):
+        agent = GearAgent()
+        row = self.strip(agent)
+        self.assertTrue(row["ok"])
+        self.assertEqual(agent.additem_lines(), [])
+
+    def test_an_unreadable_agent_is_unverified_not_failed(self):
+        row = self.strip(GearAgent(equipment_error=True))
+        self.assertTrue(row["ok"])
+        self.assertIn("UNVERIFIED", row["evidence"])
+
+    def test_a_kit_item_that_will_not_go_fails_the_row(self):
+        agent = GearAgent(worn={7922})
+        orig = agent.rpc
+
+        def stubborn(method, params=None, timeout=None):
+            if method == "gm" and (params or {}).get("text", "").startswith(".additem 7922 -1"):
+                return {}
+            return orig(method, params, timeout)
+        agent.rpc = stubborn
+        row = self.strip(agent)
+        self.assertFalse(row["ok"])
+        self.assertIn("7922", row["evidence"])
 
 
 class ValidatorAndTrialsTest(unittest.TestCase):

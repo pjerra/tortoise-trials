@@ -138,15 +138,33 @@ def worn_entries(agent):
     return {int(i.get("item_entry") or 0) for i in rows if isinstance(i, dict) and int(i.get("item_entry") or 0)}, ""
 
 
+def bagged_entries(agent):
+    """({entry: copies}, error text): the items in the backpack and the bags (`inventory` with bags)."""
+    out = agent.rpc("inventory", {"bags": True})
+    if isinstance(out, dict) and "_err" in out:
+        return None, "no inventory read in this agent: %s" % str(out["_err"])[:120]
+    rows = out.get("items") if isinstance(out, dict) else out
+    if not isinstance(rows, list):
+        return None, "inventory reply is not a list"
+    counts = {}
+    for item in rows:
+        if isinstance(item, dict) and int(item.get("item_entry") or 0):
+            entry = int(item["item_entry"])
+            counts[entry] = counts.get(entry, 0) + max(1, int(item.get("count") or 1))
+    return counts, ""
+
+
 def check_player_gear(agent, trial, guard, ctx, kits=None, settle=1.0):
-    """`player.gear: "tier"`: grant and equip the player's gear kit, then read the worn items back.
+    """`player.gear: "tier"`: equip the player's gear kit (granting only what is missing), read it back.
 
     The player of a tank or DPS trial is a GM-levelled character with no items: its threat is far below a
-    real tank's. The kit (trl/gear.py, data/gear_kits.json) is granted with the guarded self-only `.additem`
-    (one line per item not already worn) and equipped with the agent's `equip`. Verified from the
-    `equipment` read: every kit item must be worn; the evidence carries the count and the kit's armor total
-    (the agent has no stats read, so the figure is the sum of the worn items' armor from the kit data).
-    A missing kit, an unreadable equipment list or a missing item fails the check with the reason.
+    real tank's. The kit (trl/gear.py, data/gear_kits.json) is put on in this order: an item already worn
+    stays; one already in the bags (a kit left by an earlier repeat or trial) is equipped without a new
+    grant; only an item that is neither is granted with the guarded self-only `.additem`. So a repeat never
+    piles up duplicates. Verified from the `equipment` read: every kit item must be worn; the evidence carries
+    the count and the kit's armor total (the agent has no stats read, so the figure is the sum of the worn
+    items' armor from the kit data). A missing kit, an unreadable equipment or inventory list, or a missing
+    item fails the check with the reason.
     """
     player = trial["player"]
     items, kit_level, why = gear_mod.pick_kit(player, kits)
@@ -155,13 +173,17 @@ def check_player_gear(agent, trial, guard, ctx, kits=None, settle=1.0):
     worn, err = worn_entries(agent)
     if worn is None:
         return row("player_gear", False, None, "cannot verify the gear: %s" % err)
-    todo = [i for i in items if int(i["entry"]) not in worn]
-    for item in todo:
+    bags, err = bagged_entries(agent)
+    if bags is None:
+        return row("player_gear", False, None, "cannot read the bags: %s" % err)
+    to_equip = [i for i in items if int(i["entry"]) not in worn]
+    to_grant = [i for i in to_equip if bags.get(int(i["entry"]), 0) < 1]
+    for item in to_grant:
         guard.send("additem_self", ctx.player_guid, int(item["entry"]), 1)
-    if todo:
+    if to_grant:
         time.sleep(settle)
     failures = []
-    for item in todo:
+    for item in to_equip:
         out = agent.rpc("equip", {"item_entry": int(item["entry"])})
         if isinstance(out, dict) and "_err" in out:
             failures.append("%s (%d): %s" % (item["name"], item["entry"], str(out["_err"])[:80]))
@@ -172,13 +194,54 @@ def check_player_gear(agent, trial, guard, ctx, kits=None, settle=1.0):
     armor = sum(int(i.get("armor") or 0) for i in items if int(i["entry"]) in worn)
     equipped = len(items) - len(missing)
     role = gear_mod.role_of(player)
-    evidence = "%s %s kit (level %d): %d/%d items worn, kit armor %d" % (
-        player.get("class"), role, kit_level, equipped, len(items), armor)
+    evidence = "%s %s kit (level %d): %d/%d items worn (%d granted, %d equipped from the bags), kit armor %d" % (
+        player.get("class"), role, kit_level, equipped, len(items), len(to_grant),
+        len(to_equip) - len(to_grant), armor)
     if missing:
         evidence += "; not worn: %s" % ", ".join("%s (%d)" % (i["name"], i["entry"]) for i in missing)
     if failures:
         evidence += "; equip errors: %s" % " | ".join(failures[:3])
-    return row("player_gear", not missing, {"worn": equipped, "kit": len(items), "armor": armor}, evidence)
+    return row("player_gear", not missing, {"worn": equipped, "kit": len(items), "armor": armor,
+                                            "granted": len(to_grant)}, evidence)
+
+
+def strip_player_gear(agent, guard, ctx, kits=None):
+    """A trial WITHOUT `player.gear` starts from a player that wears no kit item.
+
+    The slot character is kept between trials, so a gear trial's kit would still be on the next healer
+    trial's player (plate in the bags and on the body: `player_no_shield` failed, and every baseline moved).
+    Every kit entry (of any kit) worn or in the bags is removed with the guarded self-only `.additem <id> -1`
+    (the core takes equipped items away too), once per copy, then the `equipment` and `inventory` reads must
+    show none left. Items that belong to no kit (a character's own starting gear) are not touched; the
+    evidence counts what the player still wears. An agent without the reads cannot be checked: the row passes
+    and says UNVERIFIED, like the off-hand read.
+    """
+    strip_ids = set(ctx.strip_ids) if ctx.strip_ids else gear_mod.all_entries(kits)
+    worn, err = worn_entries(agent)
+    bags, err2 = bagged_entries(agent)
+    if worn is None or bags is None:
+        return row("player_gear_strip", True, "unreadable",
+                   "UNVERIFIED: %s" % (err or err2))
+    removed = []
+    for entry in sorted(strip_ids & worn):
+        guard.send("additem_self", ctx.player_guid, entry, -1)
+        removed.append(entry)
+    for entry in sorted(strip_ids & set(bags)):
+        copies = bags[entry]
+        for _ in range(copies):
+            guard.send("additem_self", ctx.player_guid, entry, -1)
+        removed.extend([entry] * copies)
+    worn, err = worn_entries(agent)
+    bags, err2 = bagged_entries(agent)
+    if worn is None or bags is None:
+        return row("player_gear_strip", False, None, "cannot verify the strip: %s" % (err or err2))
+    left = sorted((strip_ids & worn) | (strip_ids & set(bags)))
+    evidence = "removed %d kit item(s); %d kit item(s) left; %d other item(s) worn" % (
+        len(removed), len(left), len(worn - strip_ids))
+    if left:
+        evidence += " (kit entries left: %s)" % ", ".join(str(e) for e in left[:8])
+    return row("player_gear_strip", not left, {"removed": len(removed), "left": len(left),
+                                               "other_worn": len(worn - strip_ids)}, evidence)
 
 
 def check_talents(agent, trial, guard, ctx, settle=1.0):
@@ -868,6 +931,9 @@ def run_setup(agent, trial, guard, ledger, ctx, first=True, previous=None, previ
         steps.append(("player_talents", lambda: check_talents(agent, trial, guard, ctx)))
     if trial["player"].get("gear") == "tier":
         steps.append(("player_gear", lambda: check_player_gear(agent, trial, guard, ctx)))
+    else:
+        # no gear option: whatever kit an earlier gear trial left on this slot character comes off first
+        steps.append(("player_gear_strip", lambda: strip_player_gear(agent, guard, ctx)))
     if trial["player"].get("stance") or {"player_stance", "player_auras"} & wanted:
         steps.append(("player_stance", lambda: check_stance(agent, trial, guard, ctx)))
     if trial["player"].get("auras"):

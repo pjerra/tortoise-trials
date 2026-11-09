@@ -59,17 +59,17 @@
      "slot": "hands"
     },
     {
-     "armor": 31,
-     "entry": 19528,
-     "name": "Battle Healer's Cloak",
-     "required_level": 38,
+     "armor": 30,
+     "entry": 8120,
+     "name": "Heraldic Cloak",
+     "required_level": 40,
      "slot": "back"
     },
     {
      "armor": 0,
-     "entry": 7723,
-     "name": "Mograine's Might",
-     "required_level": 39,
+     "entry": 10758,
+     "name": "X'caliboar",
+     "required_level": 35,
      "slot": "twohand"
     }
    ],
@@ -82,10 +82,10 @@
      "slot": "head"
     },
     {
-     "armor": 396,
-     "entry": 9476,
-     "name": "Big Bad Pauldrons",
-     "required_level": 45,
+     "armor": 327,
+     "entry": 7928,
+     "name": "Ornate Mithril Shoulder",
+     "required_level": 40,
      "slot": "shoulder"
     },
     {
@@ -154,10 +154,10 @@
      "slot": "head"
     },
     {
-     "armor": 410,
-     "entry": 11632,
-     "name": "Earthslag Shoulders",
-     "required_level": 47,
+     "armor": 403,
+     "entry": 13066,
+     "name": "Wyrmslayer Spaulders",
+     "required_level": 46,
      "slot": "shoulder"
     },
     {
@@ -196,16 +196,16 @@
      "slot": "wrist"
     },
     {
-     "armor": 328,
-     "entry": 14855,
-     "name": "Vanguard Gauntlets",
-     "required_level": 50,
+     "armor": 317,
+     "entry": 8314,
+     "name": "Alabaster Plate Gauntlets",
+     "required_level": 48,
      "slot": "hands"
     },
     {
      "armor": 39,
-     "entry": 11677,
-     "name": "Graverot Cape",
+     "entry": 12552,
+     "name": "Blisterbane Wrap",
      "required_level": 50,
      "slot": "back"
     },
@@ -277,10 +277,10 @@
      "slot": "hands"
     },
     {
-     "armor": 31,
-     "entry": 19528,
-     "name": "Battle Healer's Cloak",
-     "required_level": 38,
+     "armor": 30,
+     "entry": 8120,
+     "name": "Heraldic Cloak",
+     "required_level": 40,
      "slot": "back"
     },
     {
@@ -291,10 +291,10 @@
      "slot": "mainhand"
     },
     {
-     "armor": 1548,
-     "entry": 7726,
-     "name": "Aegis of the Scarlet Commander",
-     "required_level": 39,
+     "armor": 1287,
+     "entry": 9404,
+     "name": "Olaf's All Purpose Shield",
+     "required_level": 37,
      "slot": "offhand"
     }
    ],
@@ -307,10 +307,10 @@
      "slot": "head"
     },
     {
-     "armor": 396,
-     "entry": 9476,
-     "name": "Big Bad Pauldrons",
-     "required_level": 45,
+     "armor": 327,
+     "entry": 7928,
+     "name": "Ornate Mithril Shoulder",
+     "required_level": 40,
      "slot": "shoulder"
     },
     {
@@ -363,10 +363,10 @@
      "slot": "back"
     },
     {
-     "armor": 0,
-     "entry": 17055,
-     "name": "Changuk Smasher",
-     "required_level": 45,
+     "armor": 50,
+     "entry": 7946,
+     "name": "Runed Mithril Hammer",
+     "required_level": 44,
      "slot": "mainhand"
     },
     {
@@ -386,10 +386,10 @@
      "slot": "head"
     },
     {
-     "armor": 410,
-     "entry": 11632,
-     "name": "Earthslag Shoulders",
-     "required_level": 47,
+     "armor": 403,
+     "entry": 13066,
+     "name": "Wyrmslayer Spaulders",
+     "required_level": 46,
      "slot": "shoulder"
     },
     {
@@ -428,16 +428,16 @@
      "slot": "wrist"
     },
     {
-     "armor": 328,
-     "entry": 14855,
-     "name": "Vanguard Gauntlets",
-     "required_level": 50,
+     "armor": 317,
+     "entry": 8314,
+     "name": "Alabaster Plate Gauntlets",
+     "required_level": 48,
      "slot": "hands"
     },
     {
      "armor": 39,
-     "entry": 11677,
-     "name": "Graverot Cape",
+     "entry": 12552,
+     "name": "Blisterbane Wrap",
      "required_level": 50,
      "slot": "back"
     },

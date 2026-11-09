@@ -384,8 +384,8 @@ class RunSetupTest(unittest.TestCase):
             doc, a, led, ctx = self.run_it(minimal(load("priest-holy-pws-def-arms")), tmp)
             self.assertTrue(doc["ok"], doc)
             self.assertEqual([c["id"] for c in doc["checks"]],
-                             ["gm_visible", "player_level", "player_forced_role", "bot_present", "bot_role",
-                              "grouped"])
+                             ["gm_visible", "player_level", "player_gear_strip", "player_forced_role",
+                              "bot_present", "bot_role", "grouped"])      # the strip row: no gear option
             self.assertEqual(sorted(doc["guids"]), ["bot", "marked", "mobs", "pet", "player"])
             self.assertNotIn("extra_names", doc)
             # live3 added player_offhand (the recorded off-hand) to setup.json
@@ -401,8 +401,9 @@ class RunSetupTest(unittest.TestCase):
             doc, a, led, ctx = self.run_it(minimal(two_tank_trial()), tmp)
             self.assertTrue(doc["ok"], doc)
             ids = [c["id"] for c in doc["checks"]]
-            self.assertEqual(ids, ["gm_visible", "player_level", "player_forced_role", "bot_present", "bot_role",
-                                   "grouped", "extra_bots_present", "extra_bots_role", "extra_bots_in_group"])
+            self.assertEqual(ids, ["gm_visible", "player_level", "player_gear_strip", "player_forced_role",
+                                   "bot_present", "bot_role", "grouped", "extra_bots_present", "extra_bots_role",
+                                   "extra_bots_in_group"])
             self.assertEqual(doc["guids"]["extras"], [agent_mod.norm_guid(EXTRA1)])
             self.assertEqual(doc["guids"]["bot"], agent_mod.norm_guid(HIRE))
             self.assertEqual(doc["extra_names"], ["Bulwark"])

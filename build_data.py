@@ -445,6 +445,10 @@ def build_gear_kits(path=None):
                     "required_spell", "required_skill", "random_property", "start_quest", "set_id"):
             if _as_int(row.get(key)):
                 return False
+        # a warrior kit has no caster stats (intellect 5, spirit 6): the cloak pick took a healer's cloak
+        if any(_as_int(row.get("stat_type%d" % i)) in (5, 6) and _as_int(row.get("stat_value%d" % i)) > 0
+               for i in range(1, 11)):
+            return False
         # vanilla 1.12 entries only (the server's own additions sit above 25000 and are unproven), and no
         # test, PvP or placeholder names
         name = str(row.get("name") or "")

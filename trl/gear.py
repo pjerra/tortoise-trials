@@ -58,3 +58,14 @@ def pick_kit(player, kits=None):
 def kit_entries(player, kits=None):
     items, _lvl, _why = pick_kit(player, kits)
     return [int(i["entry"]) for i in items or []]
+
+
+def all_entries(kits=None):
+    """Every entry of every kit (the strip set: what a gear trial can have left on a slot character)."""
+    kits = load_kits() if kits is None else kits
+    out = set()
+    for roles in kits.values():
+        for levels in (roles or {}).values():
+            for items in (levels or {}).values():
+                out.update(int(i["entry"]) for i in items or [])
+    return out

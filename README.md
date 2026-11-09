@@ -129,10 +129,19 @@ after the level and talents):
   `forced_role` is `tank` (plate, a one-handed weapon and a shield) and `dps` otherwise (plate and a
   two-handed weapon, no shield, so the player does not read as a tank). A player level between kits takes the
   highest kit below it, at most 9 levels down. Items are plain vanilla (entry below 25000) plate pieces of
-  the highest armor, weapons without a proc or on-use effect, no reputation, honor or profession requirement.
-- Each item not already worn is granted with the guarded self-only `.additem` (kind `additem_self`: only the
-  kit's entries, once each, only on the player itself; the hire `.additem` is unchanged) and equipped with the
-  agent's `equip`.
+  the highest armor, weapons without a proc or on-use effect, no intellect or spirit, no reputation, honor or
+  profession requirement.
+- The kit is put on in this order: an item already worn stays; one already in the bags (left by an earlier
+  repeat or trial) is equipped without a new grant; only an item that is neither is granted with the guarded
+  self-only `.additem` (kind `additem_self`: only the kit's entries, only on the player itself; the hire
+  `.additem` is unchanged) and equipped with the agent's `equip`. A repeat never piles up duplicates.
+- A trial WITHOUT `player.gear` strips first (setup check `player_gear_strip`): the slot character is kept
+  between trials, so a gear trial's kit would otherwise stay on the next trial's player (plate and a shield
+  fail `player_no_shield` and move every baseline). Every entry of any kit that is worn or in the bags is
+  removed with `.additem <id> -1` (the guarded self-only kind again: one copy per line, kit entries only; the
+  core takes equipped items away too), then the `equipment` and `inventory` reads must show none left.
+  Items that belong to no kit (a character's own starting gear) stay and are counted in the evidence. An agent
+  without the reads gives an UNVERIFIED pass for the strip.
 - Verified from the agent's `equipment` read: every kit item must be worn, and the evidence in `setup.json` is
   the count and the kit's armor total (the agent has no stats read, so the armor figure is the sum of the worn
   kit items' armor). A class, role or level with no kit fails `validate` and the setup, with the reason; an
