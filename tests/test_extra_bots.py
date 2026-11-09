@@ -69,8 +69,13 @@ class ScriptAgent(tl.FakeAgent):
         self.sent = []                  # every `talents ...` whisper, in order
         self.order = []                 # ("hire" | "role" | "talents", text), in order
 
-    def _say(self, kind, text):
-        self.event_rows.append({"kind": kind, "text": text})
+    def _say(self, kind, text, source=None, source_guid=None):
+        row = {"kind": kind, "text": text}
+        if source:
+            row["source"] = source
+        if source_guid:
+            row["source_guid"] = source_guid
+        self.event_rows.append(row)
 
     def rpc(self, method, params=None, timeout=None):
         if method == "events":
@@ -110,10 +115,10 @@ class ScriptAgent(tl.FakeAgent):
         if arg:
             if self.apply_works:
                 self.build[to] = (klass, arg)
-            self._say("whisper", "Apply spec |h|cffffffff%s 0/31/20" % arg)
+            self._say("whisper", "Apply spec |h|cffffffff%s 0/31/20" % arg, source=to)
         else:
             self._say("whisper", "My current talent spec is: |h|cffffffff%s (0/31/20) Link: %s"
-                      % (spec, build_link(klass, self.build[to][1])))
+                      % (spec, build_link(klass, self.build[to][1])), source=to)
 
     def _respond(self, command):
         words = command.split()
@@ -128,6 +133,15 @@ class ScriptAgent(tl.FakeAgent):
             self._say("system", "Your role set to clear")
         elif words[0] == "role":
             self._say("system", "Bot %s role set to %s" % (words[1], words[2]))
+        elif words[0] == "autogear":
+            self.order.append(("autogear", command))
+            self._say("system", "Re-geared %s" % words[1])
+        elif words[0] == "inv":
+            name = words[1]
+            self._say("system", "TBM:INV_BEGIN|%s|" % name)
+            for i, entry in enumerate((7922, 7928, 8140)):
+                self._say("system", "TBM:INV_EQ|%d|%d" % (i, entry))
+            self._say("system", "TBM:INV_END|%s|" % name)
         elif words[0] == "remove":
             self._say("system", "Removal requested for %s." % words[1])
 

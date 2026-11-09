@@ -200,3 +200,23 @@ send is idempotent). The marker table comes from the client's Talent.dbc / Talen
   from the slot, and build_data.py writes None for a missing column. The strip read-back waits for the bags and the
   body to settle the same way the equip read-back does.
 
+
+
+### Talent proof after review (FIX FIRST round 1)
+
+- The proof is bound to the hire: the bench reads the event ROWS and accepts the apply reply and the `Link:` only
+  from the hired bot (its party guid when the row carries one, else its name; turtle-agent's whisper rows carry the
+  sender in `source`). Another hire's reply, a party-fallback answer from someone else, the player's own line,
+  system text and a row with no sender are ignored (and counted in the evidence).
+- A marker alone does not prove the spec. `bot_talents` needs ALL of: the marker talent at rank 1 or more; at least
+  60 % of the points in the reported link in the spec's own tree (a stale hybrid with the marker fails); a well-formed
+  link (ranks 0-5, at most three trees); and an apply reply that is not a failure ("Found multiple specs", "not
+  found", an invalid or too-high spec fail the row whatever the build looks like). No apply reply at all fails it only
+  when the build also fails the checks above. Exact premade-link matching was rejected: it is brittle across levels.
+- A trial spec with no entry in the marker table is INVALID ("no talent marker for <class>/<spec>"), never a silent
+  pass. The talent check runs under one 60 s deadline per bot, shared by both `_retry` passes, and every RPC and page
+  read under a deadline gets a timeout capped by the time left (also in the gear setup).
+- TB re-gears a hire after a build change (UpgradeGearBest, or the tier-kit refit). The evidence records the hire's
+  gear after the apply (`.bot inv`), and a trial's `bot.gear` step runs after the talents, so the gear is the trial's.
+  Baselines from before this change ran with rolled builds and rolled gear.
+\n

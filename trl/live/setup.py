@@ -13,7 +13,7 @@ import time
 
 from .. import gear as gear_mod
 from .. import talents as talents_mod
-from .agent import norm_guid, wait_until
+from .agent import event_guid, event_name, event_text, norm_guid, wait_until
 from .gm_guard import GmRefused, GmServerError
 from .situations import THREAT_CAST, bring_hire
 
@@ -132,9 +132,17 @@ def check_level(agent, trial, guard, timeout=8.0):
     return row("player_level", have == want, have, "%slevel %d (target %d)" % (lowered, have, want))
 
 
-def worn_entries(agent):
+def rpc_timeout(deadline, default=20.0):
+    """The `timeout` kwarg of an RPC under a deadline: the default capped by the time left (at least 1 s), so
+    one RPC never outlives the budget. {} without a finite deadline (the RPC keeps its own default)."""
+    if deadline is None or deadline.budget == float("inf"):
+        return {}
+    return {"timeout": "%ds" % max(1, int(deadline.cap(default)))}
+
+
+def worn_entries(agent, deadline=None):
     """({item entry}, error text): the entries the player wears, from the agent's `equipment` read."""
-    out = agent.rpc("equipment", {})
+    out = agent.rpc("equipment", {}, **rpc_timeout(deadline))
     if isinstance(out, dict) and "_err" in out:
         return None, "no equipment read in this agent: %s" % str(out["_err"])[:120]
     rows = out.get("items") if isinstance(out, dict) else out
@@ -143,9 +151,9 @@ def worn_entries(agent):
     return {int(i.get("item_entry") or 0) for i in rows if isinstance(i, dict) and int(i.get("item_entry") or 0)}, ""
 
 
-def bagged_entries(agent):
+def bagged_entries(agent, deadline=None):
     """({entry: copies}, error text): the items in the backpack and the bags (`inventory` with bags)."""
-    out = agent.rpc("inventory", {"bags": True})
+    out = agent.rpc("inventory", {"bags": True}, **rpc_timeout(deadline))
     if isinstance(out, dict) and "_err" in out:
         return None, "no inventory read in this agent: %s" % str(out["_err"])[:120]
     rows = out.get("items") if isinstance(out, dict) else out
@@ -192,11 +200,11 @@ def _timeout_evidence(timed_out, deadline):
     return "; setup deadline (%.0f s) ran out in: %s" % (deadline.budget, ", ".join(timed_out))
 
 
-def _wait_worn(agent, entries, wait, poll):
+def _wait_worn(agent, entries, wait, poll, deadline=None):
     """True once every entry shows in the `equipment` read (an equip is a packet: the server's reply, and so
     the read, can trail the call by a moment)."""
     def all_worn():
-        worn, _err = worn_entries(agent)
+        worn, _err = worn_entries(agent, deadline)
         return worn is not None and set(entries) <= worn
     return bool(wait_until(all_worn, timeout=wait, poll=poll))
 
@@ -270,10 +278,10 @@ def check_player_gear(agent, trial, guard, ctx, kits=None, settle=1.0, wait=5.0,
     if lacking:
         return row("player_gear", False, None, "kit data lacks item class: %s (rebuild data/gear_kits.json)"
                    % ", ".join("%s (%d)" % (i.get("name"), int(i["entry"])) for i in lacking[:5]))
-    worn, err = worn_entries(agent)
+    worn, err = worn_entries(agent, deadline)
     if worn is None:
         return row("player_gear", False, None, "cannot verify the gear: %s" % err)
-    bags, err = bagged_entries(agent)
+    bags, err = bagged_entries(agent, deadline)
     if bags is None:
         return row("player_gear", False, None, "cannot read the bags: %s" % err)
     to_equip = [i for i in items if int(i["entry"]) not in worn]
@@ -291,7 +299,7 @@ def check_player_gear(agent, trial, guard, ctx, kits=None, settle=1.0, wait=5.0,
         granted_now.append(int(item["entry"]))
     if granted_now:
         time.sleep(deadline.cap(settle))
-        wait_until(lambda: (lambda b: b is not None and all(e in b for e in granted_now))(bagged_entries(agent)[0]),
+        wait_until(lambda: (lambda b: b is not None and all(e in b for e in granted_now))(bagged_entries(agent, deadline)[0]),
                    timeout=deadline.cap(wait), poll=poll)
     errors = {}                 # entry -> the server's refusal: not retried, not waited for
     pending = to_equip
@@ -306,14 +314,14 @@ def check_player_gear(agent, trial, guard, ctx, kits=None, settle=1.0, wait=5.0,
             if deadline.expired():
                 timed_out.append("equip")
                 break
-            out = agent.rpc("equip", {"item_entry": int(item["entry"])})
+            out = agent.rpc("equip", {"item_entry": int(item["entry"])}, **rpc_timeout(deadline))
             if isinstance(out, dict) and "_err" in out:
                 errors[int(item["entry"])] = "%s (%d): %s" % (item["name"], item["entry"], str(out["_err"])[:80])
         waiting = [int(i["entry"]) for i in live if int(i["entry"]) not in errors]
-        if waiting and not _wait_worn(agent, waiting, deadline.cap(wait), poll):
+        if waiting and not _wait_worn(agent, waiting, deadline.cap(wait), poll, deadline):
             if deadline.expired():
                 timed_out.append("equip read-back")
-        worn, err = worn_entries(agent)
+        worn, err = worn_entries(agent, deadline)
         if worn is None:
             return row("player_gear", False, None, "cannot verify the gear: %s" % err)
         pending = [i for i in pending if int(i["entry"]) not in worn]
@@ -322,7 +330,7 @@ def check_player_gear(agent, trial, guard, ctx, kits=None, settle=1.0, wait=5.0,
                 timed_out.append("equip read-back")
             break
     failures = [errors[int(i["entry"])] for i in pending if int(i["entry"]) in errors]
-    worn, err = worn_entries(agent)
+    worn, err = worn_entries(agent, deadline)
     if worn is None:
         return row("player_gear", False, None, "cannot verify the gear: %s" % err)
     missing = [i for i in items if int(i["entry"]) not in worn]
@@ -367,8 +375,8 @@ def strip_player_gear(agent, guard, ctx, kits=None, keep=None, row_id="player_ge
     strip_ids = set(ctx.strip_ids) if ctx.strip_ids else gear_mod.all_entries(kits)
     keep = set(keep or ())
     targets = strip_ids - keep
-    worn, err = worn_entries(agent)
-    bags, err2 = bagged_entries(agent)
+    worn, err = worn_entries(agent, deadline)
+    bags, err2 = bagged_entries(agent, deadline)
     if worn is None or bags is None:
         return row(row_id, True, "unreadable",
                    "UNVERIFIED: %s" % (err or err2))
@@ -391,8 +399,8 @@ def strip_player_gear(agent, guard, ctx, kits=None, keep=None, row_id="player_ge
             removed.append(entry)
 
     def reads():
-        w, e1 = worn_entries(agent)
-        b, e2 = bagged_entries(agent)
+        w, e1 = worn_entries(agent, deadline)
+        b, e2 = bagged_entries(agent, deadline)
         return w, b, (e1 or e2)
 
     def clean():
@@ -653,78 +661,162 @@ def apply_spec(agent, trial, name, ledger, timeout=15.0):
     return _apply_role(agent, trial["bot"]["spec"], name, ledger, timeout)
 
 
-TALENTS_APPLY_REPLY = (r"Apply spec|Apply talents|Found multiple|spec is invalid|Reset talents|"
-                       r"Default talent spec|spec is for a higher level")
+TALENTS_APPLY_OK = re.compile(r"Apply spec", re.I)
+# an apply the bot says failed: several premade specs match, none does (TB spells it "not fount"), the spec is
+# invalid, or it needs a higher level
+TALENTS_APPLY_FAIL = re.compile(r"Found multiple specs|not fou|spec is invalid|higher level", re.I)
+TALENTS_APPLY_REPLY = TALENTS_APPLY_OK.pattern + "|" + TALENTS_APPLY_FAIL.pattern
+TALENTS_HIRE_KINDS = ("whisper", "party", "chat")
+TALENT_BUDGET_S = 60.0          # per hired bot: the talent apply, the read-back and the gear read, both `_retry` passes
 
 
-def apply_talents(agent, bot, name, ledger, timeout=12.0):
+def _from_hire(row, name, guid=""):
+    """True when the event row was said by THIS hire: its party guid when the row carries one, else its name.
+    A row with no sender, another hire's reply, the player's own line and system text are never the hire's."""
+    if row.get("kind") not in TALENTS_HIRE_KINDS:
+        return False
+    row_guid = event_guid(row, "source")
+    if row_guid and guid:
+        return row_guid == norm_guid(guid)
+    sender = event_name(row, "source").strip().lower()
+    return bool(sender) and sender == str(name or "").strip().lower()
+
+
+def _hire_texts(rows, name, guid=""):
+    return [event_text(r) for r in rows if _from_hire(r, name, guid) and event_text(r)]
+
+
+def apply_talents(agent, bot, name, ledger, timeout=12.0, deadline=None, guid=""):
     """Whisper `talents <spec>` to a hired bot: the bot takes the premade talent build of that name.
 
     `.bot role <bot> <spec>` rebuilds the strategies only, so a hire keeps the random talent build it was
     created with (a mage: arcane, fire or frost 1/3 each) and a fire trial could run on an arcane mage
     (TB ChangeTalentsAction: `talents <premade name>` applies the class's premade spec of that name).
-    Returns the bot's reply line ('' when it did not answer), or None when the bot names no spec the table
-    knows (nothing is sent: that trial is unchanged). The reply is evidence only; the build is proven by
-    `read_bot_talents`.
+    Returns the HIRE's own reply text ('' when it did not answer; another bot's reply never counts), or None
+    when the bot names no spec the table knows (nothing is sent). The verdict is `check_bot_talents`'s.
     """
     spec = (bot or {}).get("spec")
     if not spec or talents_mod.marker_for((bot or {}).get("class"), spec) is None:
         return None
+    deadline = deadline or _no_deadline()
     since = agent.snapshot()
     agent.chat("whisper", "talents %s" % talents_mod.premade_name(spec), to=name)
-    line, _rows = agent.wait_reply(since, TALENTS_APPLY_REPLY, timeout=timeout)
+
+    def answered(rows):
+        return any(TALENTS_APPLY_OK.search(t) or TALENTS_APPLY_FAIL.search(t) for t in _hire_texts(rows, name, guid))
+    rows = agent.read_rows(since, timeout=deadline.cap(timeout), stop=answered)
+    texts = _hire_texts(rows, name, guid)
+    line = next((t for t in texts if TALENTS_APPLY_FAIL.search(t)), None) \
+        or next((t for t in texts if TALENTS_APPLY_OK.search(t)), "")
     ledger.add({"kind": "bot_talents", "bot": name, "spec": spec, "reply": line or ""})
     return line or ""
 
 
-def read_bot_talents(agent, name, timeout=12.0):
-    """(trees, reply text): the bot's own `talents` reply parsed into its three tree strings (None: no link)."""
-    def has_link(text):
-        return talents_mod.parse_link(text) is not None
+def read_bot_talents(agent, name, timeout=12.0, deadline=None, guid=""):
+    """(raw link or None, reply text, ignored): the `Link:` of the HIRE's own `talents` reply.
+
+    Only an event row said by this hire counts (guid, else name; see _from_hire): another bot's reply, the
+    player's own line and a party-fallback answer from someone else are ignored and counted in `ignored`."""
+    deadline = deadline or _no_deadline()
+    seen = {"ignored": 0}
+
+    def hire_link(rows):
+        return any(talents_mod.link_text(t) is not None for t in _hire_texts(rows, name, guid))
+
+    def pick(rows):
+        for r in rows:
+            text = event_text(r)
+            if talents_mod.link_text(text) is None:
+                continue
+            if _from_hire(r, name, guid):
+                return text
+            seen["ignored"] += 1
+        return None
 
     before = agent.snapshot()
     agent.chat("whisper", "talents", to=name)
-    texts, _rows = agent.read_lines(before, timeout=timeout, stop=has_link)
-    if not any(has_link(t) for t in texts):
+    rows = agent.read_rows(before, timeout=deadline.cap(timeout), stop=hire_link)
+    text = pick(rows)
+    if text is None and not deadline.expired():
         agent.say_to_bot(name, "talents")
-        more, _rows = agent.read_lines(before, timeout=timeout, stop=has_link)
-        texts = more
-    for text in texts:
-        trees = talents_mod.parse_link(text)
-        if trees is not None:
-            return trees, text
-    return None, " / ".join(texts)[-300:]
+        rows = agent.read_rows(before, timeout=deadline.cap(timeout), stop=hire_link)
+        seen["ignored"] = 0
+        text = pick(rows)
+    if text is None:
+        return None, " / ".join(_hire_texts(rows, name, guid))[-300:], seen["ignored"]
+    return talents_mod.link_text(text), text, seen["ignored"]
 
 
-def check_bot_talents(agent, bot, name, ledger, timeout=12.0):
+def check_bot_talents(agent, bot, name, ledger, timeout=12.0, deadline=None, guid=None):
     """`bot_talents`: send the spec's premade talents to the hire, then prove the build from the bot's own read.
 
-    The proof is the spec's marker talent (trl/talents.py: Fire Vulnerability for a fire mage) at rank 1 or
-    more in the link the bot reports. A wrong build fails the row, and with it the rep (INVALID, the
-    evidence names the build found), never a silent score. Runs on every rep, a reused hire included: the
-    send is idempotent (a build that is already right changes nothing). None when the bot names no spec the
-    marker table knows.
+    ALL of these must hold, else the rep is INVALID with the evidence (never a silent score):
+      * the reply is the hire's own and carries a well-formed link (guid or name bound);
+      * the spec's marker talent (trl/talents.py: Fire Vulnerability for a fire mage) is at rank 1 or more;
+      * the spec's own tree holds at least SPEC_SHARE_MIN (60 %) of all spent points (a stale hybrid that has
+        the marker but spends its points elsewhere is not the spec; exact premade links are not required,
+        they differ by level);
+      * the apply reply is not a failure: "Found multiple specs", "not found", an invalid or too-high spec
+        fail the row whatever the build looks like; NO apply reply fails it only when the build also fails
+        the checks above.
+    A trial spec with no marker is INVALID too ("no talent marker for <class>/<spec>"), not a silent pass.
+    The whole check (apply, read-back, gear read) runs under `deadline` (TALENT_BUDGET_S per bot by the
+    caller). The hire's gear after the apply is recorded in the evidence (TB re-gears on a build change).
+    None when the bot names no spec at all.
     """
     spec = (bot or {}).get("spec")
     klass = (bot or {}).get("class")
-    marker = talents_mod.marker_for(klass, spec)
-    if not spec or marker is None:
+    if not spec:
         return None
-    reply = apply_talents(agent, bot, name, ledger, timeout=timeout)
-    trees, text = read_bot_talents(agent, name, timeout=timeout)
-    if trees is None:
+    marker = talents_mod.marker_for(klass, spec)
+    if marker is None:
         return row("bot_talents", False, spec,
-                   "no talent link in %s's reply to `talents` (wanted %s, marker %s); apply reply: %s; read: %s"
-                   % (name, spec, marker.name, reply or "none", text or "no chat line"))
+                   "no talent marker for %s/%s (trl/talents.py): the build cannot be proven" % (klass, spec))
+    deadline = deadline or _no_deadline()
+    guid = party_guid(agent, name) if guid is None else guid
+    reply = apply_talents(agent, bot, name, ledger, timeout=timeout, deadline=deadline, guid=guid)
+    if deadline.expired():
+        return row("bot_talents", False, spec, "%s: no time left to read the build%s" % (
+            name, _timeout_evidence(["talent apply"], deadline)))
+    raw, text, ignored = read_bot_talents(agent, name, timeout=timeout, deadline=deadline, guid=guid)
+    skipped = "; ignored %d link reply(ies) not from %s" % (ignored, name) if ignored else ""
+    if raw is None:
+        return row("bot_talents", False, spec,
+                   "no talent link from %s in reply to `talents` (wanted %s, marker %s); apply reply: %s; read: %s%s%s"
+                   % (name, spec, marker.name, reply or "none", text or "no reply from the hire", skipped,
+                      _timeout_evidence(["talent read-back"] if deadline.expired() else [], deadline)))
+    trees = talents_mod.parse_link(text)
+    if trees is None:
+        return row("bot_talents", False, spec, "malformed talent link %r from %s (wanted %s)%s"
+                   % (raw[:40], name, spec, skipped))
     rank = talents_mod.marker_rank(trees, marker)
+    own, total, share = talents_mod.spec_share(trees, marker)
     link = "-".join(trees).rstrip("-") or "0"
-    ok = rank >= 1
-    evidence = "%s %s: marker %s rank %d/%d, link %s; apply reply: %s" % (
-        name, spec, marker.name, rank, len(marker.ranks), link, reply or "none")
+    build_ok = rank >= 1 and share >= talents_mod.SPEC_SHARE_MIN
+    apply_failed = bool(reply and TALENTS_APPLY_FAIL.search(reply))
+    apply_state = "failed" if apply_failed else "ok" if reply else "no reply"
+    gear = ""
+    if not deadline.expired():
+        entries, complete = read_inventory(agent, name, timeout=deadline.cap(6.0))
+        gear = "; gear after the apply: %s" % (
+            "%d item(s) equipped or bagged" % len(entries) if complete else "unreadable (no complete `.bot inv`)")
+    ok = build_ok and not apply_failed
+    detail = "%s %s: marker %s rank %d/%d, %d of %d points in the %s tree (%.0f%%), link %s; apply %s%s" % (
+        name, spec, marker.name, rank, len(marker.ranks), own, total, spec, share * 100, link,
+        "FAILED: %s" % reply if apply_failed else "ok" if reply else "gave no reply", skipped)
     if not ok:
-        evidence = "%s wanted %s but the build lacks %s (rank 0), link %s; apply reply: %s" % (
-            name, spec, marker.name, link, reply or "none")
-    return row("bot_talents", ok, {"spec": spec, "marker": marker.name, "rank": rank, "link": link}, evidence)
+        why = []
+        if rank < 1:
+            why.append("lacks %s (rank 0)" % marker.name)
+        if share < talents_mod.SPEC_SHARE_MIN:
+            why.append("only %.0f%% of its points are in the %s tree (need %.0f%%)"
+                       % (share * 100, spec, talents_mod.SPEC_SHARE_MIN * 100))
+        if apply_failed:
+            why.append("the apply failed")
+        detail = "%s wanted %s but %s; %s" % (name, spec, " and ".join(why), detail)
+    return row("bot_talents", ok, {"spec": spec, "marker": marker.name, "rank": rank, "link": link,
+                                   "tree_share": round(share, 3), "apply": apply_state},
+               detail + gear)
 
 
 def check_bot_level(agent, trial, name):
@@ -1136,7 +1228,9 @@ def run_extras(agent, trial, guard, ledger, ctx, previous=None, timeout=30.0):
             role_ok = False
             role_ev.append("extra%d: not hired" % i)
             continue
-        talents_row = _retry(lambda: check_bot_talents(agent, eb, name, ledger))
+        talents_dl = Deadline(TALENT_BUDGET_S)
+        talents_row = _retry(lambda: check_bot_talents(agent, eb, name, ledger, deadline=talents_dl,
+                                                       guid=guids[i - 1] or ""), deadline=talents_dl)
         spec_row = _retry(lambda: _apply_role(agent, eb["spec"], name, ledger))
         strat_row = _retry(lambda: _check_strategy(agent, eb["spec"], name))
         if not spec_row.get("ok") or not strat_row.get("ok") or (talents_row is not None
@@ -1232,7 +1326,9 @@ def run_setup(agent, trial, guard, ledger, ctx, first=True, previous=None, previ
             checks.append(_retry(lambda: check_bot_level(agent, trial, bot_name)))
         # the talents go on BEFORE the role: a talent change rebuilds the strategies from the new build, and
         # the role then sets the strategies of the spec on top of it
-        talents_row = _retry(lambda: check_bot_talents(agent, trial["bot"], bot_name, ledger))
+        talents_dl = Deadline(TALENT_BUDGET_S)      # one budget for this bot's talent check, both passes
+        talents_row = _retry(lambda: check_bot_talents(agent, trial["bot"], bot_name, ledger, deadline=talents_dl,
+                                                       guid=guids["bot"] or ""), deadline=talents_dl)
         spec_row = _retry(lambda: apply_spec(agent, trial, bot_name, ledger))
         if "bot_role" in wanted:
             checks.append(spec_row)

@@ -61,7 +61,9 @@ MARKERS = {
     ('druid', 'restoration'): Marker('Gift of Nature', 2, 8, (17104, 24943, 24944, 24945, 24946), '5050013354'),
 }
 
-LINK_REPLY = re.compile(r"talent spec is:.*?Link:\s*([0-9]*(?:-[0-9]*){0,2})", re.I | re.S)
+LINK_REPLY = re.compile(r"talent spec is:.*?Link:\s*(\S*)", re.I | re.S)
+LINK_SHAPE = re.compile(r"[0-5]*(?:-[0-5]*){0,2}")      # a rank is 0-5; up to three trees joined by `-`
+SPEC_SHARE_MIN = 0.6        # the spec's own tree holds at least this share of all spent points
 
 
 def premade_name(spec):
@@ -74,12 +76,19 @@ def marker_for(klass, spec):
     return MARKERS.get((str(klass or "").strip().lower(), premade_name(spec)))
 
 
-def parse_link(text):
-    """The three tree strings of a `talents` reply (clean text), or None when it carries no link."""
+def link_text(text):
+    """The raw string after `Link:` in a `talents` reply (clean text), or None when the text has none."""
     m = LINK_REPLY.search(text or "")
-    if not m:
+    return m.group(1) if m else None
+
+
+def parse_link(text):
+    """The three tree strings of a `talents` reply (clean text), or None when it carries no well-formed link
+    (no `Link:`, an empty one, a rank above 5, more than three trees)."""
+    raw = link_text(text)
+    if not raw or not LINK_SHAPE.fullmatch(raw):
         return None
-    parts = m.group(1).split("-")
+    parts = raw.split("-")
     return [parts[i] if i < len(parts) else "" for i in range(3)]
 
 
@@ -87,3 +96,16 @@ def marker_rank(trees, marker):
     """The marker talent's rank in the parsed link (0 when its place is past the end of the tree string)."""
     tree = trees[marker.tab]
     return int(tree[marker.index]) if marker.index < len(tree) else 0
+
+
+def tree_points(trees):
+    """Points spent per tree of a parsed link."""
+    return [sum(int(ch) for ch in tree) for tree in trees]
+
+
+def spec_share(trees, marker):
+    """(points in the spec's own tree, all points, share 0-1): a stale hybrid with the marker talent but most of
+    its points elsewhere is not the spec."""
+    points = tree_points(trees)
+    total = sum(points)
+    return points[marker.tab], total, (points[marker.tab] / total if total else 0.0)

@@ -11,6 +11,7 @@ import json
 import pathlib
 import sys
 import tempfile
+import time
 import unittest
 import unittest.mock
 
@@ -196,6 +197,241 @@ class ExtraHireTest(unittest.TestCase):
             (role,) = row_of(doc, "extra_bots_role")
             self.assertFalse(role["ok"])
             self.assertIn("lacks Righteous Defense", role["evidence"])
+
+
+HYBRID = "talent spec is: |h|cffffffffarcane (0/0/0) Link: %s"
+
+
+def link_reply(link):
+    return "My current talent spec is: |h|cffffffffx (0/0/0) Link: %s" % link
+
+
+def fire_link():
+    return build_link("mage", "fire")
+
+
+def arcane_link():
+    return build_link("mage", "arcane")
+
+
+def hybrid_link():
+    """The fire marker (rank 3, index 9) in the fire tree, but nearly every point in the arcane tree."""
+    return "%s-%s" % (talents.marker_for("mage", "arcane").premade35, "0000000003")
+
+
+class ScriptedMage(TalentAgent):
+    """A hired mage (Embercrest) whose `talents` answers are scripted: `apply_reply` (None: no answer) and the
+    list of event rows said after each bare `talents` (a row is (kind, source, text))."""
+
+    def __init__(self, apply_reply="Apply spec |h|cffffffffx 0/31/20", reads=(), party_reads=(), **kw):
+        super().__init__(**kw)
+        self.apply_reply = apply_reply
+        self.reads = list(reads)                 # rows after a whispered bare `talents`
+        self.party_reads = list(party_reads)     # rows after a party `Embercrest talents`
+        self.build["Embercrest"] = ("mage", "arcane")
+
+    def rpc(self, method, params=None, timeout=None):
+        if method == "chat":
+            text = str((params or {}).get("text", ""))
+            to = (params or {}).get("to")
+            if to == "Embercrest" and text.startswith("talents"):
+                self.sent.append(text)
+                self.order.append(("talents", text))
+                if text == "talents":
+                    for kind, source, body in self.reads:
+                        self._say(kind, body, source=source)
+                elif self.apply_reply is not None:
+                    self._say("whisper", self.apply_reply, source="Embercrest")
+                self.calls.append((method, params))
+                self.spoken.append(params)
+                return {}
+            if to is None and text == "Embercrest talents":
+                for kind, source, body in self.party_reads:
+                    self._say(kind, body, source=source)
+        return super().rpc(method, params, timeout)
+
+
+MAGE_BOT = {"class": "mage", "spec": "fire", "role": "dps", "level": 40}
+
+
+def check(agent, tmp, **kw):
+    kw.setdefault("timeout", 0.0)
+    return setup.check_bot_talents(agent, MAGE_BOT, "Embercrest", tl.new_ledger(tmp), guid=kw.pop("guid", ""), **kw)
+
+
+class BoundReplyTest(unittest.TestCase):
+    """The link must come from the hire itself: other bots, the player and system text cannot prove it."""
+
+    def test_interleaved_replies_from_two_mages_only_the_hires_own_counts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            # the rival fire mage answers first, the hire (arcane, apply did nothing) second
+            a = ScriptedMage(reads=[("whisper", "Rival", link_reply(fire_link())),
+                                    ("whisper", "Embercrest", link_reply(arcane_link())),
+                                    ("whisper", "Rival", link_reply(fire_link()))])
+            row = check(a, tmp)
+            self.assertFalse(row["ok"], row["evidence"])
+            self.assertIn("lacks Fire Vulnerability", row["evidence"])
+            self.assertIn("ignored 1 link reply", row["evidence"])
+        with tempfile.TemporaryDirectory() as tmp:
+            # the other way round: the rival is arcane and first, the hire is fire
+            a = ScriptedMage(reads=[("whisper", "Rival", link_reply(arcane_link())),
+                                    ("whisper", "Embercrest", link_reply(fire_link()))])
+            row = check(a, tmp)
+            self.assertTrue(row["ok"], row["evidence"])
+
+    def test_a_spoofed_player_line_with_a_link_is_ignored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a = ScriptedMage(reads=[("chat", eb.PLAYER, link_reply(fire_link())),
+                                    ("whisper", "Hypeer", link_reply(fire_link())),
+                                    ("system", "Embercrest", link_reply(fire_link()))])    # system text is no reply
+            row = check(a, tmp)
+            self.assertFalse(row["ok"])
+            self.assertIn("no talent link from Embercrest", row["evidence"])
+
+    def test_a_row_with_no_sender_never_counts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a = ScriptedMage(reads=[("whisper", None, link_reply(fire_link()))])
+            self.assertFalse(check(a, tmp)["ok"])
+
+    def test_the_party_fallback_reply_from_another_bot_is_ignored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a = ScriptedMage(reads=[],                                                       # the hire is deaf to whispers
+                             party_reads=[("party", "Rival", link_reply(fire_link()))])
+            row = check(a, tmp)
+            self.assertFalse(row["ok"])
+            self.assertIn("ignored 1 link reply", row["evidence"])
+        with tempfile.TemporaryDirectory() as tmp:
+            a = ScriptedMage(reads=[], party_reads=[("party", "Embercrest", link_reply(fire_link()))])
+            self.assertTrue(check(a, tmp)["ok"])                                             # the hire's own party answer
+
+    def test_the_party_guid_binds_the_reply_when_the_row_carries_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a = ScriptedMage()
+            a._say("whisper", link_reply(fire_link()), source="Embercrest", source_guid=eb.EXTRA2)   # a name clash
+            rows = a.read_rows(0, timeout=0.0)
+            self.assertTrue(setup._from_hire(rows[0], "Embercrest", ""))                      # no guid known: the name
+            self.assertFalse(setup._from_hire(rows[0], "Embercrest", MAGE))                   # a guid known: must match
+            self.assertTrue(setup._from_hire(rows[0], "Embercrest", eb.EXTRA2))
+
+
+class BuildVerdictTest(unittest.TestCase):
+    def test_a_stale_hybrid_with_the_marker_but_most_points_elsewhere_is_invalid(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a = ScriptedMage(reads=[("whisper", "Embercrest", link_reply(hybrid_link()))])
+            trees = talents.parse_link(link_reply(hybrid_link()))
+            self.assertGreaterEqual(talents.marker_rank(trees, talents.marker_for("mage", "fire")), 1)
+            row = check(a, tmp)
+            self.assertFalse(row["ok"])
+            self.assertIn("points are in the fire tree", row["evidence"])
+            self.assertNotIn("lacks Fire Vulnerability", row["evidence"])
+
+    def test_a_good_build_passes_with_the_share_in_the_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a = ScriptedMage(reads=[("whisper", "Embercrest", link_reply(fire_link()))])
+            row = check(a, tmp)
+            self.assertTrue(row["ok"], row["evidence"])
+            self.assertEqual(row["value"]["tree_share"], 1.0)
+            self.assertIn("100%", row["evidence"])
+
+    def test_an_explicit_apply_failure_is_invalid_even_with_a_good_build(self):
+        for reply in ("Found multiple specs: fire, firestorm", "Default talent spec for this class was not fount."):
+            with tempfile.TemporaryDirectory() as tmp:
+                a = ScriptedMage(apply_reply=reply, reads=[("whisper", "Embercrest", link_reply(fire_link()))])
+                row = check(a, tmp)
+                self.assertFalse(row["ok"], reply)
+                self.assertIn("the apply failed", row["evidence"])
+
+    def test_no_apply_reply_is_a_failure_only_when_the_build_also_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a = ScriptedMage(apply_reply=None, reads=[("whisper", "Embercrest", link_reply(fire_link()))])
+            row = check(a, tmp)
+            self.assertTrue(row["ok"], row["evidence"])
+            self.assertIn("gave no reply", row["evidence"])
+        with tempfile.TemporaryDirectory() as tmp:
+            a = ScriptedMage(apply_reply=None, reads=[("whisper", "Embercrest", link_reply(hybrid_link()))])
+            self.assertFalse(check(a, tmp)["ok"])
+        with tempfile.TemporaryDirectory() as tmp:
+            a = ScriptedMage(apply_reply=None, reads=[("whisper", "Embercrest", link_reply(arcane_link()))])
+            self.assertFalse(check(a, tmp)["ok"])
+
+    def test_a_malformed_link_is_invalid(self):
+        for bad in ("9x-", "7", "1-2-3-4", "5-5-5-5", "fire", "50523-xx"):
+            with tempfile.TemporaryDirectory() as tmp:
+                a = ScriptedMage(reads=[("whisper", "Embercrest", link_reply(bad))])
+                row = check(a, tmp)
+                self.assertFalse(row["ok"], bad)
+                self.assertTrue("malformed" in row["evidence"] or "no talent link" in row["evidence"], row["evidence"])
+
+    def test_a_trial_spec_with_no_marker_is_invalid_not_a_silent_pass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a = ScriptedMage()
+            row = setup.check_bot_talents(a, {"class": "priest", "spec": "hybrid"}, "Embercrest",
+                                          tl.new_ledger(tmp))
+            self.assertFalse(row["ok"])
+            self.assertIn("no talent marker for priest/hybrid", row["evidence"])
+            self.assertEqual(a.sent, [])                                                     # nothing was sent
+
+    def test_the_gear_after_the_apply_is_recorded_in_the_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a = ScriptedMage(reads=[("whisper", "Embercrest", link_reply(fire_link()))])
+            row = check(a, tmp)
+            self.assertIn("gear after the apply: 3 item(s)", row["evidence"])
+
+    def test_the_trials_gear_goes_on_after_the_talents(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a = TalentAgent(rolled={"mage": "arcane"})
+            trial = mage_trial()
+            trial["bot"]["gear"] = "blue"
+            doc, _ = run_it(trial, a, tmp)
+            self.assertTrue(doc["ok"], doc)
+            kinds = [k for k, _t in a.order]
+            self.assertIn("autogear", kinds)
+            self.assertLess(max(i for i, k in enumerate(kinds) if k == "talents"), kinds.index("autogear"))
+
+
+class TalentDeadlineTest(unittest.TestCase):
+    def test_a_silent_hire_ends_within_the_deadline_across_both_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a = ScriptedMage(apply_reply=None)
+            dl = setup.Deadline(1.0)
+            started = time.monotonic()
+            row = setup._retry(lambda: setup.check_bot_talents(a, MAGE_BOT, "Embercrest", tl.new_ledger(tmp),
+                                                               timeout=30.0, deadline=dl, guid=""), deadline=dl)
+            self.assertLess(time.monotonic() - started, 4.0)                                 # not 4 x 30 s
+            self.assertFalse(row["ok"])
+
+    def test_a_spent_deadline_fails_without_sending_anything(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a = ScriptedMage()
+            clock = [100.0]
+            dl = setup.Deadline(5.0, clock=lambda: clock[0])
+            clock[0] += 6.0
+            row = setup.check_bot_talents(a, MAGE_BOT, "Embercrest", tl.new_ledger(tmp), deadline=dl, guid="")
+            self.assertFalse(row["ok"])
+            self.assertIn("deadline", row["evidence"])
+
+    def test_every_rpc_timeout_is_capped_by_the_time_left(self):
+        clock = [0.0]
+        dl = setup.Deadline(5.0, clock=lambda: clock[0])
+        self.assertEqual(setup.rpc_timeout(dl), {"timeout": "5s"})
+        clock[0] = 4.5
+        self.assertEqual(setup.rpc_timeout(dl), {"timeout": "1s"})                           # never below 1 s
+        clock[0] = 9.0
+        self.assertEqual(setup.rpc_timeout(dl), {"timeout": "1s"})
+        self.assertEqual(setup.rpc_timeout(None), {})
+        self.assertEqual(setup.rpc_timeout(setup.Deadline(float("inf"))), {})
+        seen = []
+        a = ScriptedMage()
+        orig = a.rpc
+
+        def spy(method, params=None, timeout=None):
+            seen.append((method, timeout))
+            return orig(method, params, timeout)
+        a.rpc = spy
+        a.events_since(0, wait_ms=500, cap_s=2.0)
+        self.assertIn(("events", "2000ms"), seen)                                          # the page RPC is capped too
+        a.events_since(0, wait_ms=500)
+        self.assertIn(("events", "20500ms"), seen)                                         # uncapped keeps its default
 
 
 if __name__ == "__main__":

@@ -271,13 +271,18 @@ class Agent:
 
     # -- events ------------------------------------------------------------
 
-    def events_since(self, since=None, kinds=None, wait_ms=900, limit=1000):
+    def events_since(self, since=None, kinds=None, wait_ms=900, limit=1000, cap_s=None):
+        """One events page. `cap_s` bounds this RPC's own timeout (a caller under a deadline never lets one
+        RPC outlive what is left of it)."""
         with self._lock:
             start = self.cursor if since is None else int(since)
         params = {"since": start, "limit": limit, "wait_ms": wait_ms}
         if kinds:
             params["kinds"] = list(kinds)
-        page = self.rpc("events", params, timeout="%dms" % (wait_ms + 20000))
+        rpc_ms = wait_ms + 20000
+        if cap_s is not None:
+            rpc_ms = min(rpc_ms, max(1000, int(cap_s * 1000)))
+        page = self.rpc("events", params, timeout="%dms" % rpc_ms)
         if not isinstance(page, dict) or "_err" in page:
             return {"events": [], "next": start, "oldest": start, "dropped": False, "more": False}
         page.setdefault("events", [])
@@ -317,6 +322,22 @@ class Agent:
                 return texts, rows
             if time.time() >= deadline:
                 return texts, rows
+
+    def read_rows(self, since, timeout=10.0, kinds=_CHAT_KINDS, stop=None):
+        """Poll the event log from `since` and return the event ROWS (sender and all), until `stop(rows)` is
+        true or the timeout is up. Every page RPC is capped by the time left."""
+        rows = []
+        deadline = time.time() + max(0.0, timeout)
+        page_from = since
+        while True:
+            page = self.events_since(page_from, kinds=kinds, wait_ms=500,
+                                     cap_s=max(1.0, deadline - time.time()))
+            rows.extend(page.get("events") or [])
+            page_from = int(page.get("next", page_from))
+            if stop and stop(rows):
+                return rows
+            if time.time() >= deadline:
+                return rows
 
     def read_lines(self, since, timeout=10.0, kinds=_CHAT_KINDS, stop=None):
         """Poll the event log from `since` and return (lines, rows)."""

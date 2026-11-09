@@ -390,6 +390,29 @@ class DeadlineTest(unittest.TestCase):
         self.assertIs(seen[0], seen[1])                                         # one budget for both steps
 
 
+class RpcCapTest(unittest.TestCase):
+    def test_the_gear_rpcs_carry_a_timeout_capped_by_the_deadline(self):
+        kit = fake_kit(4, 4, 7000)
+        agent = ProfAgent(plate_need(kit))
+        seen = []
+        orig = agent.rpc
+
+        def spy(method, params=None, timeout=None):
+            if method in ("equip", "equipment", "inventory"):
+                seen.append((method, timeout))
+            return orig(method, params, timeout)
+        agent.rpc = spy
+        kits = kits_of(kit)
+        pl = player(level=40, role="dps")
+        ctx = kit_ctx(kit, kits)
+        with tempfile.TemporaryDirectory() as tmp:
+            guard = gm_guard.GmGuard(agent, tl.new_ledger(tmp), ctx)
+            setup.check_player_gear(agent, {"id": "t", "player": pl}, guard, ctx, kits=kits, settle=0.0,
+                                    wait=0.0, poll=0.0, deadline=setup.Deadline(7.0))
+        self.assertEqual({m for m, _t in seen}, {"equip", "equipment", "inventory"})
+        self.assertTrue(all(t is not None and int(t.rstrip("s")) <= 7 for _m, t in seen), seen)
+
+
 class CarryOverTest(unittest.TestCase):
     """Only the kit items foreign to this trial's kit are stripped, whatever the gear mode."""
 
