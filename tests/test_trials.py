@@ -1970,5 +1970,30 @@ class R3WindowOpportunityAndReasonTest(unittest.TestCase):
         self.assertIn("INCONCLUSIVE: no triggers (rep1)", text)
 
 
+class HireTalentsSetupTest(unittest.TestCase):
+    """A hired bot keeps its random talent build (`role` rebuilds strategies only): the setup proves it."""
+
+    def test_fire_mage_setup_requires_fire_vulnerability_talent(self):
+        sys.path.insert(0, os.path.join(ROOT, "tests"))
+        import test_hire_talents as hire
+        trial = hire.mage_trial()
+        self.assertEqual((trial["bot"]["class"], trial["bot"]["spec"]), ("mage", "fire"))
+        # an arcane mage on a fire trial: the strategies say fire, the talents are arcane
+        with tempfile.TemporaryDirectory() as tmp:
+            stuck = hire.TalentAgent(rolled={"mage": "arcane"}, apply_works=False)
+            doc, _led = hire.run_it(copy.deepcopy(trial), stuck, tmp)
+        row = [c for c in doc["checks"] if c["id"] == "bot_talents"]
+        self.assertEqual(len(row), 1, [c["id"] for c in doc["checks"]])
+        self.assertFalse(row[0]["ok"])
+        self.assertFalse(doc["ok"])                                  # INVALID, never a silent score
+        self.assertIn("Fire Vulnerability", row[0]["evidence"])
+        # the bench asks for the fire build and the same bot then passes
+        with tempfile.TemporaryDirectory() as tmp:
+            fixable = hire.TalentAgent(rolled={"mage": "arcane"})
+            doc, _led = hire.run_it(copy.deepcopy(trial), fixable, tmp)
+        self.assertTrue(doc["ok"], doc)
+        self.assertEqual(fixable.build["Embercrest"], ("mage", "fire"))
+
+
 if __name__ == "__main__":
     unittest.main()

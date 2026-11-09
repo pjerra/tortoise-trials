@@ -167,3 +167,18 @@ that is not in its own kit (`player_gear_carryover`, the same guarded `.additem 
 different items, so the leftover itself is the trigger). The equip waits for the grant to show in the bags, the
 read-back waits for the equip to show, and an unworn piece is equipped again (twice): the likely cause of the piece
 that stayed off at random. Not found offline: why rep 1 of the level-40 control was always INVALID.
+
+### A hire's talent build is applied and proven (bot_talents)
+
+A hired bot keeps the random talent build it was created with (a mage: arcane, fire or frost, 1/3 each): TB's
+`role <bot> <spec>` rebuilds the strategies only (commands/BotCommands.cpp). `bot_spec` read only the strategy list, so
+an arcane mage on a fire trial passed setup and scored silently (the Scorch rows fire only for a bot that knows Fire
+Vulnerability, so the no-harm control swung with the roll). Chosen: for every hire (the main bot and every extra_bots
+hire) whose spec has a marker (trl/talents.py), the bench whispers `talents <premade name>` (TB ChangeTalentsAction:
+a premade spec by name) BEFORE the role order, then reads the bot's own bare `talents` reply (`Link: <link>`) and
+requires the spec's marker talent at rank 1 or more (fire mage: Fire Vulnerability). `bot_talents` is a setup row of
+every such trial, not only of those that list it; for extra hires it is part of `extra_bots_role`. A wrong build after
+the apply makes the rep INVALID with the link found as evidence. It runs on every rep, a reused hire included (the
+send is idempotent). The marker table comes from the client's Talent.dbc / TalentTab.dbc and TB's premade links
+(its header says how); a trial whose bot spec has no marker is rejected by a test, not silently unchecked.
+

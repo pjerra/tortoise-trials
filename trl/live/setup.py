@@ -12,6 +12,7 @@ import re
 import time
 
 from .. import gear as gear_mod
+from .. import talents as talents_mod
 from .agent import norm_guid, wait_until
 from .gm_guard import GmRefused, GmServerError
 from .situations import THREAT_CAST, bring_hire
@@ -68,7 +69,7 @@ def _retry(fn, attempts=2):
     out = None
     for _ in range(attempts):
         out = fn()
-        if out.get("ok"):
+        if out is None or out.get("ok"):
             return out
     return out
 
@@ -559,6 +560,80 @@ def apply_spec(agent, trial, name, ledger, timeout=15.0):
     return _apply_role(agent, trial["bot"]["spec"], name, ledger, timeout)
 
 
+TALENTS_APPLY_REPLY = (r"Apply spec|Apply talents|Found multiple|spec is invalid|Reset talents|"
+                       r"Default talent spec|spec is for a higher level")
+
+
+def apply_talents(agent, bot, name, ledger, timeout=12.0):
+    """Whisper `talents <spec>` to a hired bot: the bot takes the premade talent build of that name.
+
+    `.bot role <bot> <spec>` rebuilds the strategies only, so a hire keeps the random talent build it was
+    created with (a mage: arcane, fire or frost 1/3 each) and a fire trial could run on an arcane mage
+    (TB ChangeTalentsAction: `talents <premade name>` applies the class's premade spec of that name).
+    Returns the bot's reply line ('' when it did not answer), or None when the bot names no spec the table
+    knows (nothing is sent: that trial is unchanged). The reply is evidence only; the build is proven by
+    `read_bot_talents`.
+    """
+    spec = (bot or {}).get("spec")
+    if not spec or talents_mod.marker_for((bot or {}).get("class"), spec) is None:
+        return None
+    since = agent.snapshot()
+    agent.chat("whisper", "talents %s" % talents_mod.premade_name(spec), to=name)
+    line, _rows = agent.wait_reply(since, TALENTS_APPLY_REPLY, timeout=timeout)
+    ledger.add({"kind": "bot_talents", "bot": name, "spec": spec, "reply": line or ""})
+    return line or ""
+
+
+def read_bot_talents(agent, name, timeout=12.0):
+    """(trees, reply text): the bot's own `talents` reply parsed into its three tree strings (None: no link)."""
+    def has_link(text):
+        return talents_mod.parse_link(text) is not None
+
+    before = agent.snapshot()
+    agent.chat("whisper", "talents", to=name)
+    texts, _rows = agent.read_lines(before, timeout=timeout, stop=has_link)
+    if not any(has_link(t) for t in texts):
+        agent.say_to_bot(name, "talents")
+        more, _rows = agent.read_lines(before, timeout=timeout, stop=has_link)
+        texts = more
+    for text in texts:
+        trees = talents_mod.parse_link(text)
+        if trees is not None:
+            return trees, text
+    return None, " / ".join(texts)[-300:]
+
+
+def check_bot_talents(agent, bot, name, ledger, timeout=12.0):
+    """`bot_talents`: send the spec's premade talents to the hire, then prove the build from the bot's own read.
+
+    The proof is the spec's marker talent (trl/talents.py: Fire Vulnerability for a fire mage) at rank 1 or
+    more in the link the bot reports. A wrong build fails the row, and with it the rep (INVALID, the
+    evidence names the build found), never a silent score. Runs on every rep, a reused hire included: the
+    send is idempotent (a build that is already right changes nothing). None when the bot names no spec the
+    marker table knows.
+    """
+    spec = (bot or {}).get("spec")
+    klass = (bot or {}).get("class")
+    marker = talents_mod.marker_for(klass, spec)
+    if not spec or marker is None:
+        return None
+    reply = apply_talents(agent, bot, name, ledger, timeout=timeout)
+    trees, text = read_bot_talents(agent, name, timeout=timeout)
+    if trees is None:
+        return row("bot_talents", False, spec,
+                   "no talent link in %s's reply to `talents` (wanted %s, marker %s); apply reply: %s; read: %s"
+                   % (name, spec, marker.name, reply or "none", text or "no chat line"))
+    rank = talents_mod.marker_rank(trees, marker)
+    link = "-".join(trees).rstrip("-") or "0"
+    ok = rank >= 1
+    evidence = "%s %s: marker %s rank %d/%d, link %s; apply reply: %s" % (
+        name, spec, marker.name, rank, len(marker.ranks), link, reply or "none")
+    if not ok:
+        evidence = "%s wanted %s but the build lacks %s (rank 0), link %s; apply reply: %s" % (
+            name, spec, marker.name, link, reply or "none")
+    return row("bot_talents", ok, {"spec": spec, "marker": marker.name, "rank": rank, "link": link}, evidence)
+
+
 def check_bot_level(agent, trial, name):
     unit = agent.unit(name=name)
     if not unit:
@@ -968,11 +1043,15 @@ def run_extras(agent, trial, guard, ledger, ctx, previous=None, timeout=30.0):
             role_ok = False
             role_ev.append("extra%d: not hired" % i)
             continue
+        talents_row = _retry(lambda: check_bot_talents(agent, eb, name, ledger))
         spec_row = _retry(lambda: _apply_role(agent, eb["spec"], name, ledger))
         strat_row = _retry(lambda: _check_strategy(agent, eb["spec"], name))
-        if not spec_row.get("ok") or not strat_row.get("ok"):
+        if not spec_row.get("ok") or not strat_row.get("ok") or (talents_row is not None
+                                                                 and not talents_row.get("ok")):
             role_ok = False
-        role_ev.append("extra%d %s: %s | %s" % (i, name, spec_row["evidence"], strat_row["evidence"]))
+        role_ev.append("extra%d %s: %s | %s%s" % (
+            i, name, spec_row["evidence"], strat_row["evidence"],
+            " | talents: %s" % talents_row["evidence"] if talents_row is not None else ""))
     rows.append(_extra_row("extra_bots_role", role_ok, [eb["spec"] for eb in extras], role_ev))
     rows.append(_retry(lambda: check_extras_grouped(agent, names)))
     if "extra_bots_no_shield" in set(trial.get("setup_checks") or []):
@@ -1052,9 +1131,14 @@ def run_setup(agent, trial, guard, ledger, ctx, first=True, previous=None, previ
     if bot_name:
         if "bot_level" in wanted:
             checks.append(_retry(lambda: check_bot_level(agent, trial, bot_name)))
+        # the talents go on BEFORE the role: a talent change rebuilds the strategies from the new build, and
+        # the role then sets the strategies of the spec on top of it
+        talents_row = _retry(lambda: check_bot_talents(agent, trial["bot"], bot_name, ledger))
         spec_row = _retry(lambda: apply_spec(agent, trial, bot_name, ledger))
         if "bot_role" in wanted:
             checks.append(spec_row)
+        if talents_row is not None:
+            checks.append(talents_row)
         gear = trial["bot"].get("gear")
         if gear:
             since = agent.tbm("autogear %s %s" % (bot_name, gear))

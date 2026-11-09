@@ -10,7 +10,7 @@ PASS_IF_RE = re.compile(r"^(==|!=|<=|>=|<|>)\s*-?\d+(\.\d+)?$")
 GROUPS = {"healers", "tanks-melee", "ranged", "raid"}
 SETUP_CHECKS = {
     "player_level", "player_talents", "player_stance", "player_forced_role",
-    "player_auras", "bot_present", "bot_level", "bot_spec", "bot_role",
+    "player_auras", "bot_present", "bot_level", "bot_spec", "bot_role", "bot_talents",
     "bot_items", "bot_mana", "grouped", "mobs_ready", "mob_caster_casts",
     "cc_mark_set", "config_read", "pet_present", "player_gear", "player_gear_strip", "player_gear_carryover",
     "walk_report_ok", "boss_fights_present", "practice_marked",

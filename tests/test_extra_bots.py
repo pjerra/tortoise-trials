@@ -22,6 +22,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 import test_live as tl  # noqa: E402
 from trl import scenario as scenario_mod  # noqa: E402
 from trl import score as score_mod  # noqa: E402
+from trl import talents as talents_mod  # noqa: E402
 from trl.live import agent as agent_mod  # noqa: E402
 from trl.live import gm_guard, lease, setup, teardown  # noqa: E402
 from trl.live.ledger import Ledger  # noqa: E402
@@ -39,12 +40,22 @@ def load(tid):
     return scenario_mod.load_trial(str(TRIAL_DIR / (tid + ".json")))
 
 
+def build_link(klass, spec):
+    """The link a bot of this spec reports in its `talents` reply: the marker's tree string in its tab."""
+    m = talents_mod.marker_for(klass, spec)
+    trees = ["", "", ""]
+    trees[m.tab] = m.premade35
+    return "-".join(trees).rstrip("-") or "0"
+
+
 class ScriptAgent(tl.FakeAgent):
     """FakeAgent that answers `.bot` orders: hires land in the party, the events honour `since`."""
 
     HIRES = {"priest": ("Helper", HIRE), "paladin": ("Bulwark", EXTRA1), "warrior": ("Wally", EXTRA2)}
+    # the talent build a hire of this class is created with, unless `rolled` says otherwise
+    DEFAULT = {"priest": "holy", "paladin": "protection", "warrior": "protection"}
 
-    def __init__(self, **kwargs):
+    def __init__(self, rolled=None, apply_works=True, **kwargs):
         kwargs.setdefault("status", {"state": "in_world", "guid": PLAYER, "level": 40, "health": 1000,
                                      "max_health": 1000, "power": 500, "max_power": 500,
                                      "team": "alliance", "target": PLAYER})
@@ -52,6 +63,11 @@ class ScriptAgent(tl.FakeAgent):
         self.party_row = {"in_group": True, "members": []}
         self.hire_replies = True        # False: the server says nothing to a hire
         self.spoken = []
+        self.rolled = dict(rolled or {})
+        self.apply_works = apply_works  # False: `talents <spec>` is answered but changes nothing
+        self.build = {}                 # bot name -> (class, premade spec name): its talent build
+        self.sent = []                  # every `talents ...` whisper, in order
+        self.order = []                 # ("hire" | "role" | "talents", text), in order
 
     def _say(self, kind, text):
         self.event_rows.append({"kind": kind, "text": text})
@@ -70,6 +86,14 @@ class ScriptAgent(tl.FakeAgent):
             self._respond(command)
             return {"since": since}
         if method == "chat":
+            text = str(params.get("text", ""))
+            to = params.get("to")
+            if text.startswith("talents"):
+                for klass, (hired_name, _guid) in self.HIRES.items():    # a bot already in the party (a reused hire)
+                    if to == hired_name and to not in self.build:
+                        self.build[to] = (klass, self.rolled.get(klass, self.DEFAULT.get(klass, "")))
+                if to in self.build:
+                    self._talents(to, text)
             self.spoken.append(params)
             if str(params.get("text", "")).endswith("co ?"):
                 self._say("system", "Strategies: protection, tank assist, holy, heal")
@@ -77,10 +101,27 @@ class ScriptAgent(tl.FakeAgent):
             return {}
         return super().rpc(method, params, timeout)
 
+    def _talents(self, to, text):
+        """The bot's talent build: `talents <name>` applies a premade spec, a bare `talents` reports the link."""
+        self.sent.append(text)
+        self.order.append(("talents", text))
+        klass, spec = self.build[to]
+        arg = text[len("talents"):].strip()
+        if arg:
+            if self.apply_works:
+                self.build[to] = (klass, arg)
+            self._say("whisper", "Apply spec |h|cffffffff%s 0/31/20" % arg)
+        else:
+            self._say("whisper", "My current talent spec is: |h|cffffffff%s (0/31/20) Link: %s"
+                      % (spec, build_link(klass, self.build[to][1])))
+
     def _respond(self, command):
         words = command.split()
+        if words[0] == "hire" or (words[0] == "role" and words[1] != "self"):
+            self.order.append((words[0], command))
         if words[0] == "hire" and self.hire_replies:
             name, guid = self.HIRES[words[1]]
+            self.build[name] = (words[1], self.rolled.get(words[1], self.DEFAULT[words[1]]))
             self._say("system", "You have hired %s for 30 minutes." % name)
             self.party_row["members"].append({"name": name, "guid": guid, "level": 40})
         elif words[0] == "role" and words[1] == "self":
@@ -385,7 +426,7 @@ class RunSetupTest(unittest.TestCase):
             self.assertTrue(doc["ok"], doc)
             self.assertEqual([c["id"] for c in doc["checks"]],
                              ["gm_visible", "player_level", "player_gear_strip", "player_forced_role",
-                              "bot_present", "bot_role", "grouped"])      # the strip row: no gear option
+                              "bot_present", "bot_role", "bot_talents", "grouped"])      # the strip row: no gear option
             self.assertEqual(sorted(doc["guids"]), ["bot", "marked", "mobs", "pet", "player"])
             self.assertNotIn("extra_names", doc)
             # live3 added player_offhand (the recorded off-hand) to setup.json
@@ -402,7 +443,7 @@ class RunSetupTest(unittest.TestCase):
             self.assertTrue(doc["ok"], doc)
             ids = [c["id"] for c in doc["checks"]]
             self.assertEqual(ids, ["gm_visible", "player_level", "player_gear_strip", "player_forced_role",
-                                   "bot_present", "bot_role", "grouped", "extra_bots_present", "extra_bots_role",
+                                   "bot_present", "bot_role", "bot_talents", "grouped", "extra_bots_present", "extra_bots_role",
                                    "extra_bots_in_group"])
             self.assertEqual(doc["guids"]["extras"], [agent_mod.norm_guid(EXTRA1)])
             self.assertEqual(doc["guids"]["bot"], agent_mod.norm_guid(HIRE))
