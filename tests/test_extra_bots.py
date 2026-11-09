@@ -341,7 +341,7 @@ class HireIdentityTest(unittest.TestCase):
                 else:
                     orig(command)
             a._respond = respond
-            with unittest.mock.patch.object(setup, "_retry", lambda fn, attempts=2: fn()):
+            with unittest.mock.patch.object(setup, "_retry", lambda fn, attempts=2, deadline=None: fn()):
                 (rows, _n, _g), _ctx, _led, _near = self.run_extras(a, tmp=tmp)
             self.assertTrue(rows[0]["ok"])
             self.assertFalse(rows[1]["ok"])
@@ -430,7 +430,7 @@ class RunSetupTest(unittest.TestCase):
                     orig(command)
             a._respond = respond
             with unittest.mock.patch.object(setup, "bring_hire", lambda *args, **k: True), \
-                 unittest.mock.patch.object(setup, "_retry", lambda fn, attempts=2: fn()):
+                 unittest.mock.patch.object(setup, "_retry", lambda fn, attempts=2, deadline=None: fn()):
                 doc = setup.run_setup(a, trial, guard, led, ctx)
             self.assertFalse(doc["ok"])
             failed = {c["id"] for c in doc["checks"] if not c["ok"]}
@@ -445,7 +445,7 @@ class RunSetupTest(unittest.TestCase):
             ctx = tl.ctx_for(hire_guid="", hire_name="")
             guard = gm_guard.GmGuard(a, led, ctx)
             with unittest.mock.patch.object(setup, "bring_hire", lambda *args, **k: True), \
-                 unittest.mock.patch.object(setup, "_retry", lambda fn, attempts=2: fn()):
+                 unittest.mock.patch.object(setup, "_retry", lambda fn, attempts=2, deadline=None: fn()):
                 real = setup.hire_bot
                 with unittest.mock.patch.object(
                         setup, "hire_bot",
@@ -490,7 +490,7 @@ class SlotAlignmentTest(unittest.TestCase):
             ctx = tl.ctx_for(hire_guid="", hire_name="")
             guard = gm_guard.GmGuard(a, led, ctx)
             with unittest.mock.patch.object(setup, "bring_hire", lambda *args, **k: True), \
-                 unittest.mock.patch.object(setup, "_retry", lambda fn, attempts=2: fn()):
+                 unittest.mock.patch.object(setup, "_retry", lambda fn, attempts=2, deadline=None: fn()):
                 doc = setup.run_setup(a, self.trial(), guard, led, ctx)
             self.assertEqual(doc["extra_slots"], [None, "Wally"])
             self.assertEqual(doc["extra_names"], ["Wally"])
