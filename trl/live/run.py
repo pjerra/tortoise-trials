@@ -134,6 +134,19 @@ def load_trials(paths):
     return out
 
 
+def snapshot_trial(run_dir, trial):
+    """Write <run>/<trial id>/trial.effective.json: the complete trial as it runs (merged for a variant)."""
+    tdir = os.path.join(run_dir, trial["id"])
+    os.makedirs(tdir, exist_ok=True)
+    path = os.path.join(tdir, scenario.SNAPSHOT_NAME)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(trial, f, indent=2, sort_keys=True)
+        f.write("\n")
+    os.replace(tmp, path)
+    return path
+
+
 def data_json(name):
     try:
         with open(os.path.join(TOOL_ROOT, "data", name)) as f:
@@ -583,6 +596,10 @@ class Run:
         with open(os.path.join(self.run_dir, "START"), "w") as f:
             f.write(datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") + "\n")
         open(os.path.join(self.run_dir, "summary.txt"), "w").close()
+        # the effective trial of every selected id (the merged one for a `trial@variant`), frozen before anything
+        # runs: `score` reads it, so a later edit or removal of a variant cannot change how this run is scored
+        for trial in trials:
+            snapshot_trial(self.run_dir, trial)
         if not self.prepare_slots(trials):
             return 4
         threads = []
@@ -1229,6 +1246,7 @@ class Run:
             "low_health": self.config.get("low_health"),
             "medium_health": self.config.get("medium_health"),
             "trials": [t.get("id") for t in trials],
+            "trial_snapshots": True,    # every trial has <id>/trial.effective.json (score refuses a run without)
             # --repeats 0 means "each trial's own count": record what actually ran
             "repeats_run": {t.get("id"): len(glob.glob(os.path.join(self.run_dir, t.get("id") or "-", "rep*")))
                             for t in trials},

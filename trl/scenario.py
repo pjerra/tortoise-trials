@@ -395,6 +395,7 @@ def _extra_alias_uses(node, found):
 # the base and the merged trial goes through the ordinary validation, so a variant can never be looser than
 # a trial file. A variant never changes the rules list: only the three thresholds below, and only by rule id.
 VARIANT_SEP = "@"
+SNAPSHOT_NAME = "trial.effective.json"   # the effective trial a run froze (written by the runner)
 MAX_VARIANTS = 6
 VARIANT_FIELDS = {"name", "title", "override"}
 # `level` is a shortcut that sets player.level, bot.level and every extra_bots[].level; the rest merge as

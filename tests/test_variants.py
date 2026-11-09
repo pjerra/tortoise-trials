@@ -324,5 +324,99 @@ class ReportTest(unittest.TestCase):
         self.assertEqual(scenario.find_trial_by_id("priest-holy-heal-latency")["player"]["level"], 40)
 
 
+class SnapshotTest(ReportTest):
+    """A run scores against the trial it froze before it ran, never against today's trial files."""
+
+    BASE = "priest-holy-heal-latency"
+
+    def definition(self, min_n):
+        trial = scenario.load_trial(HEAL)
+        trial["variants"] = [{"name": "frozen", "override": {"level": 50, "rules": {"PRI-HEAL-LATENCY": {"min_n": min_n}}}}]
+        return trial
+
+    def run_with_snapshots(self, name, min_n, marker=True):
+        trial = self.definition(min_n)
+        [(_n, merged)] = scenario.expand_variants(trial)
+        run_dir = self.make_run(name, [merged["id"]], {})
+        live_run.snapshot_trial(run_dir, merged)
+        with open(os.path.join(run_dir, "RUN.json"), "w") as f:
+            json.dump({"trials": [merged["id"]], "trial_snapshots": marker}, f)
+        return run_dir, merged["id"]
+
+    def verdict(self, run_dir, tid):
+        return self.rows(run_dir)[(tid, "PRI-HEAL-LATENCY")]["verdict"]
+
+    def test_the_snapshot_is_the_merged_trial(self):
+        run_dir, tid = self.run_with_snapshots("snap", 1)
+        path = os.path.join(run_dir, tid, scenario.SNAPSHOT_NAME)
+        with open(path) as f:
+            snap = json.load(f)
+        self.assertEqual(snap["id"], tid)
+        self.assertEqual(snap["player"]["level"], 50)
+        self.assertEqual([r["min_n"] for r in snap["rules"]], [1])
+        self.assertNotIn("variants", snap)
+
+    def test_rescore_uses_the_frozen_threshold_not_the_current_definition(self):
+        run_dir, tid = self.run_with_snapshots("snap", 1)
+        score_mod.score_run(run_dir)
+        self.assertEqual(self.verdict(run_dir, tid), "FAIL")           # one trigger, min_n 1, no heal
+        # the definition now asks for 5 triggers: a rescore from today's definition would say INCONCLUSIVE
+        [(_n, today)] = scenario.expand_variants(self.definition(5))
+        self.assertEqual(today["rules"][0]["min_n"], 5)
+        score_mod.score_run(run_dir)
+        self.assertEqual(self.verdict(run_dir, tid), "FAIL")
+
+    def test_rescore_after_the_variant_is_removed_keeps_the_rows(self):
+        run_dir, tid = self.run_with_snapshots("snap", 1)
+        original = scenario.find_trial_by_id
+        scenario.find_trial_by_id = lambda *a, **k: self.fail("a snapshot run must not look the trial up")
+        self.addCleanup(setattr, scenario, "find_trial_by_id", original)
+        self.assertIsNone(original(tid), "the shipped files carry no such variant: it is gone")
+        scored = score_mod.score_run(run_dir)
+        self.assertEqual([t["trial"] for t in scored], [tid])
+        self.assertEqual(self.verdict(run_dir, tid), "FAIL")
+
+    def test_a_missing_snapshot_in_a_snapshot_run_fails_loudly(self):
+        run_dir, tid = self.run_with_snapshots("snap", 1)
+        os.remove(os.path.join(run_dir, tid, scenario.SNAPSHOT_NAME))
+        with self.assertRaises(ValueError) as ctx:
+            score_mod.score_run(run_dir)
+        self.assertIn(scenario.SNAPSHOT_NAME, str(ctx.exception))
+
+    def test_an_unreadable_or_foreign_snapshot_fails_loudly(self):
+        run_dir, tid = self.run_with_snapshots("snap", 1)
+        path = os.path.join(run_dir, tid, scenario.SNAPSHOT_NAME)
+        with open(path, "w") as f:
+            f.write("{not json")
+        with self.assertRaises(ValueError):
+            score_mod.score_run(run_dir)
+        with open(path, "w") as f:
+            json.dump({"id": "other-trial"}, f)
+        with self.assertRaises(ValueError):
+            score_mod.score_run(run_dir)
+
+    def test_a_legacy_run_without_the_marker_falls_back_and_says_so(self):
+        import contextlib
+        import io
+        run_dir = self.make_run("legacy", [self.BASE], {})
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            scored = score_mod.score_run(run_dir)
+        self.assertEqual([t["trial"] for t in scored], [self.BASE])
+        self.assertIn("no trial snapshots", err.getvalue())
+        self.assertIn("CURRENT trial files", err.getvalue())
+
+    def test_the_runner_marks_its_runs_and_writes_a_snapshot_per_trial(self):
+        trial = live_run.load_trial(HEAL + "@lvl60")
+        run_dir = os.path.join(self.tmp, "r")
+        path = live_run.snapshot_trial(run_dir, trial)
+        self.assertEqual(path, os.path.join(run_dir, "priest-holy-heal-latency@lvl60", scenario.SNAPSHOT_NAME))
+        with open(path) as f:
+            self.assertEqual(json.load(f), trial)
+        import inspect
+        self.assertIn('"trial_snapshots": True', inspect.getsource(live_run.Run.write_run_json))
+        self.assertIn("snapshot_trial(self.run_dir, trial)", inspect.getsource(live_run.Run.execute))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -12,6 +12,7 @@ card.md and card.json in the run dir.
 import glob
 import json
 import os
+import sys
 
 try:
     from . import events as _events
@@ -407,8 +408,28 @@ def score_run(run_dir):
     run_doc = _read_json(os.path.join(run_dir, "RUN.json"), {}) or {}
     for tid in run_doc.get("trials") or []:
         tdir = os.path.join(run_dir, tid)
-        # a plain id or `<trial>@<variant>` (the merged variant trial)
-        trial = _scenario.find_trial_by_id(tid)
+        # The run froze the effective trial (merged for a `<trial>@<variant>`) before it ran: score that, never
+        # today's definition. Only a run made before snapshots existed (RUN.json has no `trial_snapshots`) falls back
+        # to the lookup, loudly; a snapshot-era run with a missing or unreadable snapshot is an error.
+        snap = os.path.join(tdir, _scenario.SNAPSHOT_NAME)
+        trial = None
+        if os.path.isfile(snap):
+            try:
+                with open(snap) as f:
+                    trial = json.load(f)
+            except (OSError, ValueError) as exc:
+                raise ValueError("%s: unreadable trial snapshot %s: %s" % (run_dir, snap, exc))
+            if not isinstance(trial, dict) or trial.get("id") != tid:
+                raise ValueError("%s: trial snapshot %s does not hold trial %r" % (run_dir, snap, tid))
+        elif run_doc.get("trial_snapshots"):
+            if os.path.isdir(tdir):
+                raise ValueError("%s: no %s for trial %r although the run recorded snapshots; refusing to score it "
+                                 "against today's trial files" % (run_dir, _scenario.SNAPSHOT_NAME, tid))
+            continue
+        else:
+            print("score: %s has no trial snapshots (a run from before they existed): scoring trial %r against the "
+                  "CURRENT trial files" % (run_dir, tid), file=sys.stderr)
+            trial = _scenario.find_trial_by_id(tid)
         if trial is None:
             for path in glob.glob(os.path.join(_scenario._tool_dir, "trials", "_fixtures", "*.json")):
                 try:
