@@ -1,9 +1,10 @@
 # Next trials: tanks and DPS
 
 Design notes for the trials after the healer set. All code lines are from TortoiseBots `upstream/dev` at
-`abb91ff62` (paths are relative to the TortoiseBots repository). The six trials marked **written** are in
-`trials/tanks/` and `trials/dps/`, with offline tests in `tests/test_rules_tanks_dps.py`. The others need
-either a control file only, or a situation feature that does not exist yet (listed at the end).
+`abb91ff62` (paths are relative to the TortoiseBots repository). The trials marked **written** are in
+`trials/tanks/` and `trials/dps/`, with offline tests in `tests/test_rules_tanks_dps.py`. The sweep
+added 21 tank trials (sweep-tanks); the remaining rows need a situation feature that does not exist
+yet (listed at the end).
 
 ## How the list is ranked
 
@@ -21,9 +22,9 @@ either a control file only, or a situation feature that does not exist yet (list
 | 4 | `dps-mage-threat-cap` | Fire mage | `tank_damage` (exists) | **written** | the back-off stops the nukes but not the wand; does the mob still come off a player tank? |
 | 5 | `dps-mage-cc-respect` | Frost mage | `cc_target`, 3 mobs (exists) | **written** | sheep breaks wipe dungeon pulls; many recent fixes (AoE interlock, moon hold) could regress |
 | 6 | `tank-paladin-righteous-fury` | Protection paladin | `tank_damage` + priest extra (exists) | **written** | a paladin tank without Righteous Fury holds nothing; both paladin taunt rows sit at ACTION_MOVE |
-| 7 | `tank-bear-growl-maul` | Feral (bear) druid | `tank_damage` + priest extra (exists) | not written | Growl and Growl on attacker at ACTION_MOVE; Maul now has its own row |
-| 8 | `tank-warrior-pack-spread` | Protection warrior | `pack`, 3 mobs (exists) | not written | loose adds on the healer are the common wipe; Thunder Clap priority changed in #949 |
-| 9 | `tank-warrior-shield-block` | Protection warrior | needs **F1** (bot shield check) | needs feature | Shield Block needs a shield; today nothing proves the hire holds one |
+| 7 | `tank-bear-growl-maul` + `tank-bear-hold-single` | Feral (bear) druid | `tank_damage` + priest extra (exists) | **written** (sweep-tanks) | Growl and Growl on attacker at ACTION_MOVE; Maul now has its own row; the hold trial scores the 1-mob outcome the growl trial's latency leaves open |
+| 8 | `tank-warrior-pack-spread` | Protection warrior | `pack`, 3 mobs (exists) | **written** (sweep-tanks) | loose adds on the healer are the common wipe; Thunder Clap priority changed in #949. No standalone 3-mob hold file: `TNK-WAR-PACK-SHARE` already scores that outcome, and the 1-mob outcome is the existing `TNK-WAR-MOBS-ON-TANK` ratio |
+| 9 | `tank-warrior-shield-block` | Protection warrior | needs **F1** (bot shield check) | needs feature | Shield Block needs a shield; today nothing proves the hire holds one. Not written: `tank-warrior-defensives` covers Shield Wall + Last Stand instead, which need no new kind |
 | 10 | `dps-hunter-feign-death` | Marksmanship hunter | needs **F2** (aggro on the bot) | needs feature | FD was just changed (`2fdf7da8c`); the pet and the player's threat get in the way |
 | 11 | `dps-threat-ratio-80` | any DPS | needs **F3** (threat samples) | needs feature | the 80 percent number itself; trials 4 and 1-2 only see its effects |
 
@@ -170,33 +171,37 @@ Common set-up for all of them:
 - **Control:** a Retribution paladin hired as `dps`: Righteous Fury uptime `== 0` (the rows live only in
   the protection buff strategy).
 
-## 7. `tank-bear-growl-maul` (no feature needed, not written)
+## 7. `tank-bear-growl-maul` + `tank-bear-hold-single` (written, sweep-tanks)
 
 - **Situation:** as trial 3 with a feral druid hired as tank (`spec: bear`), level 40 (Bear Form; Dire
   Bear Form at 40 needs the rank learned).
-- **Rules:** `TNK-DRU-GROWL` latency as `TNK-WAR-TAUNT` with Growl, debounce 12, `>= 0.7`;
-  `TNK-DRU-MAUL` `rate` of Maul casts by `$bot` `>= 4` per minute; `TNK-DRU-FORM` uptime of 5487 or 9634
-  `>= 0.9`.
+- **Rules:** `TNK-DRU-GROWL` latency as `TNK-WAR-TAUNT` with Growl, debounce 12, `>= 0.7`, responder
+  cooldown 10; `TNK-DRU-MAUL` `rate` of Maul casts by `$bot` `>= 4` per minute; `TNK-DRU-FORM` uptime
+  of 5487 or 9634 `>= 0.9`. The hold trial (`tank-bear-hold-single`) scores the 1-mob outcome
+  (`<= 0.3` of mob hits on non-tanks) the latency leaves open.
 - **Code:** `strategy/druid/TankFeralDruidStrategy.cpp:55-57` (lose aggro -> growl at ACTION_MOVE),
   `:61-63` (party member attacked -> growl on attacker at ACTION_MOVE), `:73-75` (maul rage available ->
   maul, NORMAL + 1), `:30-33` (default action melee).
 - **expect_today:** Growl `?` (ACTION_MOVE is far below the warrior's INTERRUPT + 1; anything at HIGH wins
   the tick first); Maul `PASS` (its own row now); form `PASS`.
-- **Control:** the forced-tank player control of trial 3 with the bear.
+- **Control:** `tank-bear-no-growl-tank-player`: the player in Defensive Stance forced to `tank`;
+  `count` of Growl casts by `$bot` with `dst_target_of: $player` `== 0` (LoseAggroTrigger returns false
+  when the victim is a tank player). Expected PASS. No new feature needed.
 
-## 8. `tank-warrior-pack-spread` (no feature needed, not written)
+## 8. `tank-warrior-pack-spread` (written, sweep-tanks)
 
 - **Situation:** `pack`, three melee mobs with refill, level 40 with `level_delta` -2; the player attacks
   every mob, so all three open on him.
 - **Rules:** `TNK-WAR-PACK-ENGAGE`: `latency`, trigger mob damage on `$player`/`$extra1` (debounce 8 per
   mob), response any `cast` by `$bot` on that mob within 6 s, `>= 0.7`; `TNK-WAR-PACK-CLAP`: `count` of
-  Thunder Clap `>= 1`; the ratio rule of trial 3 at `<= 0.4`.
+  Thunder Clap `>= 1`; `TNK-WAR-PACK-SHARE` the ratio rule of trial 3 at `<= 0.4`.
 - **Code:** `ProtectionWarriorStrategy.cpp:164-166` (melee light aoe -> thunder clap HIGH + 7, #949),
   `:126-138`; `docs/concepts/bot-mechanics-and-quirks.md` section 1 (TankTargetValue buckets loose mobs
   first).
-- **expect_today:** `?` for all (one taunt per 10 s cannot cover three loose mobs; taunt on attacker and
-  the clap carry it).
-- **Control:** the same with one mob: the clap count `== 0`.
+- **expect_today:** `?` for engage and share (one taunt per 10 s cannot cover three loose mobs; taunt on
+  attacker and the clap carry it); clap `PASS`.
+- **Control:** dropped (the same with one mob, clap count `== 0`): the hold outcome on 1 mob is the
+  existing `TNK-WAR-MOBS-ON-TANK` ratio, and the multi-mob clap is the pack trial itself.
 
 ## 9. `tank-warrior-shield-block` (needs F1)
 
@@ -240,6 +245,44 @@ Common set-up for all of them:
   attacker guid), and the check DSL gets a sample-based metric or a where key such as
   `src_threat_pct_of_tank`. Unblocks trial 11 and would turn the outcome rules of trials 3, 4 and 6 into
   direct ones.
+
+## Sweep-tanks: the 21 new tank trials
+
+Written 2026-11-09, no live runs. Each trial tests ONE behaviour for warrior (protection), druid
+(bear) or paladin (protection); every rule cites `ai/playerbot/` code at `abb91ff62` and carries
+`expect_today` with the one-line reason. Offline tests in `tests/test_rules_tanks_dps.py` score every
+rule PASS and FAIL (or INCONCLUSIVE at `min_n`) through `score_rep`.
+
+| file | behaviour | expect_today |
+|---|---|---|
+| `tank-bear-growl-maul.json` | Growl latency, Maul rate, Dire Bear Form uptime | `?` / PASS / PASS |
+| `tank-bear-hold-single.json` | holds 1 mob (`<= 0.3` of hits on non-tanks) | `?` |
+| `tank-bear-hold-three.json` | holds 3 mobs (`<= 0.4`) | `?` |
+| `tank-bear-no-growl-tank-player.json` | no Growl on a mob a player tank holds (control) | PASS |
+| `tank-bear-add-pickup.json` | picks up a scheduled second mob (refill_every_s 60) | `?` |
+| `tank-bear-bash-caster.json` | Bash interrupt (60 s cooldown, min_n 3) + form precondition | `?` / PASS |
+| `tank-bear-cc-respect.json` | no Swipe damage on the sheep + Swipe precondition | PASS / PASS |
+| `tank-bear-defensives.json` | Frenzied Regeneration at `src_hp_le` 50 + form precondition | `?` / PASS |
+| `tank-paladin-taunt-off-healer.json` | Hand of Reckoning latency | `?` |
+| `tank-paladin-hold-three.json` | holds 3 mobs (`<= 0.4`) | `?` |
+| `tank-paladin-no-taunt-tank-player.json` | no Reckoning on a mob a player tank holds (control) | PASS |
+| `tank-paladin-add-pickup.json` | picks up a scheduled second mob | `?` |
+| `tank-paladin-hoj-caster.json` | Hammer of Justice stun (60 s cooldown, min_n 3) | `?` |
+| `tank-paladin-cc-respect.json` | no Consecration damage on the sheep + Consecration precondition | PASS / PASS |
+| `tank-paladin-defensives.json` | Holy Shield rate + Bulwark count + RF precondition | PASS / `?` / PASS |
+| `tank-warrior-pack-spread.json` | engage latency, Thunder Clap count, 3-mob share | `?` / PASS / `?` |
+| `tank-warrior-defensives.json` | Shield Wall (low hp) + Last Stand (critical hp) | `?` / `?` |
+| `tank-warrior-shield-bash-caster.json` | Shield Bash interrupt + stance precondition | PASS / PASS |
+| `tank-warrior-no-taunt-tank-player.json` | no Taunt on a mob a player tank holds (control) | PASS |
+| `tank-warrior-add-pickup.json` | picks up a scheduled second mob | PASS |
+| `tank-warrior-cc-respect.json` | no Thunder Clap damage on the sheep + Clap precondition | PASS / PASS |
+
+Dropped while writing: `tank-warrior-hold-single`, `tank-paladin-hold-single` (the 1-mob outcome
+is the existing `TNK-WAR-MOBS-ON-TANK` / `TNK-PAL-MOBS-ON-TANK` ratio in the taunt/RF trials) and
+`tank-warrior-hold-three` (the 3-mob outcome is `TNK-WAR-PACK-SHARE` in the pack trial). Design
+limits found: HoJ/Bash need `min_n` 3, not 5 (a 60 s cooldown answers at most 3 casts per 180 s
+repeat); `victim: bot` starts no fight (nothing pulls), so the defensives trials keep
+`victim: player` and gate on the bot's own hp (`src_hp_le`).
 
 ## Tool findings while writing these
 

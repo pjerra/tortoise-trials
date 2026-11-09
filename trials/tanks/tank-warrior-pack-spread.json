@@ -1,0 +1,173 @@
+{
+  "id": "tank-warrior-pack-spread",
+  "title": "Protection warrior: engages each of three loose mobs and claps them",
+  "group": "tanks-melee",
+  "class": "warrior",
+  "spec": "protection",
+  "player": {
+    "class": "warrior",
+    "level": 40,
+    "talents": {
+      "tree": "arms",
+      "spells": [
+        16462,
+        12286
+      ]
+    },
+    "stance": 2457,
+    "forced_role": "dps",
+    "auras": [],
+    "items": [],
+    "gear": "tier"
+  },
+  "bot": {
+    "class": "warrior",
+    "spec": "protection",
+    "role": "tank",
+    "level": 40,
+    "gear": "blue",
+    "items": [],
+    "mana_pct": null,
+    "cc_mark": null
+  },
+  "extra_bots": [
+    {
+      "class": "priest",
+      "spec": "holy",
+      "role": "healer",
+      "level": 40,
+      "items": [
+        {
+          "name": "Sweet Nectar",
+          "count": 20
+        }
+      ]
+    }
+  ],
+  "situation": {
+    "kind": "pack",
+    "mobs": {
+      "role": "melee",
+      "count": 3,
+      "level_delta": -2,
+      "refill": true
+    },
+    "hp_band": [
+      35,
+      99
+    ],
+    "floor_pct": 12,
+    "victim": "player",
+    "pull_after_s": 0,
+    "ooc_wait_s": 0,
+    "debuff": null,
+    "max_rescues_per_min": 12
+  },
+  "setup_checks": [
+    "player_level",
+    "player_visible",
+    "player_talents",
+    "player_gear",
+    "player_stance",
+    "player_forced_role",
+    "player_no_shield",
+    "bot_present",
+    "bot_level",
+    "bot_role",
+    "bot_spec",
+    "grouped",
+    "extra_bots_present",
+    "extra_bots_role",
+    "extra_bots_in_group",
+    "mobs_ready",
+    "config_read"
+  ],
+  "duration_s": 180,
+  "repeats": 3,
+  "min_valid_s": 120,
+  "rules": [
+    {
+      "id": "TNK-WAR-PACK-ENGAGE",
+      "desc": "A mob that hits the healer (extra1) or the DPS player gets any cast from the Protection warrior on that mob within 6 s, at least 70 percent of the time (one trigger per mob per 8 s)",
+      "source": "ai/playerbot/strategy/warrior/ProtectionWarriorStrategy.cpp:126-138 (lose aggro and party member attacked taunt rows at INTERRUPT + 1); ai/playerbot/strategy/warrior/ProtectionWarriorStrategy.cpp:341-354 (loose adds near -> challenging shout, melee medium aoe -> battle shout taunt); TortoiseBots upstream/dev abb91ff62",
+      "expect_today": "?",
+      "why_expect": "one taunt per 10 s cooldown cannot cover three loose mobs; taunt on attacker and the AoE rows carry the spread. Expected UNKNOWN on TortoiseBots upstream/dev abb91ff62",
+      "check": {
+        "metric": "latency",
+        "trigger": {
+          "kind": "damage",
+          "src": "$mob",
+          "dst": [
+            "$player",
+            "$extra1"
+          ]
+        },
+        "response": {
+          "kind": "cast",
+          "src": "$bot"
+        },
+        "response_dst": "$trigger.src",
+        "within_s": 6,
+        "trigger_debounce_s": 8
+      },
+      "pass_if": ">= 0.7",
+      "min_n": 5
+    },
+    {
+      "id": "TNK-WAR-PACK-CLAP",
+      "desc": "The Protection warrior casts Thunder Clap at least once in the fight",
+      "source": "ai/playerbot/strategy/warrior/ProtectionWarriorStrategy.cpp:161-166 (melee light aoe -> thunder clap at ACTION_HIGH + 7, #949); TortoiseBots upstream/dev abb91ff62",
+      "expect_today": "PASS",
+      "why_expect": "two or more mobs in melee hold the light-aoe row active for the whole pack fight, and the clap outranks the single-target builders. Expected PASS on TortoiseBots upstream/dev abb91ff62",
+      "check": {
+        "metric": "count",
+        "where": {
+          "kind": "cast",
+          "src": "$bot",
+          "spell": "Thunder Clap"
+        }
+      },
+      "pass_if": ">= 1"
+    },
+    {
+      "id": "TNK-WAR-PACK-SHARE",
+      "desc": "At most 40 percent of the mob damage events (hits counted, not amounts) land on the healer or the DPS player; the rest on the tank",
+      "source": "ai/playerbot/strategy/warrior/ProtectionWarriorStrategy.cpp:126-138,148-150,161-166 (taunt rows, shield block, thunder clap); TortoiseBots upstream/dev abb91ff62",
+      "expect_today": "?",
+      "why_expect": "an outcome: the player opens all three mobs, so each lands opening hits before the taunts and the clap spread the threat. Expected UNKNOWN on TortoiseBots upstream/dev abb91ff62",
+      "check": {
+        "metric": "ratio",
+        "num": {
+          "kind": "damage",
+          "src": "$mob",
+          "dst": [
+            "$player",
+            "$extra1"
+          ]
+        },
+        "den": {
+          "kind": "damage",
+          "src": "$mob"
+        }
+      },
+      "pass_if": "<= 0.4",
+      "min_n": 20
+    },
+    {
+      "id": "TNK-WAR-PACK-STANCE",
+      "desc": "Precondition: Battle Stance (aura 2457) stays on the player through the fight",
+      "source": "precondition, no bot code: setup check player_stance proves the stance at the start, this uptime proves it in the fight",
+      "expect_today": "PASS",
+      "why_expect": "the stance is cast in set-up and nothing in the fight removes it; a repeat where it drops shows here instead of passing silently",
+      "check": {
+        "metric": "uptime",
+        "unit": "$player",
+        "aura": [
+          2457
+        ],
+        "phase": "in_combat"
+      },
+      "pass_if": ">= 0.9"
+    }
+  ]
+}

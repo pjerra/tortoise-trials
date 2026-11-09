@@ -1,0 +1,130 @@
+{
+  "id": "tank-bear-hold-three",
+  "title": "Feral (bear) druid: holds three mobs on itself against a DPS player",
+  "group": "tanks-melee",
+  "class": "druid",
+  "spec": "bear",
+  "player": {
+    "class": "warrior",
+    "level": 40,
+    "talents": {
+      "tree": "arms",
+      "spells": [
+        16462,
+        12286
+      ]
+    },
+    "stance": 2457,
+    "forced_role": "dps",
+    "auras": [],
+    "items": [],
+    "gear": "tier"
+  },
+  "bot": {
+    "class": "druid",
+    "spec": "bear",
+    "role": "tank",
+    "level": 40,
+    "gear": "blue",
+    "items": [],
+    "mana_pct": null,
+    "cc_mark": null
+  },
+  "extra_bots": [
+    {
+      "class": "priest",
+      "spec": "holy",
+      "role": "healer",
+      "level": 40,
+      "items": [
+        {
+          "name": "Sweet Nectar",
+          "count": 20
+        }
+      ]
+    }
+  ],
+  "situation": {
+    "kind": "tank_damage",
+    "mobs": {
+      "role": "melee",
+      "count": 3,
+      "level_delta": -2,
+      "refill": true
+    },
+    "hp_band": [
+      35,
+      99
+    ],
+    "floor_pct": 12,
+    "victim": "player",
+    "pull_after_s": 0,
+    "ooc_wait_s": 0,
+    "debuff": null,
+    "max_rescues_per_min": 12
+  },
+  "setup_checks": [
+    "player_level",
+    "player_visible",
+    "player_talents",
+    "player_gear",
+    "player_stance",
+    "player_forced_role",
+    "player_no_shield",
+    "bot_present",
+    "bot_level",
+    "bot_role",
+    "bot_spec",
+    "grouped",
+    "extra_bots_present",
+    "extra_bots_role",
+    "extra_bots_in_group",
+    "mobs_ready",
+    "config_read"
+  ],
+  "duration_s": 180,
+  "repeats": 3,
+  "min_valid_s": 120,
+  "rules": [
+    {
+      "id": "TNK-DRU-HOLD-THREE",
+      "desc": "At most 40 percent of the mob damage events (hits counted, not amounts) land on the healer or the DPS player; the rest on the bear",
+      "source": "ai/playerbot/strategy/druid/TankFeralDruidStrategy.cpp:211-226 (loose adds near -> challenging roar at INTERRUPT + 2, melee medium aoe -> demoralizing roar and swipe); ai/playerbot/strategy/triggers/GenericTriggers.cpp:365-410 (LooseAddsNearTrigger, ShouldAoeTaunt); TortoiseBots upstream/dev abb91ff62",
+      "expect_today": "?",
+      "why_expect": "three mobs at -2, one 10 s growl cooldown, the roar and the swipe rows carry the spread; whether the outcome holds under a geared DPS player is the question. Expected UNKNOWN on TortoiseBots upstream/dev abb91ff62",
+      "check": {
+        "metric": "ratio",
+        "num": {
+          "kind": "damage",
+          "src": "$mob",
+          "dst": [
+            "$player",
+            "$extra1"
+          ]
+        },
+        "den": {
+          "kind": "damage",
+          "src": "$mob"
+        }
+      },
+      "pass_if": "<= 0.4",
+      "min_n": 20
+    },
+    {
+      "id": "TNK-DRU-HOLD-THREE-STANCE",
+      "desc": "Precondition: Battle Stance (aura 2457) stays on the player through the fight",
+      "source": "precondition, no bot code: setup check player_stance proves the stance at the start, this uptime proves it in the fight",
+      "expect_today": "PASS",
+      "why_expect": "the stance is cast in set-up and nothing in the fight removes it; a repeat where it drops shows here instead of passing silently",
+      "check": {
+        "metric": "uptime",
+        "unit": "$player",
+        "aura": [
+          2457
+        ],
+        "phase": "in_combat"
+      },
+      "pass_if": ">= 0.9"
+    }
+  ]
+}

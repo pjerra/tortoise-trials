@@ -1,0 +1,146 @@
+{
+  "id": "tank-paladin-defensives",
+  "title": "Protection paladin: keeps Holy Shield and Bulwark up while tanking three mobs",
+  "group": "tanks-melee",
+  "class": "paladin",
+  "spec": "protection",
+  "player": {
+    "class": "warrior",
+    "level": 40,
+    "talents": {
+      "tree": "arms",
+      "spells": [
+        16462,
+        12286
+      ]
+    },
+    "stance": 2457,
+    "forced_role": "dps",
+    "auras": [],
+    "items": [],
+    "gear": "tier"
+  },
+  "bot": {
+    "class": "paladin",
+    "spec": "protection",
+    "role": "tank",
+    "level": 40,
+    "gear": "blue",
+    "items": [
+      {
+        "name": "Sweet Nectar",
+        "count": 20
+      }
+    ],
+    "mana_pct": null,
+    "cc_mark": null
+  },
+  "extra_bots": [
+    {
+      "class": "priest",
+      "spec": "holy",
+      "role": "healer",
+      "level": 40,
+      "items": [
+        {
+          "name": "Sweet Nectar",
+          "count": 20
+        }
+      ]
+    }
+  ],
+  "situation": {
+    "kind": "tank_damage",
+    "mobs": {
+      "role": "melee",
+      "count": 3,
+      "level_delta": 0,
+      "refill": true
+    },
+    "hp_band": [
+      35,
+      99
+    ],
+    "floor_pct": 12,
+    "victim": "player",
+    "pull_after_s": 0,
+    "ooc_wait_s": 0,
+    "debuff": null,
+    "max_rescues_per_min": 12
+  },
+  "setup_checks": [
+    "player_level",
+    "player_visible",
+    "player_talents",
+    "player_gear",
+    "player_stance",
+    "player_forced_role",
+    "player_no_shield",
+    "bot_present",
+    "bot_level",
+    "bot_role",
+    "bot_spec",
+    "bot_items",
+    "grouped",
+    "extra_bots_present",
+    "extra_bots_role",
+    "extra_bots_in_group",
+    "mobs_ready",
+    "config_read"
+  ],
+  "duration_s": 180,
+  "repeats": 3,
+  "min_valid_s": 120,
+  "rules": [
+    {
+      "id": "TNK-PAL-HOLY-SHIELD",
+      "desc": "The Protection paladin casts Holy Shield at least 2 times per minute of scored fight time",
+      "source": "ai/playerbot/strategy/paladin/ProtectionPaladinStrategy.cpp:62-64 (holy shield at ACTION_HIGH + 3); ai/playerbot/strategy/paladin/PaladinTriggers.h:62-63 (HolyShieldTrigger); TortoiseBots upstream/dev abb91ff62",
+      "expect_today": "PASS",
+      "why_expect": "holy shield sits above every seal and judgement row and re-casts on cooldown while tanking; three mobs keep the row active. Expected PASS on TortoiseBots upstream/dev abb91ff62",
+      "check": {
+        "metric": "rate",
+        "where": {
+          "kind": "cast",
+          "src": "$bot",
+          "spell": "Holy Shield"
+        }
+      },
+      "pass_if": ">= 2"
+    },
+    {
+      "id": "TNK-PAL-BULWARK",
+      "desc": "The Protection paladin casts Bulwark of the Righteous at least once in the fight",
+      "source": "ai/playerbot/strategy/paladin/ProtectionPaladinStrategy.cpp:66-68 (bulwark of the righteous at ACTION_HIGH + 2); ai/playerbot/strategy/paladin/PaladinTriggers.h:120 (BulwarkTrigger); TortoiseBots upstream/dev abb91ff62",
+      "expect_today": "?",
+      "why_expect": "bulwark sits just below holy shield in the same band and needs its cooldown and a shield in hand; whether it fires on a 180 s window is the question. Expected UNKNOWN on TortoiseBots upstream/dev abb91ff62",
+      "check": {
+        "metric": "count",
+        "where": {
+          "kind": "cast",
+          "src": "$bot",
+          "spell": "Bulwark of the Righteous"
+        }
+      },
+      "pass_if": ">= 1"
+    },
+    {
+      "id": "TNK-PAL-DEFENSIVE-RF",
+      "desc": "Precondition: the Protection paladin holds Righteous Fury (aura 20450, 25780 or 25781) for at least 95 percent of its in-combat samples, so the mitigation rows fire on a tank with threat",
+      "source": "ai/playerbot/strategy/paladin/ProtectionPaladinStrategy.cpp:252-272 (righteous fury rows in and out of combat, ACTION_NORMAL + 1); TortoiseBots upstream/dev abb91ff62",
+      "expect_today": "PASS",
+      "why_expect": "the buff rows keep Righteous Fury up through the fight (the tank-paladin-righteous-fury trial); without it the mitigation numbers mean nothing. Expected PASS on TortoiseBots upstream/dev abb91ff62",
+      "check": {
+        "metric": "uptime",
+        "unit": "$bot",
+        "aura": [
+          20450,
+          25780,
+          25781
+        ],
+        "phase": "in_combat"
+      },
+      "pass_if": ">= 0.95"
+    }
+  ]
+}

@@ -1,0 +1,133 @@
+{
+  "id": "tank-bear-bash-caster",
+  "title": "Feral (bear) druid: bashes a casting mob within 3 s of the cast start",
+  "group": "tanks-melee",
+  "class": "druid",
+  "spec": "bear",
+  "player": {
+    "class": "warrior",
+    "level": 50,
+    "talents": {
+      "tree": "arms",
+      "spells": [
+        16462,
+        12286
+      ]
+    },
+    "stance": 71,
+    "forced_role": "tank",
+    "auras": [],
+    "items": [],
+    "gear": "tier"
+  },
+  "bot": {
+    "class": "druid",
+    "spec": "bear",
+    "role": "tank",
+    "level": 50,
+    "gear": "blue",
+    "items": [],
+    "mana_pct": null,
+    "cc_mark": null
+  },
+  "extra_bots": [
+    {
+      "class": "priest",
+      "spec": "holy",
+      "role": "healer",
+      "level": 50,
+      "items": [
+        {
+          "name": "Sweet Nectar",
+          "count": 20
+        }
+      ]
+    }
+  ],
+  "situation": {
+    "kind": "caster_mob",
+    "mobs": {
+      "role": "caster",
+      "count": 1,
+      "level_delta": -1,
+      "refill": true
+    },
+    "hp_band": [
+      40,
+      90
+    ],
+    "floor_pct": 12,
+    "victim": "player",
+    "pull_after_s": 0,
+    "ooc_wait_s": 0,
+    "debuff": null,
+    "max_rescues_per_min": 12
+  },
+  "setup_checks": [
+    "player_level",
+    "player_visible",
+    "player_talents",
+    "player_gear",
+    "player_stance",
+    "player_forced_role",
+    "bot_present",
+    "bot_level",
+    "bot_role",
+    "bot_spec",
+    "grouped",
+    "extra_bots_present",
+    "extra_bots_role",
+    "extra_bots_in_group",
+    "mobs_ready",
+    "mob_caster_casts",
+    "config_read"
+  ],
+  "duration_s": 180,
+  "repeats": 3,
+  "min_valid_s": 120,
+  "rules": [
+    {
+      "id": "TNK-DRU-BASH",
+      "desc": "The bear casts Bash on the mob within 3 s of an interruptible cast start, at least 60 percent of the time (one trigger per mob per 10 s, one counted answer per 60 s: Bash has a 60 s cooldown)",
+      "source": "ai/playerbot/strategy/druid/TankFeralDruidStrategy.cpp:388-395 (tank cc: bash and bash on enemy healer at ACTION_INTERRUPT); ai/playerbot/strategy/druid/DruidTriggers.h:149-153 (BashInterruptSpellTrigger); TortoiseBots upstream/dev abb91ff62",
+      "expect_today": "?",
+      "why_expect": "the stun answers the cast but its 60 s cooldown means the bear can only catch about one cast a minute; whether most triggers get an answer is the question. Expected UNKNOWN on TortoiseBots upstream/dev abb91ff62",
+      "check": {
+        "metric": "latency",
+        "trigger": {
+          "kind": "cast_start",
+          "src": "$mob",
+          "spell_interruptible": true
+        },
+        "response": {
+          "kind": "cast",
+          "src": "$bot",
+          "spell": "Bash"
+        },
+        "response_dst": "$trigger.src",
+        "within_s": 3,
+        "trigger_debounce_s": 10,
+        "debounce_responder_s": 60
+      },
+      "pass_if": ">= 0.6",
+      "min_n": 3
+    },
+    {
+      "id": "TNK-DRU-BASH-FORM",
+      "desc": "Precondition: the bear holds Bear Form or Dire Bear Form (aura 5487 or 9634) for at least 90 percent of its in-combat samples, so the bashes come from a tank in form",
+      "source": "ai/playerbot/strategy/druid/TankFeralDruidStrategy.cpp:273-276 (bear form -> dire bear form at ACTION_MOVE + 9); ai/playerbot/strategy/druid/DruidTriggers.h:207-212 (BearFormTrigger); TortoiseBots upstream/dev abb91ff62",
+      "expect_today": "PASS",
+      "why_expect": "the buff row re-shifts the bear on the next tick whenever the form drops (the tank-bear-growl-maul trial); without form the interrupt numbers mean nothing. Expected PASS on TortoiseBots upstream/dev abb91ff62",
+      "check": {
+        "metric": "uptime",
+        "unit": "$bot",
+        "aura": [
+          5487,
+          9634
+        ],
+        "phase": "in_combat"
+      },
+      "pass_if": ">= 0.9"
+    }
+  ]
+}

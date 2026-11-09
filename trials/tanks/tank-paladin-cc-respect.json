@@ -1,0 +1,137 @@
+{
+  "id": "tank-paladin-cc-respect",
+  "title": "Protection paladin: never consecrates the sheeped moon mark",
+  "group": "tanks-melee",
+  "class": "paladin",
+  "spec": "protection",
+  "player": {
+    "class": "warrior",
+    "level": 45,
+    "talents": {
+      "tree": "arms",
+      "spells": [
+        16462,
+        12286
+      ]
+    },
+    "stance": 71,
+    "forced_role": "tank",
+    "auras": [],
+    "items": [],
+    "gear": "tier"
+  },
+  "bot": {
+    "class": "paladin",
+    "spec": "protection",
+    "role": "tank",
+    "level": 45,
+    "gear": "blue",
+    "items": [
+      {
+        "name": "Sweet Nectar",
+        "count": 20
+      }
+    ],
+    "mana_pct": null,
+    "cc_mark": null
+  },
+  "extra_bots": [
+    {
+      "class": "priest",
+      "spec": "holy",
+      "role": "healer",
+      "level": 45,
+      "items": [
+        {
+          "name": "Sweet Nectar",
+          "count": 20
+        }
+      ]
+    }
+  ],
+  "situation": {
+    "kind": "cc_target",
+    "mobs": {
+      "role": "humanoid",
+      "count": 3,
+      "level_delta": -1,
+      "refill": true
+    },
+    "hp_band": [
+      40,
+      90
+    ],
+    "floor_pct": 12,
+    "victim": "player",
+    "pull_after_s": 0,
+    "ooc_wait_s": 0,
+    "debuff": null,
+    "max_rescues_per_min": 30
+  },
+  "setup_checks": [
+    "player_level",
+    "player_visible",
+    "player_talents",
+    "player_gear",
+    "player_stance",
+    "player_forced_role",
+    "bot_present",
+    "bot_level",
+    "bot_role",
+    "bot_spec",
+    "bot_items",
+    "grouped",
+    "extra_bots_present",
+    "extra_bots_role",
+    "extra_bots_in_group",
+    "mobs_ready",
+    "cc_mark_set",
+    "config_read"
+  ],
+  "duration_s": 180,
+  "repeats": 3,
+  "min_valid_s": 120,
+  "rules": [
+    {
+      "id": "TNK-PAL-CC-RESPECT",
+      "desc": "No damage from the Protection paladin (direct or Consecration ticks) lands on the moon-marked mob while it carries Polymorph",
+      "source": "ai/playerbot/strategy/values/PossibleAttackTargetsValue.cpp:53-108 (a mob in breakable CC leaves the target list unless nothing else is left); ai/playerbot/strategy/triggers/GenericTriggers.cpp:830-860 (AoeTrigger: never AoE a pack holding a breakable CC); ai/playerbot/strategy/actions/GenericSpellActions.cpp:46-61 (BreaksCcInArea); TortoiseBots upstream/dev abb91ff62",
+      "expect_today": "PASS",
+      "why_expect": "the sheeped mob is only a target when nothing else is left, and Consecration checks for a breakable CC in its radius; three mobs (the moon mark and two others, refilled when one dies) so an unmarked mob is almost always up. Expected PASS on TortoiseBots upstream/dev abb91ff62",
+      "check": {
+        "metric": "count",
+        "where": {
+          "kind": "damage",
+          "src": "$bot",
+          "dst": "$marked",
+          "dst_has_aura": [
+            118,
+            12824,
+            12825,
+            12826,
+            28270,
+            28271,
+            28272
+          ]
+        }
+      },
+      "pass_if": "== 0"
+    },
+    {
+      "id": "TNK-PAL-CC-CONSECRATION",
+      "desc": "Precondition: the Protection paladin casts Consecration at least once in the fight, so the respect rule has area ticks to respect with",
+      "source": "ai/playerbot/strategy/paladin/ProtectionPaladinStrategy.cpp:202-208 (melee light aoe -> consecration, consecration upkeep); TortoiseBots upstream/dev abb91ff62",
+      "expect_today": "PASS",
+      "why_expect": "two unmarked mobs in melee hold the light-aoe row active, so Consecration fires and the respect rule is not vacuous. Expected PASS on TortoiseBots upstream/dev abb91ff62",
+      "check": {
+        "metric": "count",
+        "where": {
+          "kind": "cast",
+          "src": "$bot",
+          "spell": "Consecration"
+        }
+      },
+      "pass_if": ">= 1"
+    }
+  ]
+}
