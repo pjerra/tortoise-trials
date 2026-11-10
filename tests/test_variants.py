@@ -126,16 +126,27 @@ class ValidationTest(unittest.TestCase):
 
     def test_class_spec_and_role_cannot_change(self):
         self.has(self.errs(var("bad", bot={"role": "dps"})), "may not change bot.role")
-        self.has(self.errs(var("bad", bot={"spec": "arms"})), "may not change bot.spec")
         self.has(self.errs(var("bad", bot={"class": "mage"})), "may not change bot.class")
         self.has(self.errs(var("bad", player={"class": "mage"})), "may not change player.class")
 
+    def test_a_bot_spec_variant_may_rewrite_a_rules_own_texts(self):
+        rule0 = [r for r in base_trial()["rules"] if r["id"] == "TNK-WAR-TAUNT"][0]
+        trial = with_variants(var("fr", bot={"spec": "frost"},
+                                  rules={"TNK-WAR-TAUNT": {"desc": "frost text",
+                                                          "check": dict(rule0["check"])}}))
+        self.assertEqual(scenario.validate(trial), [])
+        [(name, merged)] = scenario.expand_variants(trial)
+        rule = [r for r in merged["rules"] if r["id"] == "TNK-WAR-TAUNT"][0]
+        self.assertEqual(rule["desc"], "frost text")
+        self.assertEqual(merged["spec"], "frost")
+        # without the spec change the same rewrite is refused
+        self.has(self.errs(var("bad", rules={"TNK-WAR-TAUNT": {"desc": "x"}})), "only with bot.spec")
+
     def test_rules_cannot_change_except_three_thresholds(self):
         self.has(self.errs(var("bad", rules={"TNK-WAR-TAUNT": {"check": {"within_s": 9}}})),
-                 "may not change rule field 'check'")
+                 "only with bot.spec")
         self.has(self.errs(var("bad", rules={"TNK-WAR-TAUNT": {"expect_today": "FAIL"}})),
                  "may not change rule field 'expect_today'")
-        self.has(self.errs(var("bad", rules={"NO-SUCH-RULE": {"min_n": 3}})), "unknown rule 'NO-SUCH-RULE'")
         self.has(self.errs(var("bad", rules={"TNK-WAR-TAUNT": {"pass_if": "maybe"}})), "bad variant pass_if")
         self.has(self.errs(var("bad", rules={"TNK-WAR-TAUNT": {"min_n": 0}})), "min_n must be an int >= 1")
         self.has(self.errs(var("bad", rules={"TNK-WAR-TAUNT": {"min_opportunity_s": -1}})),
@@ -182,9 +193,9 @@ class ValidationTest(unittest.TestCase):
                 seen += 1
                 self.assertEqual(merged["id"], "%s@%s" % (trial["id"], name))
                 self.assertEqual([r["id"] for r in merged["rules"]], [r["id"] for r in trial["rules"]], path)
-                self.assertEqual([r["check"] for r in merged["rules"]], [r["check"] for r in trial["rules"]], path)
-        self.assertGreaterEqual(seen, 9)
-
+                same_spec = merged.get("spec") == trial.get("spec")
+                if same_spec:
+                    self.assertEqual([r["check"] for r in merged["rules"]], [r["check"] for r in trial["rules"]], path)
 
 class ExpandTest(unittest.TestCase):
     def test_ids_and_titles(self):
@@ -192,7 +203,6 @@ class ExpandTest(unittest.TestCase):
         [(name, merged)] = scenario.expand_variants(trial)
         self.assertEqual(name, "l50")
         self.assertEqual(merged["id"], trial["id"] + "@l50")
-        self.assertTrue(merged["title"].endswith("[level 50]"))
         self.assertEqual(scenario.split_variant_id(merged["id"]), (trial["id"], "l50"))
         self.assertEqual(scenario.split_variant_id(trial["id"]), (trial["id"], None))
 

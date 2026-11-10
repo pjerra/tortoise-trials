@@ -401,8 +401,11 @@ VARIANT_FIELDS = {"name", "title", "override"}
 # `level` is a shortcut that sets player.level, bot.level and every extra_bots[].level; the rest merge as
 # written (dicts merge key by key, a list or a scalar replaces, null clears). `rules` is {rule id: {...}}.
 OVERRIDE_FIELDS = {"level", "player", "bot", "extra_bots", "situation", "rules"}
-OVERRIDE_FROZEN = {"player": {"class"}, "bot": {"class", "spec", "role"}}
+OVERRIDE_FROZEN = {"player": {"class"}, "bot": {"class", "role"}}
 RULE_OVERRIDE_FIELDS = {"pass_if", "min_n", "min_opportunity_s"}
+# a bot.spec variant (same behaviour, another bot build) may also rewrite a rule's
+# own prose and spell list, rule id by rule id; the rule ids never change
+RULE_TEXT_FIELDS = {"desc", "source", "why_expect", "check"}
 
 
 def deep_merge(base, override):
@@ -441,6 +444,8 @@ def apply_override(base, override):
         elif key in override:
             errs.append("%s: variant override %s must be an object" % (tid, key))
     rules = override.get("rules")
+    base_spec = (base.get("bot") or {}).get("spec") if isinstance(base.get("bot"), dict) else None
+    want_spec = (override.get("bot") or {}).get("spec") if isinstance(override.get("bot"), dict) else None
     if rules is not None:
         have = {r.get("id") for r in (base.get("rules") or []) if isinstance(r, dict)}
         if not isinstance(rules, dict) or not rules:
@@ -454,6 +459,10 @@ def apply_override(base, override):
                     errs.append("%s/%s: variant rule override must be a non-empty object" % (tid, rid))
                     continue
                 for fld in tweak:
+                    if fld in RULE_TEXT_FIELDS:
+                        if want_spec is None or want_spec == base_spec:
+                            errs.append("%s/%s: variant may rewrite rule field %r only with bot.spec" % (tid, rid, fld))
+                        continue
                     if fld not in RULE_OVERRIDE_FIELDS:
                         errs.append("%s/%s: variant may not change rule field %r (only %s)"
                                     % (tid, rid, fld, ", ".join(sorted(RULE_OVERRIDE_FIELDS))))
@@ -574,8 +583,11 @@ def expand_variants(trial):
         if errs or merged is None:
             continue
         merged["id"] = "%s%s%s" % (trial.get("id"), VARIANT_SEP, var["name"])
+        bot = merged.get("bot") if isinstance(merged.get("bot"), dict) else {}
+        if isinstance(bot.get("spec"), str) and bot.get("spec") != trial.get("spec"):
+            merged["spec"] = bot["spec"]
         if var.get("title"):
-            merged["title"] = "%s [%s]" % (trial.get("title") or trial.get("id"), var["title"])
+            merged["title"] = var["title"] if bot.get("spec") != trial.get("spec") else "%s [%s]" % (trial.get("title") or trial.get("id"), var["title"])
         out.append((var["name"], merged))
     return out
 

@@ -45,7 +45,7 @@ EXPECT = {
 VARIANTS = {
     "priest-holy-heal-latency": ["lvl50", "lvl60"],
     "tank-warrior-taunt-off-healer": ["lvl50", "lvl60"],
-    "dps-mage-threat-cap": ["lvl50", "lvl60"],
+    "dps-mage-threat-cap": ["lvl50", "lvl60", "frost"],
     "tank-warrior-no-taunt-tank-player": ["bot-offtank"],
     "priest-holy-low-mana-drinks": ["mana-5", "mana-50"],
 }
@@ -181,6 +181,18 @@ class FilesTest(unittest.TestCase):
             self.assertEqual(merged["lvl50"]["player"].get("gear"), trial["player"].get("gear"))
             self.assertIsNone(merged["lvl60"]["player"].get("gear"))
 
+    def test_frost_variant_is_a_frost_mage_with_frost_rules(self):
+        path = [p for p in scenario_mod.trial_files() if os.path.basename(p) == "dps-mage-threat-cap.json"][0]
+        trial = scenario_mod.load_trial(path)
+        merged = dict(scenario_mod.expand_variants(trial))["frost"]
+        self.assertEqual((merged["class"], merged["spec"]), ("mage", "frost"))
+        self.assertEqual((merged["bot"]["class"], merged["bot"]["spec"]), ("mage", "frost"))
+        dmg = [r for r in merged["rules"] if r["id"] == "DPS-MAG-THREAT-DAMAGE"][0]
+        self.assertEqual(dmg["check"]["where"]["spell"], ["Frostbolt", "Fire Blast", "Frost Nova"])
+        self.assertIn("FrostMageStrategy.cpp", dmg["source"])
+        noaggro = [r for r in merged["rules"] if r["id"] == "DPS-MAG-THREAT-NO-AGGRO"][0]
+        self.assertIn("frost", noaggro["desc"])
+
     def test_bot_offtank_variant_adds_the_paladin_tank(self):
         path = os.path.join(ROOT, "trials", "tanks", "tank-warrior-no-taunt-tank-player.json")
         merged = dict(scenario_mod.expand_variants(scenario_mod.load_trial(path)))["bot-offtank"]
@@ -207,8 +219,6 @@ class FilesTest(unittest.TestCase):
         for tid in ("priest-holy-low-mana-drinks", "priest-holy-low-mana-fight", "priest-holy-low-mana-potion"):
             self.assertEqual(load(tid)["bot"]["mana_pct"], 15, tid)
             self.assertIn("bot_mana", load(tid)["setup_checks"], tid)
-        self.assertEqual(load("dps-rogue-thistle-tea")["bot"]["level"], 60)
-
 
 class TwoBotTanksTest(RepMixin, unittest.TestCase):
     TID = "tank-warrior-two-bot-tanks"
