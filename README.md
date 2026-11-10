@@ -71,8 +71,10 @@ only.
 `--trial` can repeat. `--class` and `--spec` select trials by the class and spec in the trial file.
 `--trial ID@VARIANT` runs one variant of a trial (see "Variants" below), `--trial 'ID@*'` runs all of them;
 a bare id, a glob without `@` and `--class` run base trials only.
-`--dry-run` shows the slots it would use and touches nothing. `--parallel` is at most 3 and uses one
-slot (own account and character) per worker.
+`--dry-run` shows the slots it would use and touches nothing. `--parallel N` is safe up to the number of
+arenas minus 1 (4 arenas → 3): each repeat holds an exclusive per-arena lock file
+(`~/.local/state/tortoise-trials/arena-<server>-<arena>.lock`) for the whole repeat, so two slots never
+share an arena, and uses one slot (own account and character) per worker.
 
 A run folder holds `RUN.json`, one folder per trial and repeat with the raw samples, `events.jsonl`,
 `setup.json`, `verdicts.json`, and the `card.md` / `card.json` summary (written when `run` ends). Verdicts are PASS, FAIL, INCONCLUSIVE
@@ -138,8 +140,11 @@ with another kit or another group.
 - `rules` is `{"RULE-ID": {"pass_if": ..., "min_n": ..., "min_opportunity_s": ...}}`: those three thresholds
   are the only part of a rule a variant can change, and only for a rule that exists. A variant never adds,
   drops or rewrites a rule (its `check`, `source`, `expect_today` stay the base's): one behaviour per trial.
-- The class, spec and role of the player's class and of the hire cannot change (`player.class`, `bot.class`,
-  `bot.spec`, `bot.role`), and a hire (the main bot or an extra) must be level 35 or more: the talent proof
+  A `bot.spec` variant (the same behaviour with another bot build, e.g. a frost mage on a fire-mage trial)
+  may also rewrite a rule's own prose and spell list (`desc`, `source`, `why_expect`, `check`), rule id by
+  rule id; the rule ids never change, and the merged trial takes the hire's spec and the variant's title.
+- The class of the player's class and of the hire cannot change (`player.class`, `bot.class`, `bot.role`),
+  and a hire (the main bot or an extra) must be level 35 or more: the talent proof
   (`bot_talents`) needs a marker talent that the premade build of level 35 has, and the builds of levels 20 to 30 stop
   short of it for every class (see DECISIONS.md).
 - `validate` merges each variant onto the base and runs the ordinary validation on the result, so a bad override

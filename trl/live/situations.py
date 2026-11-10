@@ -10,7 +10,7 @@ import os
 import re
 import time
 from dataclasses import dataclass, field
-
+from . import arena_lock
 from . import ladder
 from .agent import RpcError, UnitGone, event_guid, norm_guid, wait_until
 
@@ -32,6 +32,9 @@ DROP_WINDOW_S = 20.0        # only falls this recent drive an early rescue
 # ooc_hurt: the victim is set to a percent inside hp_band every this many seconds (scenario: 8-120)
 HURT_EVERY_S = 20.0
 STANCE_RECAST_GAP_S = 5.0
+# -- arena lock (one exclusive file lock per arena, held for the whole repeat) --
+ARENA_WAIT_S = 15.0        # wait between passes when every arena is locked or not quiet
+ARENA_GIVE_UP_S = 600.0    # give up after 10 min with the existing "no quiet arena" outcome
 
 
 def load_mobs(path=None):
@@ -407,10 +410,46 @@ class Governor:
                 + datetime.timedelta(seconds=offset)).isoformat(timespec="milliseconds")
 
 
+class _HeldArena:
+    """One taken arena: the exclusive file lock plus the in-process claim.
+
+    `abandon()` gives both back WITHOUT touching `situation` (a refused probe:
+    the caller keeps looking). The context manager releases on every exit path,
+    exceptions included; `release_arena` covers a Situation that never entered it."""
+    def __init__(self, situation, arena=None, lock=None):
+        self.situation = situation
+        self.arena = arena
+        self.lock = lock
+        self.done = False
+
+    def abandon(self):
+        if self.done:
+            return
+        self.done = True
+        if self.lock is not None:
+            self.lock.release()
+        if self.arena is not None:
+            try:
+                self.situation.arena_free(self.arena)
+            except Exception:  # noqa: BLE001 - teardown must not fail
+                pass
+
+    def __enter__(self):
+        return self.situation.current_arena if self.arena is None else self.arena
+
+    def __exit__(self, *exc):
+        held = getattr(self.situation, "_arena_held", None)
+        if held is self:
+            self.situation._arena_held = None
+            self.situation.current_arena = None
+        self.abandon()
+        return False
+
+
 class Situation:
     def __init__(self, agent, trial, guard, ledger, marks, collector, ctx, arenas=None, mobs=None,
                  log=None, slot_index=0, abort=None, on_arena=None, arena_claim=None, arena_free=None,
-                 foreign_summons=None):
+                 foreign_summons=None, server=None, arena_state_dir=None):
         self.agent = agent
         self.trial = trial
         self.guard = guard
@@ -434,6 +473,10 @@ class Situation:
         self.slot_index = int(slot_index or 0)
         self.abort = abort or (lambda: "")
         self.extra_victim = extra_victim_index(self.victim)
+        self.server = server
+        self.arena_state_dir = arena_state_dir
+        self._arena_held = None        # the held arena span, released on every exit path
+        self.current_arena = None
         self.summoned = []
         self.mob_source = "summon"
         self.fight_start = None
@@ -463,8 +506,35 @@ class Situation:
                 out.append(arena)
         return out
 
-    def arena(self):
-        """The quiet arena for this slot: candidates rotated so parallel slots differ."""
+    def arena_lock_for(self, arena):
+        """The exclusive file lock for one arena (None when this situation names no server)."""
+        if not self.server:
+            return None
+        return arena_lock.ArenaLock(self.server, arena.get("id"),
+                                    base_dir=self.arena_state_dir)
+
+    def release_arena(self):
+        """Give the held arena back: the file lock and the in-process claim."""
+        held, self._arena_held = getattr(self, "_arena_held", None), None
+        arena = getattr(self, "current_arena", None)
+        self.current_arena = None
+        if held is not None:
+            held.__exit__(None, None, None)
+        if arena is not None:
+            try:
+                self.arena_free(arena)
+            except Exception:  # noqa: BLE001 - teardown must not fail
+                pass
+
+    def held_arena(self):
+        """Context manager: the repeat's whole arena span. The file lock and the
+        in-process claim are held until the repeat's teardown is done, on every
+        exit path including exceptions."""
+        return _HeldArena(self)
+
+    def _arena_once(self):
+        """One pass over the rotated candidates: skip locked arenas WITHOUT probing
+        them, take the first unlocked arena that is also quiet, and hold the lock."""
         rows = self.eligible_arenas()
         if rows:
             k = self.slot_index % len(rows)
@@ -473,21 +543,52 @@ class Situation:
             if not self.arena_claim(arena):
                 self.log("arena %s is held by another slot, next" % arena.get("id"))
                 continue
-            self.guard.send("go_xyz", None, int(arena["x"]), int(arena["y"]), int(arena["z"]), int(arena.get("map", 0)))
-            time.sleep(2.5)
-            reply = self.quiet_ok()
+            lock = self.arena_lock_for(arena)
+            if lock is not None and not lock.acquire():
+                self.arena_free(arena)
+                self.log("arena %s locked by another slot, next" % arena.get("id"))
+                continue
+            held = _HeldArena(self, arena, lock)
+            try:
+                self.guard.send("go_xyz", None, int(arena["x"]), int(arena["y"]), int(arena["z"]), int(arena.get("map", 0)))
+                time.sleep(2.5)
+                reply = self.quiet_ok()
+            except Exception:
+                held.abandon()
+                raise
             if reply:
                 self.log("arena %s quiet" % arena.get("id"))
                 self.current_arena = arena
+                self._arena_held = held
                 self.on_arena(arena)
                 if self.ctx.bot_name:
                     bring_hire(self.agent, self.ctx.bot_name)
                 for extra_name in self.ctx.extra_names:
                     bring_hire(self.agent, extra_name)
                 return arena
-            self.arena_free(arena)
+            held.abandon()
             self.log("arena %s not quiet, next" % arena.get("id"))
         return None
+
+    def arena(self):
+        """One pass over the rotated candidates: skip locked arenas WITHOUT probing
+        them, take the first unlocked arena that is also quiet, and hold the lock
+        until the repeat's teardown is done (`with situation.held_arena()`,
+        every exit path)."""
+        return self._arena_once()
+
+    def acquire_arena(self):
+        """The quiet arena for this slot, waiting when every arena is locked or
+        not quiet: retry every 15 s, give up after 10 min with None (the caller
+        reports the existing "no quiet arena" outcome)."""
+        start = time.time()
+        while True:
+            arena = self._arena_once()
+            if arena is not None:
+                return arena
+            if time.time() - start >= ARENA_GIVE_UP_S:
+                return None
+            time.sleep(ARENA_WAIT_S)
 
     def quiet_ok(self):
         try:
@@ -681,7 +782,7 @@ class Situation:
             return self.run_ooc()
         if kind == "ooc_hurt":
             return self.run_ooc_hurt()
-        arena = self.arena()
+        arena = self.acquire_arena()
         if not arena:
             return {"ok": False, "ended": "no arena", "invalid_reason": "no quiet arena"}
         mobs = self.sit.get("mobs") or {}
@@ -934,7 +1035,7 @@ class Situation:
         ever fires (out of combat nothing should damage the victim). No `unaura all`: the stance
         set up by the setup checks must stay up.
         """
-        arena = self.arena()
+        arena = self.acquire_arena()
         if not arena:
             return {"ok": False, "ended": "no arena", "invalid_reason": "no quiet arena"}
         wait = float(self.sit.get("ooc_wait_s") or 60)
@@ -978,6 +1079,7 @@ class Situation:
                         next_hurt = now + every
                 time.sleep(1.0)
         finally:
+            self.release_arena()      # the lock is held until the repeat's teardown is done
             if governor.tick in self.collector.tick_hooks:
                 self.collector.tick_hooks.remove(governor.tick)
             self.marks.add({"kind": "fight_end", "ended": ended if not invalid else "disconnected"})
@@ -1035,7 +1137,6 @@ class Situation:
             self.guard.send("aura", target, int(spell_id))
         except Exception as exc:  # noqa: BLE001
             self.log("debuff refused: %s" % exc)
-
 
 def mobs_ready_row(agent, ledger, window, guids, engaged=None):
     """`engaged`: guids that must also be in combat (cc_target: every unmarked summon)."""

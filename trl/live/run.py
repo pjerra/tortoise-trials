@@ -1083,24 +1083,34 @@ class Run:
                                          self.note_arena(s, trial, r, arena),
                                          arena_claim=lambda arena, s=session: self.claim_arena(s, arena),
                                          arena_free=lambda arena, s=session: self.free_arena(s, arena),
-                                         foreign_summons=lambda s=session: self.foreign_summons(s))
+                                         foreign_summons=lambda s=session: self.foreign_summons(s),
+                                         server=self.args.server)
         collector.start()
-        # cleanup runs on every path out of the situation window, exceptions included
+        # cleanup runs on every path out of the situation window, exceptions included.
+        # the arena lock is held for the whole repeat: it is taken by situation.arena()
+        # and released only after this slot's summons are cleaned up (held_arena span).
         try:
-            outcome = situation.run()
+            import contextlib as _ctxlib
+            span = situation.held_arena() if hasattr(situation, "held_arena") else _ctxlib.nullcontext()
+            with span:
+                try:
+                    outcome = situation.run()
+                finally:
+                    collector.stop()
+                    # every summon no cleanup has verified yet; "not in view" counts as gone only for this
+                    # repeat's own (made where the player stands), an earlier leftover may sit in another arena
+                    own = [g for g in ledger.summon_guids() if g and norm_guid(g) not in before_rep]
+                    kw = {"only": self.unverified_summons(session, ledger), "absent_is_gone": own}
+                    if extra_names:
+                        kw["extra_names"] = extra_names
+                    rows = teardown.repeat_cleanup(agent, guard, ledger, bot_name, player_guid, **kw)
+                    self.note_verified(session, rows)
+                    marks.add({"kind": "teardown", "rows": rows})
+                    self.note_teardown(rows)
+                    self.free_arenas(session)         # the arena goes back once this slot's summons are cleaned up
         finally:
-            collector.stop()
-            # every summon no cleanup has verified yet; "not in view" counts as gone only for this
-            # repeat's own (made where the player stands), an earlier leftover may sit in another arena
-            own = [g for g in ledger.summon_guids() if g and norm_guid(g) not in before_rep]
-            kw = {"only": self.unverified_summons(session, ledger), "absent_is_gone": own}
-            if extra_names:
-                kw["extra_names"] = extra_names
-            rows = teardown.repeat_cleanup(agent, guard, ledger, bot_name, player_guid, **kw)
-            self.note_verified(session, rows)
-            marks.add({"kind": "teardown", "rows": rows})
-            self.note_teardown(rows)
-            self.free_arenas(session)         # the arena goes back once this slot's summons are cleaned up
+            if hasattr(situation, "release_arena"):
+                situation.release_arena()
         self.drain_guard(guard)
         aborted = self.aborted_exception(session)
         if aborted:
