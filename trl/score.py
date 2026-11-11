@@ -227,7 +227,9 @@ def _load_rep_rows(rep_dir, trial):
     samples = _read_jsonl(os.path.join(rep_dir, "samples.jsonl"))
     marks = _read_jsonl(os.path.join(rep_dir, "marks.jsonl"))
     rows = _read_jsonl(os.path.join(rep_dir, "events.jsonl"))
-    if not rows and os.path.exists(os.path.join(rep_dir, "raw-ta.jsonl")):
+    raw_path = os.path.join(rep_dir, "raw-ta.jsonl")
+    if ((not rows or not any(isinstance(r, dict) and r.get("seq") is not None for r in rows))
+            and os.path.exists(raw_path)):
         rows = _events.normalise(rep_dir, trial)
         samples = _read_jsonl(os.path.join(rep_dir, "samples.jsonl"))
         marks = _read_jsonl(os.path.join(rep_dir, "marks.jsonl"))

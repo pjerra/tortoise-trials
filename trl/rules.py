@@ -146,14 +146,22 @@ def _at(samples_by_guid, guid, t):
             break
     return best
 
-def _packet_victim(victims_by_guid, guid, t, seq=None):
+def _packet_victim(victims_by_guid, guid, t, seq=None, samples_by_guid=None):
     """(victim, decided): the attacker's victim from its last attack_start/stop packet.
 
-    Reads the per-attacker (seq, t, victim) table (attack_victims in trl/events.py) and takes
-    the last entry strictly below the scored event's seq, falling back to (t, file order) when
-    seqs are missing. An attack_stop entry (victim None) means the attacker has no victim, so
-    `decided` is still True. Only a packet within the last 5 s decides: anything older is no
-    fresher than the 1 Hz sample it replaces, so the caller falls back to the sample.
+    Reads the per-attacker (seq, t, victim) table (attack_victims in trl/events.py).
+    On the seq path (the scored event carries a seq) the winner is the packet with
+    the highest seq below the cast's seq — never the taunt's own switch, which the
+    server sends above the cast's seq on the same mono_ms. On the time path (no seq)
+    only packets strictly earlier than the cast (vt < t) are eligible, for the same
+    reason: a packet at the cast's own t is the cast's echo, not its cause. Either
+    way only a packet within the last 5 s decides: anything older is no fresher than
+    the 1 Hz sample it replaces, so the caller falls back to the sample. An
+    attack_stop entry (victim None) means the attacker has no victim, but only when
+    it is fresh: a stop with nothing after it within 1.5 s before the cast is stale,
+    so the caller falls back to the sample. And the packet only decides when it is
+    at least as new as the latest sample at or before the cast: a newer sample is
+    the fresher observation, so the caller uses the sample instead.
     """
     rows = (victims_by_guid or {}).get(str(guid or "").lower()) or []
     try:
@@ -164,24 +172,42 @@ def _packet_victim(victims_by_guid, guid, t, seq=None):
         seq = int(seq) if seq is not None else None
     except (TypeError, ValueError):
         seq = None
-    victim = None
-    decided = False
+    use_seq = seq is not None and any(vseq is not None for (vseq, _vt, _e) in rows)
+    best = None  # (rank, victim, vt): vseq on the seq path, vt on the time path
     for (vseq, vt, entry) in rows:
         try:
             vt = float(vt)
         except (TypeError, ValueError):
             continue
-        if seq is not None and vseq is not None:
-            if vseq >= seq:
-                break
-        elif vt > t:
-            break
-        if t - vt <= 5.0:
-            victim = entry
-            decided = True
+        if t - vt > 5.0:
+            continue
+        if use_seq:
+            if vseq is None or vseq >= seq:
+                continue
+            rank = vseq
         else:
-            decided = False
-    return victim, decided
+            if not vt < t:
+                continue
+            rank = vt
+        if best is None or rank >= best[0]:
+            best = (rank, entry, vt)
+    if best is None:
+        return None, False
+    _rank, victim, vt = best
+    if victim is None and t - vt > 1.5:
+        return None, False
+    if samples_by_guid is not None:
+        latest = None
+        for st, _sample in samples_by_guid.get(str(guid or "").lower()) or []:
+            try:
+                st = float(st)
+            except (TypeError, ValueError):
+                continue
+            if st <= t and (latest is None or st > latest):
+                latest = st
+        if latest is not None and latest > vt:
+            return None, False
+    return victim, True
 
 
 def _unit_hp(samples_by_guid, guid, t):
@@ -313,7 +339,7 @@ def _matches(row, where, samples_by_guid, ctx, trial):
             side = key.split("_")[0] + "_guid"
             victims = ctx.get("victims_by_guid") if isinstance(ctx, dict) else None
             victim, decided = _packet_victim(victims, row.get(side), row.get("t", 0.0),
-                                            row.get("seq"))
+                                            row.get("seq"), samples_by_guid)
             if not decided:
                 sample = _at(samples_by_guid, row.get(side), row.get("t", 0.0))
                 if sample is None:

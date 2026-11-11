@@ -157,13 +157,22 @@ def _mono_offset(samples):
 
 
 def _raw_time(raw, base_wall, mono_offset):
-    """A raw row's re-based seconds (the normaliser's `t`): mono_ms first, then ISO wall."""
+    """A raw row's re-based seconds (the normaliser's `t`): mono_ms first, then ISO wall.
+
+    A numeric `time` is seconds on the same axis as the ISO walls, so it re-bases
+    like one. When the row has no usable time, or the base wall is 0 (epoch), the
+    row's own re-based `t` wins, as before.
+    """
     try:
         fallback = float(raw.get("t", 0.0))
     except (TypeError, ValueError):
         fallback = 0.0
-    t = _rewall(raw.get("time"), base_wall)
-    if t is None:
+    secs = _wall_secs(raw.get("time"))
+    if secs is None:
+        t = fallback
+    elif base_wall and abs(base_wall) > 1e-9:
+        t = secs - base_wall
+    else:
         t = fallback
     if mono_offset is not None and raw.get("mono_ms") is not None and base_wall:
         try:
