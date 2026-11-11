@@ -340,8 +340,8 @@ class FloorTest(unittest.TestCase):
         for path in sorted(TRIAL_DIR.glob("*.json")):
             t = scenario.load_trial(str(path))
             want = 12 if t["id"] in self.FOUR else (12 if t["id"] in ("priest-holy-pws-bot-warrior-control", "priest-holy-pws-def-arms-ooc",
-                                                         "priest-holy-pws-battle-ooc-control",
-                                                         "paladin-holy-heal-latency") else 30)
+                                                         "priest-holy-pws-battle-ooc-control", "priest-shadow-form-prepull",
+                                                         "paladin-holy-heal-latency") else 15 if t["id"] == "priest-holy-heal-latency" else 30)
             self.assertEqual(t["situation"]["floor_pct"], want, t["id"])
             self.assertEqual(scenario.validate(t), [], t["id"])
 
