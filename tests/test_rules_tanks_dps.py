@@ -484,9 +484,11 @@ class DpsRulesTest(RepMixin, unittest.TestCase):
         # wand shots are not nukes: an only-wanding mage fails the precondition
         wand = [event(10 + 2 * i, "cast", BOT, MOB, sid("Shoot")) for i in range(40)]
         self.assertEqual(self.verdict(tid, "DPS-MAG-THREAT-DAMAGE", wand, mob_alive(200)), "FAIL")
-        # out of combat there is no opportunity: the count rule is not scored
-        idle = [s for s in samples if s["guid"] != PLAYER] + [
-            sample(t, PLAYER, auras=(71,), combat=False) for t in range(0, 201)]
+        # with the mage out of combat there is no opportunity: the count rule is not scored
+        # (the rule's opportunity is the MAGE's own combat time: a bot tank leaves the player out,
+        # bench fix round 2)
+        idle = [s for s in samples if s["guid"] != BOT] + [
+            sample(t, BOT, combat=False) for t in range(0, 201)]
         self.assertEqual(self.verdict(tid, "DPS-MAG-THREAT-NO-AGGRO", nukes, idle), "INCONCLUSIVE")
 
     def _interrupt(self, tid, rid, spell_id, gap):

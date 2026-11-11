@@ -240,13 +240,14 @@ itself or a hire (the runner resets the hire's cooldowns before the first summon
   spell names, each one of the `response` spells; needs `debounce_responder_s`) limits which responses
   start the cooldown: Taunt has a 10 s cooldown, a Mocking Blow does not start it. `trigger_debounce_s` is different: it thins the
   triggers per source before anything is answered.
-- `check.where.not_within_s_after_mark` (`{"kind": "<mark kind>", "s": N}`, only in `check.where`,
-  any metric, default off): drop the events and samples within N s after each runner mark of that
-  kind (the marks are the ones in `marks.jsonl`; `refill` is written at the `.npc summon` send of a
-  refilled mob, so it precedes the claim). A mob refill brings a fresh mob that the bot has not
-  engaged yet, so a rule about
-  threat or aggro can leave that window out. Excluded-span rows stay; hp, aura and combat
-  lookups still read all samples.
+- `check.where.not_within_s_after_mark` (`{"kind": "<mark kind>", "s": N}`, or a list of these;
+  only in `check.where`, any metric, default off): drop the events and samples within N s after
+  each runner mark of that kind (the marks are the ones in `marks.jsonl`; `refill` is written at
+  the `.npc summon` send of a refilled mob, so it precedes the claim). A mob refill brings a fresh
+  mob that the bot has not engaged yet, so a rule about threat or aggro can leave that window out;
+  `fight_start` covers the opening seconds of the fight the same way. The rule's `min_opportunity_s`
+  reads the same set: the dropped windows carry no chance. Excluded-span rows stay; hp, aura and
+  combat lookups still read all samples.
 
 Spell, item and creature ids come from `data/` (built offline from the public core SQL with
 `build_data.py`; it never contacts a server). The `Trl*` character names in `data/characters.json`

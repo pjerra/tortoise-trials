@@ -178,5 +178,108 @@ class MarkerBeforeCommandTest(unittest.TestCase):
         self.assertEqual(row["every"], 40)
 
 
+# ---- 3. the threat cap's own windows, opportunity and min_reps ----------------------------
+
+THREAT_TRIAL = os.path.join(ROOT, "trials", "dps", "dps-mage-threat-cap.json")
+PLAYER = tl.PLAYER
+BOT = tl.HIRE
+MOBG = "0xf13000000000abcd"
+REASON = "player not visible to bots"
+
+
+def load_threat():
+    with open(THREAT_TRIAL) as f:
+        return json.load(f)
+
+
+def no_aggro(trial):
+    return [r for r in trial["rules"] if r["id"] == "DPS-MAG-THREAT-NO-AGGRO"][0]
+
+
+def sample(t, guid, hp=1000, max_hp=1000, combat=True):
+    return {"t": float(t), "wall": None, "unit": "x", "guid": guid, "hp": hp, "max_hp": max_hp,
+            "power": 500, "max_power": 500, "auras": [], "casting": None,
+            "in_combat": combat, "target": "", "x": 0.0, "y": 0.0, "z": 0.0}
+
+
+def hit(t):
+    return {"t": float(t), "wall": None, "kind": "damage", "src": "m", "src_guid": MOBG,
+            "dst": "b", "dst_guid": BOT, "src_unit": "$mob", "dst_unit": "$bot",
+            "spell_id": None, "spell": None, "amount": 10, "dst_hp_pct": 90,
+            "src_role": "mob", "dst_role": "bot", "origin": "ta"}
+
+
+def score_one(tmp, trial, events, samples, marks, name="rep1"):
+    rep = os.path.join(tmp, "run", "trial", name)
+    os.makedirs(rep, exist_ok=True)
+    setup = {"ok": True, "guids": {"player": PLAYER, "bot": BOT, "mobs": [MOBG]},
+             "config": {"critical": 20, "low": 50, "medium": 70}}
+    with open(os.path.join(rep, "setup.json"), "w") as f:
+        json.dump(setup, f)
+    for fname, rows in (("samples.jsonl", samples), ("events.jsonl", events),
+                        ("marks.jsonl", marks)):
+        with open(os.path.join(rep, fname), "w") as f:
+            for row in rows:
+                f.write(json.dumps(row) + "\n")
+    return {r["id"]: r for r in score_mod.score_rep(rep, trial)["rules"]}
+
+
+class ThreatCapTrialShapeTest(unittest.TestCase):
+    def test_the_rule_leaves_out_the_opening_and_every_refill(self):
+        self.assertEqual(no_aggro(load_threat())["check"]["where"]["not_within_s_after_mark"],
+                         [{"kind": "fight_start", "s": 12}, {"kind": "refill", "s": 12}])
+
+    def test_the_opportunity_is_the_mage_and_three_reps_are_required(self):
+        trial = load_threat()
+        self.assertEqual(trial["opportunity"], {"in_combat": True, "unit": "$bot"})
+        self.assertEqual(no_aggro(trial)["min_reps"], 3)
+
+    def test_the_frost_variant_keeps_the_same_windows(self):
+        frost = [v for v in load_threat()["variants"] if v["name"] == "frost"][0]
+        self.assertNotIn("check", frost["override"]["rules"]["DPS-MAG-THREAT-NO-AGGRO"])
+        self.assertIn("min_reps", no_aggro(load_threat()))
+
+
+class ThreatCapWindowsTest(unittest.TestCase):
+    def trial(self):
+        return {"id": "t",
+                "opportunity": {"in_combat": True, "unit": "$bot"},
+                "rules": [{"id": "NO-AGGRO", "expect_today": "?",
+                           "check": {"metric": "count",
+                                     "where": {"kind": "damage", "src": "$mob", "dst": "$bot",
+                                               "not_within_s_after_mark": [
+                                                   {"kind": "fight_start", "s": 12},
+                                                   {"kind": "refill", "s": 12}]}},
+                           "pass_if": "== 0", "min_opportunity_s": 90}]}
+
+    def marks(self):
+        return [{"kind": "fight_start", "t": 0},
+                {"kind": "refill", "t": 60},
+                {"kind": "fight_end", "t": 140, "ended": "duration"}]
+
+    def test_a_hit_inside_the_opening_twelve_seconds_is_not_counted(self):
+        # bench-fix-1111 rep1: 3 hits at t=0.5, 1.2 and 2.1 from the opening mob, which had no refill mark
+        samples = [sample(t, BOT) for t in range(0, 141)]
+        with tempfile.TemporaryDirectory() as tmp:
+            got = score_one(tmp, self.trial(), [hit(5.0)], samples, self.marks())
+        self.assertEqual(got["NO-AGGRO"]["verdict"], "PASS", got)
+        self.assertEqual(got["NO-AGGRO"]["k"], 0)
+
+    def test_a_hit_after_the_refill_window_still_fails(self):
+        samples = [sample(t, BOT) for t in range(0, 141)]
+        with tempfile.TemporaryDirectory() as tmp:
+            got = score_one(tmp, self.trial(), [hit(100.0)], samples, self.marks())
+        self.assertEqual(got["NO-AGGRO"]["verdict"], "FAIL", got)
+        self.assertEqual(got["NO-AGGRO"]["k"], 1)
+
+    def test_the_guard_counts_the_opportunity_without_the_dropped_windows(self):
+        # 100 s in combat minus the opening 12 s = 88 s < 90: the rule cannot PASS on the rest
+        samples = [sample(t, BOT) for t in range(0, 101)]
+        with tempfile.TemporaryDirectory() as tmp:
+            got = score_one(tmp, self.trial(), [], samples, self.marks())
+        self.assertEqual(got["NO-AGGRO"]["verdict"], "INCONCLUSIVE", got)
+        self.assertIn("opportunity", got["NO-AGGRO"]["reason"])
+
+
 if __name__ == "__main__":
     unittest.main()

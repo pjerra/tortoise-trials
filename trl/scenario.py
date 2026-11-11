@@ -155,13 +155,15 @@ def _check_filter(doc, label, trial_id, rid, errs, spells_path=None,
                 _err(errs, "%s: unknown %s key %r" % (where, label, key))
     if "not_within_s_after_mark" in doc:
         spec = doc["not_within_s_after_mark"]
+        specs = spec if isinstance(spec, list) else [spec]
         if label != "where":
             _err(errs, "%s: not_within_s_after_mark is only valid in check.where (it filters the whole check)" % where)
-        elif (not isinstance(spec, dict) or set(spec) != {"kind", "s"}
-              or not isinstance(spec["kind"], str) or not spec["kind"]
-              or isinstance(spec["s"], bool) or not isinstance(spec["s"], (int, float)) or spec["s"] <= 0):
-            _err(errs, "%s: bad not_within_s_after_mark %r (want {\"kind\": <mark kind>, \"s\": seconds > 0})"
-                 % (where, spec))
+        elif (not specs or any(not isinstance(one, dict) or set(one) != {"kind", "s"}
+                               or not isinstance(one["kind"], str) or not one["kind"]
+                               or isinstance(one["s"], bool) or not isinstance(one["s"], (int, float))
+                               or one["s"] <= 0 for one in specs)):
+            _err(errs, "%s: bad not_within_s_after_mark %r (want {\"kind\": <mark kind>, \"s\": seconds > 0}, "
+                       "or a list of them)" % (where, spec))
     if need_kind and "kind" not in doc:
         # A filter without a `kind` matches every event kind: reject it.
         _err(errs, "%s: %s needs a kind" % (where, label))

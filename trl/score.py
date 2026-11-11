@@ -316,7 +316,10 @@ def score_rep(rep_dir, trial):
         guard_hold = True
         guard_why = res.get("verdict")
         if min_opp and res.get("verdict") in ("PASS", "FAIL"):
-            opp = _rules.opportunity_seconds(trial, win_samples, excluded, ctx)
+            # the rule's own not_within_s_after_mark windows carry no chance either: the events inside them
+            # are dropped from the count, so the opportunity the guard reads must drop the same seconds
+            opp = _rules.opportunity_seconds(trial, _rules.after_mark_samples(win_samples, rule, marks),
+                                             excluded, ctx)
             if opp < float(min_opp):
                 guard_hold = False
                 guard_why = "opportunity %.0f s < %.0f s" % (opp, float(min_opp))
