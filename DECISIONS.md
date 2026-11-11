@@ -92,7 +92,7 @@ spell 51346, tree index 15, beyond the link) — the level-40 build stops short 
 
 ## 2026-11-11: runs use a pinned, detached worktree
 
-Two runs on 2026-11-10 broke because someone was editing the live `~/tortoise-trials` checkout in the
+Two runs on 2026-11-10 broke because someone was editing the live checkout in the
 middle of the run (an IndentationError mid-edit, and FAILED rows while the working copy was being
 edited). `trials run` now refuses to start (exit 4, before any lease or server contact, `--dry-run`
 excepted) unless the tool directory has a detached HEAD and no modified tracked files. The override

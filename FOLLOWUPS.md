@@ -1,4 +1,11 @@
 
+## Failing or hanging on main e565a48 as of 2026-11-11 (not this branch)
+- `test_cc_gap` — fails on main.
+- `test_cc_target` — hangs on main.
+- `test_live` — slow, fails on main.
+- `test_ooc_hurt` — fails on main.
+- `test_orphans` — hangs on main.
+
 ## From the 2026-11-11 bench round (P3, not in this round)
 - apply the taunt chance fix (mobs count 3, 240 s, min_reps 3) to `tank-paladin-taunt-off-healer` after this round's live check.
 - add: a druid tank kit for the bear-bal pair.
