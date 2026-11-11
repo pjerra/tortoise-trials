@@ -272,6 +272,13 @@ A repeat that fails a guard is INVALID or INCONCLUSIVE, never a pass or a fail:
   player in Battle Stance, a warrior hired as a bot, no combat). They must still behave as
   expected, which shows the rule is not just always passing or always failing.
 
+Each mob is summoned with `.npc summon` and then claimed: by the guid in the reply when the core
+prints one, else by a new unit of that entry that was not there before the summon. A single new
+unit is claimed at any distance inside the 30 yd scan (the reply names no guid on this core, and a
+refill mob walks off before the next poll); with two or more new units only the one within 3 yd is
+claimed, and otherwise the summon stays `summon_unclaimed` and the repeat stops refilling, because
+a mob the ledger does not hold is one no cleanup ever removes.
+
 ## Before and after
 
 Run the same trials against the build without the fix (`--label before`) and with it

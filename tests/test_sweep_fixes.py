@@ -297,7 +297,9 @@ class UnclaimedSummonTest(unittest.TestCase):
 
     def test_an_unclaimed_summon_is_recorded_and_stops_further_summons(self):
         with tempfile.TemporaryDirectory() as tmp:
-            far = [{"guid": "0xF130000000000E01", "entry": 767, "dead": False, "distance": 12.0}]
+            # two fresh units: only a lone one is claimed at any distance (bench fix r2)
+            far = [{"guid": "0xF130000000000E01", "entry": 767, "dead": False, "distance": 12.0},
+                   {"guid": "0xF130000000000E02", "entry": 767, "dead": False, "distance": 13.0}]
             agent, led, guard = self.make(tmp, far)
             logs = []
             self.assertIsNone(situations.summon_mob(agent, guard, led, 767, timeout=0.1, poll=0.02, log=logs.append))

@@ -125,10 +125,15 @@ def _guid_words(text):
 
 def summon_mob(agent, guard, ledger, entry, within=3.0, timeout=5.0, poll=0.5, foreign=None, log=None,
                arena=None):
-    """Summon one entry and claim it by the reply's guid, or by a NEW unit within 3 yd.
+    """Summon one entry and claim it by the reply's guid, or by a NEW unit.
 
-    `within` is the claim radius for the fallback: a nearby same-entry unit that
-    was absent from the pre-summon list, never a distance match to any unit.
+    `within` is the claim radius that tells apart two or more fresh units: a nearby same-entry
+    unit that was absent from the pre-summon list, never a distance match to any unit. When the
+    reply names no guid and exactly ONE fresh unit of the entry appeared (bench-fix-1111: the
+    reply carries none on this core, and 39 of 14 trials' summons stood 3.3-14.7 yd away), that
+    single new unit is claimed at any distance inside the 30 yd scan: an unclaimed summon stops
+    every refill for the rest of the repeat. Two or more fresh units keep the 3 yd rule and the
+    miss, because there is no way to tell them apart.
     `foreign` (parallel runs) returns the guids the OTHER slots summoned: never claimed here.
     An unclaimed summon may still stand in the arena (sweep-1b: five of them, in combat with the player,
     made the arena "not quiet" for the next 11 reps), so it is written to the ledger as
@@ -173,6 +178,17 @@ def summon_mob(agent, guard, ledger, entry, within=3.0, timeout=5.0, poll=0.5, f
             ledger.add({"kind": "summon", "guid": guid, "entry": int(entry)})
             return guid
         seen = [(norm_guid(u.get("guid")), u.get("distance")) for u in fresh]
+        if len(fresh) == 1:
+            # exactly one new unit of the entry: it is this summon, wherever it walked to inside the
+            # 30 yd scan (the reply names no guid on this core). Two or more stay a miss without a
+            # 3 yd candidate: there is nothing to tell them apart by.
+            guid = norm_guid(fresh[0].get("guid"))
+            dist = fresh[0].get("distance", -1)
+            if guid and dist is not None and dist >= 0:
+                ledger.add({"kind": "summon", "guid": guid, "entry": int(entry)})
+                if log:
+                    log("summon entry %s: claimed the only new unit at %.1f yd" % (entry, float(dist)))
+                return guid
         if time.time() >= deadline:
             ledger.add({"kind": "summon_unclaimed", "entry": int(entry),
                         "new_units": [{"guid": g, "distance": d} for g, d in seen],

@@ -840,11 +840,15 @@ class RepeatTest(unittest.TestCase):
             self.assertIn({"kind": "summon", "guid": agent_mod.norm_guid(MOB)},
                           [{"kind": r.get("kind"), "guid": r.get("guid")} for r in led.rows])
 
-    def test_summon_claim_ignores_units_beyond_three_yards(self):
+    def test_two_new_units_beyond_three_yards_are_not_claimed(self):
+        # a lone new unit is claimed at any distance inside the scan (bench fix r2); with two there is
+        # nothing to tell them apart by, so the 3 yd rule stands and the summon stays unclaimed
         with tempfile.TemporaryDirectory() as tmp:
             a = FakeAgent()
             a.units_queue = [[], [{"guid": MOB, "entry": 1234, "distance": 5.0, "hostile": True,
-                                   "dead": False, "level": 36, "health": 500, "max_health": 500}]]
+                                   "dead": False, "level": 36, "health": 500, "max_health": 500},
+                              {"guid": "0xF13000000000ABCE", "entry": 1234, "distance": 6.0, "hostile": True,
+                               "dead": False, "level": 36, "health": 500, "max_health": 500}]]
             led = new_ledger(tmp)
             g = gm_guard.GmGuard(a, led, ctx_for())
             self.assertIsNone(situations.summon_mob(a, g, led, 1234, timeout=0.2, poll=0.01))
