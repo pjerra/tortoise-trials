@@ -100,13 +100,17 @@ def bench_state(tool_dir):
     if sha_res.returncode != 0:
         err = (sha_res.stderr or sha_res.stdout or "not a git checkout").strip().splitlines()
         return {"sha": "", "detached": False, "dirty": False,
-                "error": err[0][-160:] if err else "not a git checkout"}
+                "error": err[0][-200:] if err else "not a git checkout"}
+    if st_res.returncode != 0:
+        err = (st_res.stderr or st_res.stdout or "git status failed").strip().splitlines()
+        return {"sha": "", "detached": False, "dirty": False,
+                "error": err[0][-200:] if err else "git status failed"}
     if sym_res.returncode != 0:
         sha = (sha_res.stdout or "").strip()
-        dirty = bool((st_res.stdout or "").strip()) if st_res.returncode == 0 else False
+        dirty = bool((st_res.stdout or "").strip())
         return {"sha": sha, "detached": True, "dirty": dirty, "error": None}
     sha = (sha_res.stdout or "").strip()
-    dirty = bool((st_res.stdout or "").strip()) if st_res.returncode == 0 else False
+    dirty = bool((st_res.stdout or "").strip())
     return {"sha": sha, "detached": False, "dirty": dirty, "error": None}
 
 

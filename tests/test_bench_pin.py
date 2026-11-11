@@ -67,6 +67,23 @@ class BenchStateTest(unittest.TestCase):
         self.assertTrue(st["detached"])
         self.assertTrue(st["dirty"])
 
+    def test_failing_git_status_counts_as_unpinned(self):
+        repo = make_repo(detached=True)
+        real_run = subprocess.run
+
+        def fail_status(*args, **kwargs):
+            res = real_run(*args, **kwargs)
+            if res.args[:3] == ["git", "-C", repo] and "status" in res.args:
+                return subprocess.CompletedProcess(res.args, 128, "", "fatal: status failed")
+            return res
+
+        with unittest.mock.patch.object(run.subprocess, "run", fail_status):
+            st = run.bench_state(repo)
+        self.assertFalse(st["detached"])
+        self.assertFalse(st["dirty"])
+        self.assertIsNotNone(st.get("error"))
+        self.assertLessEqual(len(st["error"]), 200)
+
     def test_not_a_git_repo_counts_as_unpinned(self):
         with tempfile.TemporaryDirectory() as tmp:
             st = run.bench_state(tmp)
@@ -90,6 +107,23 @@ class PinGateTest(unittest.TestCase):
         repo = make_repo(detached=True, dirty=True)
         with tempfile.TemporaryDirectory() as tmp:
             with unittest.mock.patch.object(run, "TOOL_ROOT", repo), \
+                 unittest.mock.patch.object(run.lease, "place_allowed",
+                                             side_effect=AssertionError("lease contacted")):
+                self.assertEqual(run.main(self.args(tmp)), 4)
+
+    def test_run_refuses_a_failing_git_status_before_the_lease(self):
+        repo = make_repo(detached=True)
+        real_run = subprocess.run
+
+        def fail_status(*args, **kwargs):
+            res = real_run(*args, **kwargs)
+            if res.args[:3] == ["git", "-C", repo] and "status" in res.args:
+                return subprocess.CompletedProcess(res.args, 128, "", "fatal: status failed")
+            return res
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with unittest.mock.patch.object(run.subprocess, "run", fail_status), \
+                 unittest.mock.patch.object(run, "TOOL_ROOT", repo), \
                  unittest.mock.patch.object(run.lease, "place_allowed",
                                              side_effect=AssertionError("lease contacted")):
                 self.assertEqual(run.main(self.args(tmp)), 4)
