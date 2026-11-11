@@ -189,10 +189,12 @@ class TrialFilesTest(unittest.TestCase):
                 self.assertEqual(trial["bot"]["items"], [{"name": "Sweet Nectar", "count": 20}])
                 self.assertIn("bot_items", trial["setup_checks"])
             if not ooc:
-                # the holy paladin's heal-latency trial fights weaker mobs (DECISIONS.md): at +1 it hit the
-                # rescue cap on every rep
+                # lighter fights (DECISIONS.md): paladin-heal-latency at -4, the bear-bal pair at -4 and
+                # shadow-form-prepull at -1 after the 11-11 bench round; everything else at +1
                 self.assertEqual(trial["situation"]["mobs"]["level_delta"],
-                                 -4 if tid == "paladin-holy-heal-latency" else 1)
+                                 {"paladin-holy-heal-latency": -4, "priest-holy-pws-bear-bal": -4,
+                                  "priest-holy-pws-bear-bal-2tank": -4,
+                                  "priest-shadow-form-prepull": -1}.get(tid, 1), tid)
 
 
 # ---- #1553 setup contract ---------------------------------------------------

@@ -2,6 +2,19 @@
 
 Short, dated notes on choices that are not obvious from the code.
 
+## 2026-11-11: lighter fights for the bear-bal pair and shadow-form-prepull
+
+The governor itself stays as it is. A gearless level-40 druid against a level-41 mob, and a gearless
+warrior with no healer at floor 30 against a +1 mob, hit the rescue cap and cut the rep short (the
+bear-bal PASS rested on one valid rep; shadow-form-prepull scored 31-43 s reps). `priest-holy-pws-bear-bal`
+and its 2tank twin: mob delta 1 → -4 (the value chosen for `paladin-holy-heal-latency` on 2026-11-08;
+the mob table has at least 3 beasts in 35-37) and `max_rescues_per_min: 12`, the same change in both
+files so the twins still match. The band and floor stay [40,90] and 12; the GM `.damage` still holds
+the druid inside the band. No druid kit in this round (FOLLOWUPS). `priest-shadow-form-prepull`: player
+forced tank with the tier tank kit (`player_gear` check), a Holy priest healer hire, delta 1 → -1, floor
+30 → 12, cap 12. Supersedes the 11-08 sentence "`priest-holy-pws-bear-bal` and its 2tank twin carry no
+cap … stay as they are". Old baselines of these three trials are not comparable with new runs.
+
 ## 2026-11-11: mage threat cap measured against a hired bot tank
 
 The scripted player (melee + Taunt only) is not a believable tank, so the trial measured the bench,
