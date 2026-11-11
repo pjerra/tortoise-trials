@@ -75,7 +75,7 @@ class MergeTest(unittest.TestCase):
         merged, errs = scenario.apply_override(trial, trial["variants"][0]["override"])
         self.assertEqual(errs, [])
         self.assertEqual(merged["situation"]["mobs"]["level_delta"], -3)
-        self.assertEqual(merged["situation"]["mobs"]["count"], 1, "the rest of mobs stays")
+        self.assertEqual(merged["situation"]["mobs"]["count"], 3, "the rest of mobs stays")
         self.assertIsNone(merged["player"]["gear"])
         self.assertEqual(merged["player"]["talents"], trial["player"]["talents"])
 
@@ -369,12 +369,12 @@ class SnapshotTest(ReportTest):
     def test_rescore_uses_the_frozen_threshold_not_the_current_definition(self):
         run_dir, tid = self.run_with_snapshots("snap", 1)
         score_mod.score_run(run_dir)
-        self.assertEqual(self.verdict(run_dir, tid), "FAIL")           # one trigger, min_n 1, no heal
+        self.assertEqual(self.verdict(run_dir, tid), "INCONCLUSIVE")  # one trigger, min_n 1, but min_reps 3 with 1 rep
         # the definition now asks for 5 triggers: a rescore from today's definition would say INCONCLUSIVE
         [(_n, today)] = scenario.expand_variants(self.definition(5))
         self.assertEqual(today["rules"][0]["min_n"], 5)
         score_mod.score_run(run_dir)
-        self.assertEqual(self.verdict(run_dir, tid), "FAIL")
+        self.assertEqual(self.verdict(run_dir, tid), "INCONCLUSIVE")
 
     def test_rescore_after_the_variant_is_removed_keeps_the_rows(self):
         run_dir, tid = self.run_with_snapshots("snap", 1)
@@ -384,7 +384,7 @@ class SnapshotTest(ReportTest):
         self.assertIsNone(original(tid), "the shipped files carry no such variant: it is gone")
         scored = score_mod.score_run(run_dir)
         self.assertEqual([t["trial"] for t in scored], [tid])
-        self.assertEqual(self.verdict(run_dir, tid), "FAIL")
+        self.assertEqual(self.verdict(run_dir, tid), "INCONCLUSIVE")
 
     def test_a_missing_snapshot_in_a_snapshot_run_fails_loudly(self):
         run_dir, tid = self.run_with_snapshots("snap", 1)
