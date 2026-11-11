@@ -2,6 +2,25 @@
 
 Short, dated notes on choices that are not obvious from the code.
 
+## 2026-11-11: mage threat cap measured against a hired bot tank
+
+The scripted player (melee + Taunt only) is not a believable tank, so the trial measured the bench,
+not the mage: NO-AGGRO and DAMAGE failed together. New shape: the player in Battle Stance with the dps
+kit (forced dps, `player_no_shield`), a hired Protection warrior tank as `extra_bots[0]` (geared with
+`autogear blue` via the new `extra_bots[].gear` field), the priest healer as `$extra2`, 1 mob at delta 0,
+band [35,99], floor 12, cap 12, 4 repeats. Two new precondition rules: DPS-MAG-THREAT-TANK-HELD (at
+least 60 percent of mob hits on the hire, ThreatValues.cpp:124-183) and DPS-MAG-THREAT-TANK-FOUGHT (the
+hire casts at least 5 times, same wording as TNK-WAR-2T-FOUGHT). The `@lvl60` override is now delta -2
+(was -3). Old baselines of this trial (all variants) are not comparable with new runs.
+
+`@lvl60` stays gearless: no level-60 kit is built. The player no longer tanks, so its gear only shifts
+how much threat a dps player adds. A level-60 kit from `build_data.py` would pull 173 entries at or
+above 20000, TBC-scale server customs (a 26-item "90 Green Warrior" batch, ilvl 90 at req 60) that break
+the kit's vanilla rule. `GEAR_MAX_ENTRY` goes from 25000 to 20000 (constant only; no kit rebuilt, every
+current entry is at most 17734). Level-40 protection premade check (Talent.dbc via `trl/talents.py`,
+premade `053123133203`): Righteous Defense at rank 3, zero points in Bulwark of the Righteous (rank-1
+spell 51346, tree index 15, beyond the link) — the level-40 build stops short of the talent.
+
 ## 2026-11-11: runs use a pinned, detached worktree
 
 Two runs on 2026-11-10 broke because someone was editing the live `~/tortoise-trials` checkout in the
@@ -130,7 +149,7 @@ Built: a trial option `player.gear: "tier"`. The bench had no player-gear path (
 added: a data file `data/gear_kits.json` and a new guarded GM kind `additem_self`.
 - Kit choice (per class, role and level; warrior only, levels 40, 45 and 50 as the trials use): the plate piece of
   highest armor per slot (cloak for the back), required level within 8 below the kit level, quality uncommon or
-  rare, vanilla entries only (below 25000), no random suffix, no reputation/honor/profession/spell requirement, no
+  rare, vanilla entries only (below 20000; the server's own additions sit at 20000 and up and are unproven), no random suffix, no reputation/honor/profession/spell requirement, no
   PvP or placeholder names. Weapons: the highest-dps axe, mace or sword (the skills a warrior starts with) with no
   proc or on-use effect. Tank kit: one-handed weapon and the highest-armor shield. DPS kit: a two-handed weapon,
   no shield. No item has intellect or spirit (the first cloak pick was a healer's). Armor totals: tank 3814 / 4697 / 5543, dps 2527 / 2971 / 3640 at levels 40 / 45 / 50.

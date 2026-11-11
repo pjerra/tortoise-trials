@@ -8,6 +8,7 @@ import re
 
 ID_RE = re.compile(r"^[a-z0-9-]+$")
 PASS_IF_RE = re.compile(r"^(==|!=|<=|>=|<|>)\s*-?\d+(\.\d+)?$")
+GEAR_RE = re.compile(r"^[a-z]+$")
 GROUPS = {"healers", "tanks-melee", "ranged", "raid"}
 SETUP_CHECKS = {
     "player_level", "player_talents", "player_stance", "player_forced_role",
@@ -57,7 +58,7 @@ PLAYER_FIELDS = {"class", "level", "talents", "stance", "forced_role",
                  "auras", "items", "mana_pct", "cc_mark", "gear", "role", "spec"}
 BOT_FIELDS = {"class", "spec", "role", "level", "gear", "items", "mana_pct",
               "cc_mark"}
-EXTRA_BOT_FIELDS = {"class", "spec", "role", "level", "items"}
+EXTRA_BOT_FIELDS = {"class", "spec", "role", "level", "items", "gear"}
 EXTRA_ITEM_FIELDS = {"name", "count"}
 SIT_FIELDS = {"kind", "mobs", "hp_band", "floor_pct", "victim", "pull_after_s",
               "ooc_wait_s", "debuff", "refill", "roles", "max_rescues_per_min",
@@ -361,6 +362,10 @@ def _check_extra_bots(extra, tid, errs):
             lvl = bot.get("level")
             if isinstance(lvl, bool) or not isinstance(lvl, int) or not 1 <= lvl <= 60:
                 _err(errs, "%s: %s level must be an int 1-60" % (tid, label))
+        if "gear" in bot:
+            gear = bot.get("gear")
+            if gear is not None and (not isinstance(gear, str) or not GEAR_RE.fullmatch(gear)):
+                _err(errs, "%s: bad %s gear %r" % (tid, label, gear))
         items = bot.get("items")
         if items is not None:
             if not isinstance(items, list):

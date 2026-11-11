@@ -1,73 +1,167 @@
 {
-  "id": "dps-mage-threat-cap",
-  "title": "Fire mage: the party threat back-off keeps the mob off the mage under a player tank",
-  "group": "ranged",
-  "class": "mage",
-  "spec": "fire",
-  "player": {
-    "class": "warrior",
-    "level": 40,
-    "talents": {
-      "tree": "arms",
-      "spells": [
-        16462,
-        12286
-      ]
-    },
-    "stance": 71,
-    "forced_role": "tank",
-    "auras": [],
-    "items": [],
-    "gear": "tier"
-  },
   "bot": {
+    "cc_mark": null,
     "class": "mage",
-    "spec": "fire",
-    "role": "dps",
-    "level": 40,
     "gear": "blue",
     "items": [
       {
-        "name": "Sweet Nectar",
-        "count": 20
+        "count": 20,
+        "name": "Sweet Nectar"
       }
     ],
+    "level": 40,
     "mana_pct": null,
-    "cc_mark": null
+    "role": "dps",
+    "spec": "fire"
   },
+  "class": "mage",
+  "duration_s": 180,
   "extra_bots": [
     {
-      "class": "priest",
-      "spec": "holy",
-      "role": "healer",
+      "class": "warrior",
+      "gear": "blue",
+      "items": [],
       "level": 40,
+      "role": "tank",
+      "spec": "protection"
+    },
+    {
+      "class": "priest",
       "items": [
         {
-          "name": "Sweet Nectar",
-          "count": 20
+          "count": 20,
+          "name": "Sweet Nectar"
         }
-      ]
+      ],
+      "level": 40,
+      "role": "healer",
+      "spec": "holy"
     }
   ],
-  "situation": {
-    "kind": "tank_damage",
-    "mobs": {
-      "role": "melee",
-      "count": 1,
-      "level_delta": -1,
-      "refill": true
-    },
-    "hp_band": [
-      40,
-      90
-    ],
-    "floor_pct": 12,
-    "victim": "player",
-    "pull_after_s": 0,
-    "ooc_wait_s": 0,
-    "debuff": null,
-    "max_rescues_per_min": 30
+  "group": "ranged",
+  "id": "dps-mage-threat-cap",
+  "min_valid_s": 120,
+  "opportunity": {
+    "in_combat": true,
+    "unit": "$player"
   },
+  "player": {
+    "auras": [],
+    "class": "warrior",
+    "forced_role": "dps",
+    "gear": "tier",
+    "items": [],
+    "level": 40,
+    "stance": 2457,
+    "talents": {
+      "spells": [
+        16462,
+        12286
+      ],
+      "tree": "arms"
+    }
+  },
+  "repeats": 4,
+  "rules": [
+    {
+      "check": {
+        "metric": "count",
+        "where": {
+          "dst": "$bot",
+          "kind": "damage",
+          "not_within_s_after_mark": {
+            "kind": "refill",
+            "s": 12
+          },
+          "src": "$mob"
+        }
+      },
+      "desc": "No mob hits the fire mage while a hired Protection warrior tank holds the mobs (the back-off stops the nukes at 80 percent of the tank's threat)",
+      "expect_today": "?",
+      "id": "DPS-MAG-THREAT-NO-AGGRO",
+      "min_opportunity_s": 90,
+      "pass_if": "== 0",
+      "source": "ai/playerbot/strategy/generic/ThreatStrategy.cpp:13-87 (ThreatMultiplier: a single-target or AoE damage action scores 0 while 'high threat' is active, :68-84; heals are exempt, :39-40); ai/playerbot/strategy/triggers/GenericTriggers.cpp:758-788 (HighThreatTrigger: 80 percent of the tank's threat, with a 5 s look-ahead); ai/playerbot/strategy/values/ThreatValues.cpp:21-39 (my threat and tank threat values), :124-183 (tank threat = the highest IsTank member), :198-246 (relative threat = bot threat * 100 / tank threat); ai/playerbot/AiFactory.cpp:633-642 (KeepsPartyThreatBackoff: a non-tank bot with a real master gets the threat strategy), :1007-1016 (it is added after the configured strings); ai/playerbot/strategy/actions/GenericSpellActions.h:39 (spell actions are ACTION_THREAT_SINGLE), :501-505 (Shoot is threat type NONE); commit 320aa2906 (#922: vetoed nukes fall back to the wand on purpose); TortoiseBots upstream/dev abb91ff62",
+      "why_expect": "the nukes are vetoed at 80 percent, but since #922 the mage falls back to Shoot while the veto holds, and the wand keeps adding threat. The hired Protection warrior tank holds the mob with real threat (ThreatValues.cpp:124-183), so a pull is a real threat-cap finding. A refilled mob arrives with the mage's first nukes on it before the hired tank has any threat, so the rule leaves the 12 s after each refill out (not_within_s_after_mark): the player opens each refill mob and the bot tank needs a few seconds to take it"
+    },
+    {
+      "check": {
+        "den": {
+          "kind": "damage",
+          "src": "$mob"
+        },
+        "metric": "ratio",
+        "min_n": 20,
+        "num": {
+          "dst": "$extra1",
+          "kind": "damage",
+          "src": "$mob"
+        }
+      },
+      "desc": "Precondition: the hired Protection warrior tank holds the mobs: at least 60 percent of mob damage lands on it ($extra1)",
+      "expect_today": "PASS",
+      "id": "DPS-MAG-THREAT-TANK-HELD",
+      "pass_if": ">= 0.6",
+      "source": "precondition, no bot code: ThreatValues.cpp:124-183 (tank threat = highest IsTank member); PlayerbotAI.cpp:4220-4241 (IsTank: a hire's tank strategy)",
+      "why_expect": "in the 11-10 before/after runs of the taunt-off-healer shape (a dps-kit player plus a hired Protection warrior tank), at most 8 percent of mob hits landed on non-tanks; the hired warrior in the tank role is that member"
+    },
+    {
+      "check": {
+        "metric": "count",
+        "where": {
+          "dst": "$mob",
+          "kind": "cast",
+          "src": "$extra1"
+        }
+      },
+      "desc": "Precondition: the hired Protection warrior tank casts on the mob at least 5 times in the fight, so an idle or dead bot cannot pass",
+      "expect_today": "PASS",
+      "id": "DPS-MAG-THREAT-TANK-FOUGHT",
+      "pass_if": ">= 5",
+      "source": "precondition, no bot code: the bot's own casts prove it fought",
+      "why_expect": "a tank that fights casts every few seconds; a repeat with fewer casts shows here instead of passing silently"
+    },
+    {
+      "check": {
+        "metric": "rate",
+        "min_alive_s": 45,
+        "per": "mob_alive",
+        "where": {
+          "dst": "$mob",
+          "kind": "cast",
+          "spell": [
+            "Fireball",
+            "Scorch",
+            "Fire Blast",
+            "Pyroblast"
+          ],
+          "src": "$bot"
+        }
+      },
+      "desc": "Precondition: the mage really fights, at least 8 fire nukes per minute while a mob is alive, so DPS-MAG-THREAT-NO-AGGRO cannot pass because the mage stood idle or only wanded",
+      "expect_today": "PASS",
+      "id": "DPS-MAG-THREAT-DAMAGE",
+      "pass_if": ">= 8",
+      "source": "ai/playerbot/strategy/mage/FireMageStrategy.cpp:25-27 (fireball default), :34-48 (fireball, fire blast and scorch rows); ai/playerbot/strategy/generic/ThreatStrategy.cpp:68-83 (the high-threat veto); ai/playerbot/strategy/triggers/GenericTriggers.cpp:758-788 (HighThreatTrigger: the veto only holds at 80 percent or more); TortoiseBots upstream/dev abb91ff62",
+      "why_expect": "a rate per minute of mob-alive time, not a count per repeat: at an easier difficulty step one mob dies after 2-3 nukes and the rest of the repeat is empty, so a fixed 'at least 15 per repeat' could never pass (sweep-1b: 2, 2, 3). Unvetoed, a fire mage casts a nuke every 3.5 s, about 15 a minute; 8 is a little over half of that. A back-off that holds the veto for half the time or more (the wand fills in, #922) leaves it at 7 or fewer, and an idle mage near 0. A mob alive for less than 45 s gives INCONCLUSIVE, not a verdict. Below 80 percent of the tank's threat nothing vetoes the nukes, and each taunt from the player resets the ratio"
+    },
+    {
+      "check": {
+        "aura": [
+          2457
+        ],
+        "metric": "uptime",
+        "phase": "in_combat",
+        "unit": "$player"
+      },
+      "desc": "Precondition: Battle Stance (aura 2457) stays on the player through the fight",
+      "expect_today": "PASS",
+      "id": "DPS-MAG-THREAT-STANCE",
+      "pass_if": ">= 0.9",
+      "source": "precondition, no bot code: setup check player_stance proves the stance at the start, this uptime proves it in the fight",
+      "why_expect": "the stance is cast in set-up and nothing in the fight removes it; a repeat where it drops shows here instead of passing silently"
+    }
+  ],
   "setup_checks": [
     "player_level",
     "player_visible",
@@ -75,6 +169,7 @@
     "player_gear",
     "player_stance",
     "player_forced_role",
+    "player_no_shield",
     "bot_present",
     "bot_level",
     "bot_role",
@@ -87,87 +182,37 @@
     "mobs_ready",
     "config_read"
   ],
-  "duration_s": 180,
-  "repeats": 3,
-  "min_valid_s": 120,
-  "opportunity": {
-    "unit": "$player",
-    "in_combat": true
+  "situation": {
+    "debuff": null,
+    "floor_pct": 12,
+    "hp_band": [
+      35,
+      99
+    ],
+    "kind": "tank_damage",
+    "max_rescues_per_min": 12,
+    "mobs": {
+      "count": 1,
+      "level_delta": 0,
+      "refill": true,
+      "role": "melee"
+    },
+    "ooc_wait_s": 0,
+    "pull_after_s": 0,
+    "victim": "player"
   },
-  "rules": [
-    {
-      "id": "DPS-MAG-THREAT-NO-AGGRO",
-      "desc": "No mob hits the fire mage while a player tank holds the mobs (the back-off stops the nukes at 80 percent of the tank's threat)",
-      "source": "ai/playerbot/strategy/generic/ThreatStrategy.cpp:13-87 (ThreatMultiplier: a single-target or AoE damage action scores 0 while 'high threat' is active, :68-84; heals are exempt, :39-40); ai/playerbot/strategy/triggers/GenericTriggers.cpp:758-788 (HighThreatTrigger: 80 percent of the tank's threat, with a 5 s look-ahead); ai/playerbot/strategy/values/ThreatValues.cpp:21-39 (my threat and tank threat values), :124-183 (tank threat = the highest IsTank member), :198-246 (relative threat = bot threat * 100 / tank threat); ai/playerbot/AiFactory.cpp:633-642 (KeepsPartyThreatBackoff: a non-tank bot with a real master gets the threat strategy), :1007-1016 (it is added after the configured strings); ai/playerbot/strategy/actions/GenericSpellActions.h:39 (spell actions are ACTION_THREAT_SINGLE), :501-505 (Shoot is threat type NONE); commit 320aa2906 (#922: vetoed nukes fall back to the wand on purpose); TortoiseBots upstream/dev abb91ff62",
-      "expect_today": "?",
-      "why_expect": "the nukes are vetoed at 80 percent, but since #922 the mage falls back to Shoot while the veto holds, and the wand keeps adding threat. Against a player tank with no gear (taunting every 10 s from the runner) the wand alone may reach the 130 percent a ranged attacker needs to pull. This is the question the trial answers. A refilled mob arrives with the mage's first nukes on it before the tank has any threat, so the rule leaves the 12 s after each refill out (not_within_s_after_mark): the runner's taunt has a 10 s cooldown and the threat cast runs every 6 s or more, so the tank needs up to 12 s to take the new mob",
-      "check": {
-        "metric": "count",
-        "where": {
-          "kind": "damage",
-          "src": "$mob",
-          "dst": "$bot",
-          "not_within_s_after_mark": {
-            "kind": "refill",
-            "s": 12
-          }
-        }
-      },
-      "pass_if": "== 0",
-      "min_opportunity_s": 90
-    },
-    {
-      "id": "DPS-MAG-THREAT-DAMAGE",
-      "desc": "Precondition: the mage really fights, at least 8 fire nukes per minute while a mob is alive, so DPS-MAG-THREAT-NO-AGGRO cannot pass because the mage stood idle or only wanded",
-      "source": "ai/playerbot/strategy/mage/FireMageStrategy.cpp:25-27 (fireball default), :34-48 (fireball, fire blast and scorch rows); ai/playerbot/strategy/generic/ThreatStrategy.cpp:68-83 (the high-threat veto); ai/playerbot/strategy/triggers/GenericTriggers.cpp:758-788 (HighThreatTrigger: the veto only holds at 80 percent or more); TortoiseBots upstream/dev abb91ff62",
-      "expect_today": "PASS",
-      "why_expect": "a rate per minute of mob-alive time, not a count per repeat: at an easier difficulty step one mob dies after 2-3 nukes and the rest of the repeat is empty, so a fixed 'at least 15 per repeat' could never pass (sweep-1b: 2, 2, 3). Unvetoed, a fire mage casts a nuke every 3.5 s, about 15 a minute; 8 is a little over half of that. A back-off that holds the veto for half the time or more (the wand fills in, #922) leaves it at 7 or fewer, and an idle mage near 0. A mob alive for less than 45 s gives INCONCLUSIVE, not a verdict. Below 80 percent of the tank's threat nothing vetoes the nukes, and each taunt from the player resets the ratio",
-      "check": {
-        "metric": "rate",
-        "per": "mob_alive",
-        "min_alive_s": 45,
-        "where": {
-          "kind": "cast",
-          "src": "$bot",
-          "dst": "$mob",
-          "spell": [
-            "Fireball",
-            "Scorch",
-            "Fire Blast",
-            "Pyroblast"
-          ]
-        }
-      },
-      "pass_if": ">= 8"
-    },
-    {
-      "id": "DPS-MAG-THREAT-STANCE",
-      "desc": "Precondition: Defensive Stance (aura 71) stays on the player through the fight",
-      "source": "precondition, no bot code: setup check player_stance proves the stance at the start, this uptime proves it in the fight",
-      "expect_today": "PASS",
-      "why_expect": "the stance is cast in set-up and nothing in the fight removes it; a repeat where it drops shows here instead of passing silently",
-      "check": {
-        "metric": "uptime",
-        "unit": "$player",
-        "aura": [
-          71
-        ],
-        "phase": "in_combat"
-      },
-      "pass_if": ">= 0.9"
-    }
-  ],
+  "spec": "fire",
+  "title": "Fire mage: the party threat back-off keeps the mob off the mage under a bot tank",
   "variants": [
     {
       "name": "lvl50",
-      "title": "level 50",
       "override": {
         "level": 50
-      }
+      },
+      "title": "level 50"
     },
     {
       "name": "lvl60",
-      "title": "level 60 (no gear kit above level 50)",
       "override": {
         "level": 60,
         "player": {
@@ -175,46 +220,47 @@
         },
         "situation": {
           "mobs": {
-            "level_delta": -3
+            "level_delta": -2
           }
         }
-      }
+      },
+      "title": "level 60 (player without a gear kit; the tank is a hired bot)"
     },
     {
       "name": "frost",
-      "title": "Frost mage: the party threat back-off keeps the mob off the mage under a player tank",
       "override": {
         "bot": {
           "spec": "frost"
         },
         "rules": {
-          "DPS-MAG-THREAT-NO-AGGRO": {
-            "desc": "No mob hits the frost mage while a player tank holds the mobs (the back-off stops the nukes at 80 percent of the tank's threat)",
-            "source": "ai/playerbot/strategy/generic/ThreatStrategy.cpp:13-87 (ThreatMultiplier: a single-target or AoE damage action scores 0 while 'high threat' is active, :68-84; heals are exempt, :39-40); ai/playerbot/strategy/triggers/GenericTriggers.cpp:758-788 (HighThreatTrigger: 80 percent of the tank's threat, with a 5 s look-ahead); ai/playerbot/strategy/values/ThreatValues.cpp:21-39 (my threat and tank threat values), :124-183 (tank threat = the highest IsTank member), :198-246 (relative threat = bot threat * 100 / tank threat); ai/playerbot/AiFactory.cpp:633-642 (KeepsPartyThreatBackoff: a non-tank bot with a real master gets the threat strategy), :1007-1016 (it is added after the configured strings); ai/playerbot/strategy/actions/GenericSpellActions.h:39 (spell actions are ACTION_THREAT_SINGLE), :501-505 (Shoot is threat type NONE); commit 320aa2906 (#922: vetoed nukes fall back to the wand on purpose); TortoiseBots upstream/dev abb91ff62",
-            "why_expect": "the nukes are vetoed at 80 percent, but the frost filler has no shoot fallback while a veto holds (a GCD or threat-veto refusal must not start the wand; the wand runs only while the nuke is unaffordable, FrostMageStrategy.cpp:30-35), so a vetoed frost mage idles instead of adding wand threat. Against a player tank with no gear (taunting every 10 s from the runner) the wand alone may reach the 130 percent a ranged attacker needs to pull. This is the question the trial answers. A refilled mob arrives with the mage's first nukes on it before the tank has any threat, so the rule leaves the 12 s after each refill out (not_within_s_after_mark): the runner's taunt has a 10 s cooldown and the threat cast runs every 6 s or more, so the tank needs up to 12 s to take the new mob"
-          },
           "DPS-MAG-THREAT-DAMAGE": {
-            "desc": "Precondition: the mage really fights, at least 8 frost nukes per minute while a mob is alive, so DPS-MAG-THREAT-NO-AGGRO cannot pass because the mage stood idle or only wanded",
-            "source": "ai/playerbot/strategy/mage/FrostMageStrategy.cpp:9-12 (frostbolt default), :18-35 (frostbolt row, icicles rows, frostbolt-unaffordable shoot fallback); ai/playerbot/strategy/mage/MageStrategy.cpp:111-112 (target critical health: fire blast row), :434-436 (frost nova window: frost nova when a mob attacks the mage itself); ai/playerbot/strategy/generic/ThreatStrategy.cpp:68-83 (the high-threat veto); ai/playerbot/strategy/triggers/GenericTriggers.cpp:758-788 (HighThreatTrigger: the veto only holds at 80 percent or more); TortoiseBots upstream/dev abb91ff62",
-            "why_expect": "a rate per minute of mob-alive time, not a count per repeat: at an easier difficulty step one mob dies after 2-3 nukes and the rest of the repeat is empty, so a fixed 'at least 15 per repeat' could never pass (sweep-1b: 2, 2, 3). Unvetoed, a frost mage casts Frostbolt about every 3 s, some 15 a minute (Fire Blast answers a critical-health target, Frost Nova only a mob on the mage itself); 8 is a little over half of that. A back-off that holds the veto for half the time or more (no wand fills in under a veto) leaves it at 7 or fewer, and an idle mage near 0. A mob alive for less than 45 s gives INCONCLUSIVE, not a verdict. Below 80 percent of the tank's threat nothing vetoes the nukes, and each taunt from the player resets the ratio",
             "check": {
               "metric": "rate",
-              "per": "mob_alive",
               "min_alive_s": 45,
+              "per": "mob_alive",
               "where": {
-                "kind": "cast",
-                "src": "$bot",
                 "dst": "$mob",
+                "kind": "cast",
                 "spell": [
                   "Frostbolt",
                   "Fire Blast",
                   "Frost Nova"
-                ]
+                ],
+                "src": "$bot"
               }
-            }
+            },
+            "desc": "Precondition: the mage really fights, at least 8 frost nukes per minute while a mob is alive, so DPS-MAG-THREAT-NO-AGGRO cannot pass because the mage stood idle or only wanded",
+            "source": "ai/playerbot/strategy/mage/FrostMageStrategy.cpp:9-12 (frostbolt default), :18-35 (frostbolt row, icicles rows, frostbolt-unaffordable shoot fallback); ai/playerbot/strategy/mage/MageStrategy.cpp:111-112 (target critical health: fire blast row), :434-436 (frost nova window: frost nova when a mob attacks the mage itself); ai/playerbot/strategy/generic/ThreatStrategy.cpp:68-83 (the high-threat veto); ai/playerbot/strategy/triggers/GenericTriggers.cpp:758-788 (HighThreatTrigger: the veto only holds at 80 percent or more); TortoiseBots upstream/dev abb91ff62",
+            "why_expect": "a rate per minute of mob-alive time, not a count per repeat: at an easier difficulty step one mob dies after 2-3 nukes and the rest of the repeat is empty, so a fixed 'at least 15 per repeat' could never pass (sweep-1b: 2, 2, 3). Unvetoed, a frost mage casts Frostbolt about every 3 s, some 15 a minute (Fire Blast answers a critical-health target, Frost Nova only a mob on the mage itself); 8 is a little over half of that. A back-off that holds the veto for half the time or more (no wand fills in under a veto) leaves it at 7 or fewer, and an idle mage near 0. A mob alive for less than 45 s gives INCONCLUSIVE, not a verdict. Below 80 percent of the tank's threat nothing vetoes the nukes, and the player opens each refill mob and the hired tank takes it after a few seconds"
+          },
+          "DPS-MAG-THREAT-NO-AGGRO": {
+            "desc": "No mob hits the frost mage while a hired Protection warrior tank holds the mobs (the back-off stops the nukes at 80 percent of the tank's threat)",
+            "source": "ai/playerbot/strategy/generic/ThreatStrategy.cpp:13-87 (ThreatMultiplier: a single-target or AoE damage action scores 0 while 'high threat' is active, :68-84; heals are exempt, :39-40); ai/playerbot/strategy/triggers/GenericTriggers.cpp:758-788 (HighThreatTrigger: 80 percent of the tank's threat, with a 5 s look-ahead); ai/playerbot/strategy/values/ThreatValues.cpp:21-39 (my threat and tank threat values), :124-183 (tank threat = the highest IsTank member), :198-246 (relative threat = bot threat * 100 / tank threat); ai/playerbot/AiFactory.cpp:633-642 (KeepsPartyThreatBackoff: a non-tank bot with a real master gets the threat strategy), :1007-1016 (it is added after the configured strings); ai/playerbot/strategy/actions/GenericSpellActions.h:39 (spell actions are ACTION_THREAT_SINGLE), :501-505 (Shoot is threat type NONE); commit 320aa2906 (#922: vetoed nukes fall back to the wand on purpose); TortoiseBots upstream/dev abb91ff62",
+            "why_expect": "the nukes are vetoed at 80 percent, but the frost filler has no shoot fallback while a veto holds (a GCD or threat-veto refusal must not start the wand; the wand runs only while the nuke is unaffordable, FrostMageStrategy.cpp:30-35), so a vetoed frost mage idles instead of adding wand threat. A refilled mob arrives with the mage's first nukes on it before the hired tank has any threat, so the rule leaves the 12 s after each refill out (not_within_s_after_mark): the player opens each refill mob and the bot tank needs a few seconds to take it"
           }
         }
-      }
+      },
+      "title": "Frost mage: the party threat back-off keeps the mob off the mage under a bot tank"
     }
   ]
 }

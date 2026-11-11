@@ -43,7 +43,8 @@ EXPECT = {
     "TNK-WAR-TAUNT": "PASS", "TNK-WAR-MOBS-ON-TANK": "?", "TNK-WAR-DEF-STANCE": "PASS",
     "TNK-WAR-TAUNT-STANCE": "PASS",
     "TNK-PAL-RIGHTEOUS-FURY": "PASS", "TNK-PAL-MOBS-ON-TANK": "?", "TNK-PAL-RF-STANCE": "PASS",
-    "DPS-MAG-THREAT-NO-AGGRO": "?", "DPS-MAG-THREAT-DAMAGE": "PASS", "DPS-MAG-THREAT-STANCE": "PASS",
+    "DPS-MAG-THREAT-NO-AGGRO": "?", "DPS-MAG-THREAT-TANK-HELD": "PASS",
+    "DPS-MAG-THREAT-TANK-FOUGHT": "PASS", "DPS-MAG-THREAT-DAMAGE": "PASS", "DPS-MAG-THREAT-STANCE": "PASS",
     "DPS-ROG-KICK": "?", "DPS-ROG-KICK-STANCE": "PASS",
     "DPS-MAG-COUNTERSPELL": "?", "DPS-MAG-CS-STANCE": "PASS",
     "DPS-MAG-CC-RESPECT": "PASS", "DPS-MAG-CC-POLYMORPH": "PASS",
@@ -197,7 +198,9 @@ class FilesTest(unittest.TestCase):
             else:
                 self.assertEqual(trial["player"]["forced_role"], "dps", tid)
         for tid in DPS_IDS:
-            self.assertEqual(load(tid)["player"]["forced_role"], "tank", tid)
+            # dps-mage-threat-cap now runs a dps-kit player under a hired bot tank (P1)
+            self.assertEqual(load(tid)["player"]["forced_role"],
+                             "dps" if tid == "dps-mage-threat-cap" else "tank", tid)
         for tid in TANK_IDS + DPS_IDS:
             self.assertIn("player_forced_role", load(tid)["setup_checks"], tid)
 
@@ -206,13 +209,18 @@ class FilesTest(unittest.TestCase):
         # paladin-holy-heal-latency runs): every tank and DPS trial hires a holy priest as extra1
         for tid in TANK_IDS + DPS_IDS:
             trial = load(tid)
+            if tid == "dps-mage-threat-cap":
+                self.assertEqual([(b["class"], b["role"]) for b in trial["extra_bots"]],
+                                 [("warrior", "tank"), ("priest", "healer")], tid)
+                continue
             self.assertEqual([(b["class"], b["role"]) for b in trial["extra_bots"]],
                              [("priest", "healer")], tid)
-            self.assertEqual(trial["extra_bots"][0]["level"], trial["bot"]["level"], tid)
-            # the three mage trials fight mobs that are on the mage/the tank: 30;
-            # everything else 12 (DECISIONS.md, 2026-11-09)
+            for eb in trial["extra_bots"]:
+                self.assertEqual(eb["level"], trial["bot"]["level"], tid)
+            # the two remaining mage trials fight mobs that are on the mage/the tank: 30;
+            # everything else 12 (DECISIONS.md, 2026-11-09; P1 moved threat-cap to 12)
             self.assertEqual(trial["situation"]["max_rescues_per_min"],
-                             30 if tid in ("dps-mage-counterspell-caster", "dps-mage-threat-cap",
+                             30 if tid in ("dps-mage-counterspell-caster",
                                            "dps-mage-cc-respect") else 12, tid)
 
     def test_caster_trials_prove_the_caster(self):
@@ -505,10 +513,14 @@ class DpsRulesTest(RepMixin, unittest.TestCase):
 
     def test_interrupt_stance_preconditions(self):
         for tid, rid in (("dps-rogue-kick-caster", "DPS-ROG-KICK-STANCE"),
-                         ("dps-mage-counterspell-caster", "DPS-MAG-CS-STANCE"),
-                         ("dps-mage-threat-cap", "DPS-MAG-THREAT-STANCE")):
+                         ("dps-mage-counterspell-caster", "DPS-MAG-CS-STANCE")):
             self.assertEqual(self.verdict(tid, rid, [], series(200, player=(71,))), "PASS")
             self.assertEqual(self.verdict(tid, rid, [], series(200, player=(2457,))), "FAIL")
+        # threat-cap runs Battle Stance on a dps-kit player under a hired bot tank (P1)
+        self.assertEqual(self.verdict("dps-mage-threat-cap", "DPS-MAG-THREAT-STANCE",
+                                      [], series(200, player=(2457,))), "PASS")
+        self.assertEqual(self.verdict("dps-mage-threat-cap", "DPS-MAG-THREAT-STANCE",
+                                      [], series(200, player=(71,))), "FAIL")
 
     def test_cc_respect(self):
         tid = "dps-mage-cc-respect"

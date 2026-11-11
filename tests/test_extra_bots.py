@@ -195,8 +195,8 @@ class SchemaTest(unittest.TestCase):
         self.assertTrue(any("at most 3" in e for e in scenario_mod.validate(trial)))
 
     def test_rejects_unknown_and_bad_fields(self):
-        self.assertTrue(any("unknown extra_bots[1] field 'gear'" in e for e in self.errs(gear="blue")))
-        self.assertTrue(any("unknown extra_bots[1] field 'mana_pct'" in e for e in self.errs(mana_pct=50)))
+        self.assertEqual(self.errs(gear="blue"), [])
+        self.assertTrue(any("bad extra_bots[1] gear" in e for e in self.errs(gear=3)))
         self.assertTrue(any("bad extra_bots[1] spec" in e for e in self.errs(spec="nonsense")))
         self.assertTrue(any("bad extra_bots[1] role" in e for e in self.errs(role="boss")))
         self.assertTrue(any("level must be" in e for e in self.errs(level=61)))

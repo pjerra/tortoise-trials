@@ -1247,6 +1247,24 @@ def run_extras(agent, trial, guard, ledger, ctx, previous=None, timeout=30.0):
                                                        guid=guids[i - 1] or ""), deadline=talents_dl)
         spec_row = _retry(lambda: _apply_role(agent, eb["spec"], name, ledger))
         strat_row = _retry(lambda: _check_strategy(agent, eb["spec"], name))
+        gear = eb.get("gear")
+        if gear:
+            since = agent.tbm("autogear %s %s" % (name, gear))
+            line, _rows = agent.wait_reply(
+                since, r"Re-geared|autogear is disabled|refused:|pool bot|must be alive|usage:", timeout=20)
+            ledger.add({"kind": "autogear", "bot": name, "gear": gear, "extra": i, "reply": line or ""})
+            if not (line and "Re-geared" in line):
+                role_ok = False
+                role_ev.append("extra%d autogear %s: %s" % (i, gear, line or "no reply"))
+                continue
+            role_ev.append("extra%d %s: %s | %s%s; autogear %s: %s" % (
+                i, name, spec_row["evidence"], strat_row["evidence"],
+                " | talents: %s" % talents_row["evidence"] if talents_row is not None else "",
+                gear, line))
+            talents_ok = talents_row is None or talents_row.get("ok")
+            if not spec_row.get("ok") or not strat_row.get("ok") or not talents_ok:
+                role_ok = False
+            continue
         if not spec_row.get("ok") or not strat_row.get("ok") or (talents_row is not None
                                                                  and not talents_row.get("ok")):
             role_ok = False

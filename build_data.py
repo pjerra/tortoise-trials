@@ -401,7 +401,7 @@ GEAR_ARMOR_SLOTS = (            # slot name -> (inventory_type values, item clas
     ("legs", (7,), 4, 4), ("feet", (8,), 4, 4), ("wrist", (9,), 4, 4), ("hands", (10,), 4, 4),
     ("back", (16,), 4, 1),
 )
-GEAR_MAX_ENTRY = 25000
+GEAR_MAX_ENTRY = 20000
 GEAR_BAD_NAME = re.compile(r"arena|marshal|sergeant|warlord|general|champion|zzz|test|deprecated|\bold\b|\(|monster|dnd|\bdep\b", re.I)
 WARRIOR_1H_SUBCLASSES = (0, 4, 7)                  # axe, mace, sword: warriors know these from level 1
 WARRIOR_2H_SUBCLASSES = (1, 5, 8)                  # 2H axe, mace, sword
@@ -456,8 +456,10 @@ def build_gear_kits(path=None):
         if any(_as_int(row.get("stat_type%d" % i)) in (5, 6) and _as_int(row.get("stat_value%d" % i)) > 0
                for i in range(1, 11)):
             return False
-        # vanilla 1.12 entries only (the server's own additions sit above 25000 and are unproven), and no
-        # test, PvP or placeholder names
+        # vanilla 1.12 entries only (the server's own additions sit above 20000 and are unproven: a level-60
+        # kit from this table would pull in 173 such entries at 20000 and up, a 26-item "90 Green Warrior"
+        # batch among them; ilvl 90 at req 60 breaks the kit's vanilla rule), and no test, PvP or
+        # placeholder names
         name = str(row.get("name") or "")
         if _as_int(row.get("entry")) >= GEAR_MAX_ENTRY or GEAR_BAD_NAME.search(name):
             return False

@@ -108,7 +108,9 @@ A trial is one JSON file in `trials/<group>/`. Unknown keys are rejected by `val
 - `player`: class, level, talents (tree and spell ids), stance, forced role, auras, items, and `gear`
   (null or `"tier"`, see below).
 - `bot` (the hire) and `extra_bots` (more hires, for example a second tank): class, spec, role,
-  level, gear tier, items.
+  level, gear tier, items. An `extra_bots` entry may also carry `gear` (a lowercase word such as
+  `"blue"`): the runner sends `autogear <name> <gear>` after the role setup and fails
+  `extra_bots_role` when the reply is not a re-gear (an ungeared tank is a bench artefact).
 - `situation`: how to make the situation, by `kind` (`tank_damage`, `ooc_hurt`, `ooc_buffs`,
   `cc_target` and others): which mobs, a health band to hold the target in, a floor, a pull delay.
 - `setup_checks`: facts that must hold before a repeat counts (the guards below).
@@ -183,9 +185,10 @@ after the level and talents):
   per class (warrior only so far), per role and per level (40, 45, 50). Role is `tank` when the player's
   `forced_role` is `tank` (plate, a one-handed weapon and a shield) and `dps` otherwise (plate and a
   two-handed weapon, no shield, so the player does not read as a tank). A player level between kits takes the
-  highest kit below it, at most 9 levels down. Items are plain vanilla (entry below 25000) plate pieces of
+  highest kit below it, at most 9 levels down. Items are plain vanilla (entry below 20000) plate pieces of
   the highest armor, weapons without a proc or on-use effect, no intellect or spirit, no reputation, honor or
-  profession requirement.
+  profession requirement. Entries at 20000 and up are the server's own TBC-scale customs (ilvl 90 at req 60),
+  not vanilla.
 - The kit is put on in this order: first the armor and weapon proficiencies its items need are learned (a
   GM-levelled warrior has no Plate Mail 750; Mail is 8737, weapon skills from the kit's item class and
   subclass; cloth needs none; only the player itself, through the guarded `.learn`, from a fixed table in
