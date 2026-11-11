@@ -2,6 +2,40 @@
 
 Short, dated notes on choices that are not obvious from the code.
 
+## 2026-11-11: minimum samples, more chances, and the Bulwark level move (P3)
+
+One valid rep decided the trial verdict (a majority of PASS/FAIL reps; taunt-off-healer went PASS →
+INCONCLUSIVE → FAIL on single reps of 5/5 and 3/5). New rule field `min_reps` (int ≥ 1, default 1, so
+every existing rule is unchanged; variants may override it): a trial verdict is PASS/FAIL only with at
+least `min_reps` PASS/FAIL reps, else INCONCLUSIVE with reason `valid reps <k> < min_reps <m>`. Compare
+gives no Fisher p and the note "too few valid reps" for such a side; pr-block prints the trial-level
+reason line. Heal-latency pair: the trigger (player falling through 50) never fired because the
+governor's top-up drops only to the band middle (65 for [40,90]) and the healer heals before mob hits
+cross 50. New situation option `top_up_to_pct`: the governor's top-up drops to this percent instead of
+the band middle (never below the band low). Set below the trigger line, so each top-up is one fall
+through 50 (~10-20 triggers per 180 s rep). `priest-holy-heal-latency`: band [40,90] → [40,80], floor
+30 → 15, cap 12, repeats 2 → 4, LATENCY `min_n` 5 (kept) + `min_reps` 3. `paladin-holy-heal-latency`:
+band [30,90] → [40,80], `top_up_to_pct` 45, repeats 2 → 4, LATENCY `min_reps` 3 (floor 12, delta -4 and
+cap 12 stay). Priest variants inherit. Taunt-off-healer: mobs count 1 → 3 (the shape
+`tank-paladin-defensives` runs), duration 180 → 240, min_valid 120 → 160, repeats 3 → 4, TAUNT `min_reps`
+3; MOBS-ON-TANK gets a new baseline. Thistle tea: the TortoiseBots trigger (energy < 20) almost never
+fires (the rogue pools energy; the hire is reused between reps so a tea may still be on cooldown; the
+`first ≤ 90` rule FAILs a rep that never had the chance). New guarded GM kind `modify_energy` (hire
+only, `.modify energy {cur} {max}`) and situation options `energy_drain {first_at_s 5-170, every_s ≥ 20,
+to 0-19}` (rogue + tank_damage only; drains the hire on schedule after fight_start with marks; a refused
+line logs and marks `energy_drain_refused`) and `reset_hire_cooldowns: true` (`.cooldown` on the hire
+after the arena is taken, before the first summon; the guard's `TARGETS["cooldown"]` gains `"hire"`;
+situation check `hire_cooldowns_reset`, INVALID on failure; marks `cooldowns_reset`), plus a new latency
+trigger kind `mark {mark}` that reads runner marks (`mark_times` on the event time base; `mark_spans`
+rewritten on it) with the usual debounce/response logic. DPS-ROG-TEA becomes mark-latency (drain →
+Restore Energy within 5 s, debounce 300 s on Restore Energy, pass ≥ 0.5, min_n 1, min_reps 3), repeats
+3 → 4. Paladin defensives: Bulwark rank 1 (51346) has a 300 s cooldown and the hire is reused, so 0 casts
+in 2 reps; the level-40 Protection premade holds Righteous Defense at rank 3 and zero Bulwark points
+(Talent.dbc index 15, beyond the `053123133203` link) — level 40 → 50 (dps kit exists at 50), plus
+`reset_hire_cooldowns: true`, repeats 3 → 4, BULWARK `min_reps` 3. Old baselines not comparable:
+heal-latency pair, taunt-off-healer all, thistle tea, paladin-defensives. `tank-paladin-taunt-off-healer`
+keeps count 1 / 180 s for now (FOLLOWUPS: apply the same fix after this round's live check).
+
 ## 2026-11-11: lighter fights for the bear-bal pair and shadow-form-prepull
 
 The governor itself stays as it is. A gearless level-40 druid against a level-41 mob, and a gearless

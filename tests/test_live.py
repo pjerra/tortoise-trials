@@ -654,6 +654,16 @@ class GmGuardTest(unittest.TestCase):
                 g.send("modify_mana", HIRE, 100, 500)
             self.assertEqual(a.gm, [])
 
+    def test_modify_energy_is_hire_only_and_cooldown_allows_hire(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a = FakeAgent(unit_rows={HIRE: {"guid": HIRE, "max_power": 100}})
+            g = gm_guard.GmGuard(a, new_ledger(tmp), ctx_for())
+            with self.assertRaises(gm_guard.GmRefused):
+                g.send("modify_energy", PLAYER, 0, 100)
+            self.assertEqual(a.gm, [])
+            self.assertEqual(g.send("modify_energy", HIRE, 0, 100), ".modify energy 0 100")
+            self.assertEqual(g.send("cooldown", HIRE), ".cooldown")
+
     def test_tt_allows_only_the_exact_quiet_line(self):
         with tempfile.TemporaryDirectory() as tmp:
             a = FakeAgent()

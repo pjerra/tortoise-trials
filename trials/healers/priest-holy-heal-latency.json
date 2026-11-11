@@ -44,13 +44,15 @@
     },
     "hp_band": [
       40,
-      90
+      80
     ],
-    "floor_pct": 30,
+    "floor_pct": 15,
     "victim": "player",
     "pull_after_s": 0,
     "ooc_wait_s": 0,
-    "debuff": null
+    "debuff": null,
+    "max_rescues_per_min": 12,
+    "top_up_to_pct": 45
   },
   "setup_checks": [
     "player_level",
@@ -68,7 +70,7 @@
     "config_read"
   ],
   "duration_s": 180,
-  "repeats": 2,
+  "repeats": 4,
   "min_valid_s": 120,
   "rules": [
     {
@@ -100,6 +102,8 @@
         "within_s": 4
       },
       "pass_if": ">= 0.8",
+      "min_n": 5,
+      "min_reps": 3,
       "min_n": 5
     }
   ],

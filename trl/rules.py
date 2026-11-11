@@ -448,11 +448,48 @@ def _triggers(check, samples, ctx):
                             "dst_guid": str(alias or "").lower()})
             prev = pct
         return out
+    if trig.get("kind") == "mark":
+        want = trig.get("mark")
+        if not isinstance(want, str) or not want:
+            return []
+        return [{"t": t, "unit": "mark"}
+                for t in mark_times(ctx.get("marks") or [], want, ctx.get("window"))]
     # Event trigger: its kind FILTERS the rows (never dropped), together with
     # every where-style field (src, dst, spell, spell_interruptible, ...).
     where = {k: v for k, v in trig.items() if k not in ("unit", "below")}
     samples_by_guid = _sample_rows(ctx.get("samples_all", samples))
     return [r for r in (ctx.get("rows") or []) if _matches(r, where, samples_by_guid, ctx, ctx.get("trial") or {})]
+
+
+def mark_times(marks, kind, window=None):
+    """Times of runner marks of `kind` on the events' time base, inside `window`."""
+    from . import events as _events
+    base = None
+    for want in ("fight_start", "setup_ok"):
+        for mark in marks or []:
+            if mark.get("kind") == want:
+                base = _events._wall_secs(mark.get("wall"))
+                break
+        if base is not None:
+            break
+    out = []
+    for mark in marks or []:
+        if mark.get("kind") != kind:
+            continue
+        wall = _events._wall_secs(mark.get("wall"))
+        try:
+            t = wall - base if (wall is not None and base is not None) else float(mark.get("t"))
+        except (TypeError, ValueError):
+            continue
+        if window is not None:
+            try:
+                lo, hi = window
+                if not (float(lo) <= float(t) <= float(hi)):
+                    continue
+            except (TypeError, ValueError):
+                continue
+        out.append(float(t))
+    return sorted(out)
 
 
 def mark_spans(marks, kind, seconds):
@@ -465,26 +502,7 @@ def mark_spans(marks, kind, seconds):
         seconds = float(seconds)
     except (TypeError, ValueError):
         return []
-    from . import events as _events
-    base = None
-    for want in ("fight_start", "setup_ok"):
-        for mark in marks or []:
-            if mark.get("kind") == want:
-                base = _events._wall_secs(mark.get("wall"))
-                break
-        if base is not None:
-            break
-    spans = []
-    for mark in marks or []:
-        if mark.get("kind") != kind:
-            continue
-        wall = _events._wall_secs(mark.get("wall"))
-        try:
-            t = wall - base if (wall is not None and base is not None) else float(mark.get("t"))
-        except (TypeError, ValueError):
-            continue
-        spans.append((t, t + seconds))
-    return spans
+    return [(t, t + seconds) for t in mark_times(marks, kind)]
 
 
 def _in_spans(spans, t):
@@ -522,6 +540,7 @@ def evaluate(rule, rows, samples, marks, ctx):
             samples = [s for s in samples or [] if not _in_spans(spans, s.get("t", 0.0))]
     ctx["rows"] = rows
     ctx["samples_all"] = all_samples
+    ctx["marks"] = marks
     samples_by_guid = _sample_rows(all_samples)
     excluded = _excluded_from(rows)
     guard_note = ""

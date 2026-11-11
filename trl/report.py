@@ -206,7 +206,8 @@ def write_card(run_dir, run_trials):
                               "value": agg, "values": vals, "no_match": nm > 0,
                               "metric": row.get("metric"),
                               "pass_if": row.get("pass_if"), "surprise": sur,
-                              "source": row.get("source"), "detail": row.get("detail")})
+                              "source": row.get("source"), "detail": row.get("detail"),
+                              "reason": row.get("reason") or ""})
     lines.append("")
     for trial in run_trials or []:
         for row in trial.get("verdicts") or []:
@@ -321,7 +322,14 @@ def compare(run, base):
         entry["k_n_after"] = "%d/%d" % (rk, rn)
         entry["k_before"], entry["n_before"] = bk, bn
         entry["k_after"], entry["n_after"] = rk, rn
-        if kind in RATEish_KINDS:
+        thin_after = (r.get("verdict") == "INCONCLUSIVE"
+                      and "min_reps" in (r.get("reason") or ""))
+        thin_before = (b.get("verdict") == "INCONCLUSIVE"
+                       and "min_reps" in (b.get("reason") or ""))
+        if thin_after or thin_before:
+            entry["p"] = None
+            entry["note"] = "too few valid reps"
+        elif kind in RATEish_KINDS:
             entry["p"] = _stats.fisher_two_sided(rk, rn - rk, bk, bn - bk) if (rn or bn) else 1.0
             entry["note"] = _compare.note_for(entry["p"])
         else:
@@ -406,13 +414,18 @@ def pr_block(before, after, issue=None):
                 lines.append("- after: %s" % ev)
         # Every INCONCLUSIVE and every INVALID prints its real reason (the
         # guard text such as "n 3 < min_n 5" / "threshold unknown").
-        for tag, det in (("before", bdet), ("after", adet)):
+        for tag, rows, det in (("before", brows.get(key), bdet), ("after", arows.get(key), adet)):
             for d in det:
                 if d.get("verdict") in ("INCONCLUSIVE", "INVALID"):
                     reason = _reason_of(d)
                     if reason:
                         lines.append("- %s %s: %s (%s)" % (
                             tag, d.get("verdict"), reason, d.get("rep") or "?"))
+            # trial-level (min_reps) reason: the rule row carries it, not any single rep
+            trial_reason = (rows or {}).get("reason") or ""
+            trial_verdict = (rows or {}).get("verdict") or ""
+            if trial_verdict == "INCONCLUSIVE" and "min_reps" in trial_reason:
+                lines.append("- %s INCONCLUSIVE (trial): %s" % (tag, trial_reason))
     setup_bits = []
     for path in sorted(glob.glob(os.path.join(after, "*", "rep*", "setup.json"))):
         doc = _read_json(path, {}) or {}

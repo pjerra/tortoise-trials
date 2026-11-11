@@ -39,7 +39,7 @@ WHERE_KEYS = {
 }
 # Closed enums (no prefix escape anywhere).
 EVENT_TRIGGER_KINDS = {"damage", "aura_on", "aura_off", "cast", "cast_start"}
-TRIGGER_KINDS = {"cross"} | EVENT_TRIGGER_KINDS
+TRIGGER_KINDS = {"cross", "mark"} | EVENT_TRIGGER_KINDS
 EXTRA_ALIASES = ("$extra1", "$extra2", "$extra3")
 CROSS_UNITS = {"$player", "$bot", "$pet", "$marked"} | set(EXTRA_ALIASES)
 # Check kinds that read `where` / `num`+`den` / `trigger`+`response`.
@@ -62,16 +62,17 @@ EXTRA_BOT_FIELDS = {"class", "spec", "role", "level", "items", "gear"}
 EXTRA_ITEM_FIELDS = {"name", "count"}
 SIT_FIELDS = {"kind", "mobs", "hp_band", "floor_pct", "victim", "pull_after_s",
               "ooc_wait_s", "debuff", "refill", "roles", "max_rescues_per_min",
-              "hurt_every_s", "adaptive"}
+              "hurt_every_s", "adaptive", "top_up_to_pct", "reset_hire_cooldowns",
+              "energy_drain"}
 TALENTS_FIELDS = {"tree", "spells"}
 OPPORTUNITY_FIELDS = {"unit", "hp_lt", "hp_gt", "in_combat"}
 MOBS_FIELDS = {"role", "count", "level_delta", "refill", "refill_every_s"}
 RULE_FIELDS = {"id", "desc", "source", "expect_today", "why_expect",
-               "check", "pass_if", "min_opportunity_s", "min_n"}
+               "check", "pass_if", "min_opportunity_s", "min_n", "min_reps"}
 CHECK_FIELDS = {"metric", "where", "num", "den", "trigger", "response",
                 "within_s", "response_dst", "same_dst", "trigger_debounce_s",
                 "debounce_responder_s", "debounce_responder_spells", "per", "min_alive_s", "name", "aura", "unit", "phase", "alive", "triggers", "min_n"}
-TRIGGER_FIELDS = (WHERE_KEYS - {"response_dst", "same_dst", "trigger_debounce_s"}) | {"unit", "below"}
+TRIGGER_FIELDS = (WHERE_KEYS - {"response_dst", "same_dst", "trigger_debounce_s"}) | {"unit", "below", "mark"}
 RESPONSE_FIELDS = {"kind", "src", "dst", "spell", "spell_id", "in_combat"}
 SPEC_IDS = {
     "arms", "fury", "protection", "holy", "retribution", "bm", "mm",
@@ -309,6 +310,10 @@ def _check_rule(rule, trial_id, errs, spells_path=None):
     pass_if = rule.get("pass_if")
     if not isinstance(pass_if, str) or not PASS_IF_RE.match(pass_if.strip()):
         _err(errs, "%s/%s: bad pass_if %r" % (trial_id, rid, pass_if))
+    if "min_reps" in rule:
+        mr = rule.get("min_reps")
+        if isinstance(mr, bool) or not isinstance(mr, int) or mr < 1:
+            _err(errs, "%s/%s: bad min_reps %r (an int >= 1)" % (trial_id, rid, mr))
 
 
 def _check_trigger(trig, trial_id, rid, errs, spells_path=None):
@@ -324,7 +329,14 @@ def _check_trigger(trig, trial_id, rid, errs, spells_path=None):
         if not _num_or_threshold(trig.get("below")):
             _err(errs, "%s/%s: bad trigger below %r" % (trial_id, rid, trig.get("below")))
         return
+    if kind == "mark":
+        if set(trig) != {"kind", "mark"}:
+            _err(errs, "%s/%s: a mark trigger takes only kind and mark" % (trial_id, rid))
+        elif not isinstance(trig.get("mark"), str) or not trig.get("mark"):
+            _err(errs, "%s/%s: bad trigger mark %r" % (trial_id, rid, trig.get("mark")))
+        return
     # Event trigger: the kind FILTERS the rows; the where-style fields apply.
+    # ("mark" returns above; it is never an event-trigger key.)
     for key in ("unit", "below"):
         if key in trig:
             _err(errs, "%s/%s: trigger %s is only for cross triggers" % (trial_id, rid, key))
@@ -398,16 +410,15 @@ def _extra_alias_uses(node, found):
 # A trial may carry `variants`: named, small overrides of the base trial. Each runs as its own trial id
 # `<trial>@<variant>` (own run folder, own report rows, own baseline key). The override is deep-merged onto
 # the base and the merged trial goes through the ordinary validation, so a variant can never be looser than
-# a trial file. A variant never changes the rules list: only the three thresholds below, and only by rule id.
+# a trial file. A variant never changes the rules list: only the four thresholds below, and only by rule id.
 VARIANT_SEP = "@"
 SNAPSHOT_NAME = "trial.effective.json"   # the effective trial a run froze (written by the runner)
 MAX_VARIANTS = 6
 VARIANT_FIELDS = {"name", "title", "override"}
 # `level` is a shortcut that sets player.level, bot.level and every extra_bots[].level; the rest merge as
-# written (dicts merge key by key, a list or a scalar replaces, null clears). `rules` is {rule id: {...}}.
 OVERRIDE_FIELDS = {"level", "player", "bot", "extra_bots", "situation", "rules"}
 OVERRIDE_FROZEN = {"player": {"class"}, "bot": {"class", "role"}}
-RULE_OVERRIDE_FIELDS = {"pass_if", "min_n", "min_opportunity_s"}
+RULE_OVERRIDE_FIELDS = {"pass_if", "min_n", "min_opportunity_s", "min_reps"}
 # a bot.spec variant (same behaviour, another bot build) may also rewrite a rule's
 # own prose and spell list, rule id by rule id; the rule ids never change
 RULE_TEXT_FIELDS = {"desc", "source", "why_expect", "check"}
@@ -477,6 +488,9 @@ def apply_override(base, override):
                 if "min_n" in tweak and (isinstance(tweak["min_n"], bool) or not isinstance(tweak["min_n"], int)
                                          or tweak["min_n"] < 1):
                     errs.append("%s/%s: variant min_n must be an int >= 1" % (tid, rid))
+                if "min_reps" in tweak and (isinstance(tweak["min_reps"], bool) or not isinstance(tweak["min_reps"], int)
+                                         or tweak["min_reps"] < 1):
+                    errs.append("%s/%s: variant min_reps must be an int >= 1" % (tid, rid))
                 if "min_opportunity_s" in tweak and (isinstance(tweak["min_opportunity_s"], bool)
                                                      or not isinstance(tweak["min_opportunity_s"], (int, float))
                                                      or tweak["min_opportunity_s"] < 0):
@@ -738,6 +752,33 @@ def validate(trial, spells_path=None):
             if hurt is not None and (isinstance(hurt, bool) or not isinstance(hurt, (int, float))
                                      or not 8 <= hurt <= 120):
                 _err(errs, "%s: hurt_every_s must be a number from 8 to 120" % tid)
+            top_up = sit.get("top_up_to_pct")
+            if top_up is not None:
+                if sit.get("kind") in ("ooc_buffs", "ooc_hurt"):
+                    _err(errs, "%s: top_up_to_pct needs a governor top-up (not for ooc kinds)" % tid)
+                elif (isinstance(top_up, bool) or not isinstance(top_up, (int, float))
+                        or not (isinstance(band, list) and len(band) == 2
+                                and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in band)
+                                and band[0] < top_up < band[1])):
+                    _err(errs, "%s: top_up_to_pct must be a number with hp_band[0] < x < hp_band[1]" % tid)
+            reset = sit.get("reset_hire_cooldowns")
+            if reset is not None and reset is not True:
+                _err(errs, "%s: reset_hire_cooldowns must be true (or absent)" % tid)
+            drain = sit.get("energy_drain")
+            if drain is not None:
+                bot = trial.get("bot") or {}
+                if sit.get("kind") != "tank_damage" or bot.get("class") != "rogue":
+                    _err(errs, "%s: energy_drain needs kind tank_damage and bot.class rogue" % tid)
+                elif not isinstance(drain, dict):
+                    _err(errs, "%s: energy_drain must be {first_at_s, every_s, to}" % tid)
+                else:
+                    first, every, to = drain.get("first_at_s"), drain.get("every_s"), drain.get("to")
+                    if (isinstance(first, bool) or not isinstance(first, int) or not 5 <= first <= 170):
+                        _err(errs, "%s: energy_drain first_at_s must be an int 5-170" % tid)
+                    if (isinstance(every, bool) or not isinstance(every, int) or every < 20):
+                        _err(errs, "%s: energy_drain every_s must be an int >= 20" % tid)
+                    if (isinstance(to, bool) or not isinstance(to, int) or not 0 <= to <= 19):
+                        _err(errs, "%s: energy_drain to must be an int 0-19" % tid)
             if sit.get("kind") == "ooc_hurt":
                 # no mobs: the victim is hurt by a GM line, out of combat, inside hp_band
                 if (isinstance(band, list) and len(band) == 2

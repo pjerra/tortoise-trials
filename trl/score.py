@@ -375,6 +375,7 @@ def score_trial(trial_dir, trial):
                              for (_, row) in votes)
             verdict = "INVALID" if (any_invalid and not any_scored) else "INCONCLUSIVE"
             k_sum, n_sum = 0, 0
+            reason = ""
         else:
             npass = sum(1 for (_, row) in valid if row.get("verdict") == "PASS")
             nfail = len(valid) - npass
@@ -382,6 +383,15 @@ def score_trial(trial_dir, trial):
             # Compare aggregates k/n summed over valid repeats (not rep1 only).
             k_sum = sum(int(row.get("k", 0) or 0) for (_, row) in valid)
             n_sum = sum(int(row.get("n", 0) or 0) for (_, row) in valid)
+            min_reps = rule.get("min_reps") or 0
+            try:
+                min_reps = int(min_reps)
+            except (TypeError, ValueError):
+                min_reps = 0
+            reason = ""
+            if min_reps > 1 and len(valid) < min_reps:
+                verdict = "INCONCLUSIVE"
+                reason = "valid reps %d < min_reps %d" % (len(valid), min_reps)
         detail = [{"rep": rep, "verdict": row.get("verdict"), "value": row.get("value"),
                    "k": row.get("k", 0), "n": row.get("n", 0),
                    "evidence": row.get("evidence") or [], "guard": row.get("guard") or "",
@@ -393,7 +403,8 @@ def score_trial(trial_dir, trial):
                           "n": n_sum if valid else len(valid), "detail": detail,
                           "expected": rule.get("expect_today"), "metric": (rule.get("check") or {}).get("metric"),
                           "pass_if": rule.get("pass_if"), "source": rule.get("source"),
-                          "desc": rule.get("desc")})
+                          "desc": rule.get("desc"),
+                          "reason": reason if valid and reason else ""})
     out = {"trial": trial.get("id"), "verdicts": out_rules}
     _write(os.path.join(trial_dir, "trial.json"), out)
     return out

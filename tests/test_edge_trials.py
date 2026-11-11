@@ -389,14 +389,20 @@ class RogueEnergyTest(RepMixin, unittest.TestCase):
             self.assertEqual(self.verdict(tid, rid, [], series(200, player_auras=[STANCE_DEF])), "PASS", tid)
             self.assertEqual(self.verdict(tid, rid, [], series(200)), "FAIL", tid)
 
-    def test_thistle_tea_within_90_s(self):
+    def test_thistle_tea_answers_the_drain(self):
         tid = "dps-rogue-thistle-tea"
         samples = series(200)
-        self.assertEqual(self.verdict(tid, "DPS-ROG-TEA", [event(20, "cast", BOT, BOT, "Restore Energy")], samples),
+        drains = ({"kind": "energy_drain", "t": 20.0}, {"kind": "energy_drain", "t": 60.0})
+        tea = [event(22, "cast", BOT, BOT, "Restore Energy")]
+        self.assertEqual(self.verdict(tid, "DPS-ROG-TEA", tea, samples, extra_marks=drains),
                          "PASS")
-        self.assertEqual(self.verdict(tid, "DPS-ROG-TEA", [event(120, "cast", BOT, BOT, "Restore Energy")], samples),
+        # answered once: the 300 s responder cooldown skips the second drain (answered 1/1, not 1/2)
+        self.assertEqual(self.rules(tid, tea, samples, extra_marks=drains)["DPS-ROG-TEA"]["n"], 1)
+        # no answer to two drains: 0/2 FAIL
+        self.assertEqual(self.verdict(tid, "DPS-ROG-TEA", [], samples, extra_marks=drains),
                          "FAIL")
-        self.assertEqual(self.verdict(tid, "DPS-ROG-TEA", [], samples), "FAIL")
+        # no drain, no chance: INCONCLUSIVE, not a verdict on the bot
+        self.assertEqual(self.verdict(tid, "DPS-ROG-TEA", [], samples), "INCONCLUSIVE")
 
     def test_the_tea_trial_gives_the_item_and_runs_at_60_without_a_kit(self):
         trial = load("dps-rogue-thistle-tea")

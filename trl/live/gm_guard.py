@@ -27,7 +27,7 @@ TEMPLATES = {
     "damage": ".damage {0}",
     "modify_hp": ".modify hp {0} {1}",
     "modify_mana": ".modify mana {0} {1}",
-    "npc_summon": ".npc summon {0}",
+    "modify_energy": ".modify energy {0} {1}",
     "go_xyz": ".go xyz {0} {1} {2} {3}",
     "additem": ".additem {0} {1}",
     "additem_self": ".additem {0} {1}",      # the player's own gear kit (trl/gear.py); see send(), never classified
@@ -47,7 +47,7 @@ CLASSIFY = [
     (re.compile(r"\.damage (\d{1,6})"), "damage"),
     (re.compile(r"\.modify hp (\d{1,6}) (\d{1,6})"), "modify_hp"),
     (re.compile(r"\.modify mana (\d{1,6}) (\d{1,6})"), "modify_mana"),
-    (re.compile(r"\.npc summon (\d{1,6})"), "npc_summon"),
+    (re.compile(r"\.modify energy (\d{1,3}) (\d{1,3})"), "modify_energy"),
     (re.compile(r"\.go xyz (-?\d{1,6}) (-?\d{1,6}) (-?\d{1,6})(?: (\d{1,2}))?"), "go_xyz"),
     (re.compile(r"\.additem (\d{1,6}) (-?\d{1,2})"), "additem"),
     (re.compile(r"\.cooldown"), "cooldown"),
@@ -58,9 +58,8 @@ CLASSIFY = [
 # kinds that first target the guid and confirm status.target (the core reads these
 # from the selection, even `.learn` and `.cooldown`; `.levelup` and `.reset talents`
 # act on the selected unit, so they are self-only selections too)
-SELECTION = {"damage", "unaura", "aura", "modify_hp", "modify_mana", "additem", "additem_self", "learn", "cooldown",
+SELECTION = {"damage", "unaura", "aura", "modify_hp", "modify_mana", "modify_energy", "additem", "additem_self", "learn", "cooldown",
              "die", "levelup", "reset_talents"}
-# kinds allowed on each target class; "none" means no selection at all
 TARGETS = {
     "gm_visible_on": ("none", "self"),
     "gm_off": ("none", "self"),
@@ -72,11 +71,12 @@ TARGETS = {
     "damage": ("self",),
     "modify_hp": ("self", "hire"),
     "modify_mana": ("hire",),
+    "modify_energy": ("hire",),
     "npc_summon": ("none",),
     "go_xyz": ("none", "self"),
     "additem": ("hire",),
     "additem_self": ("self",),
-    "cooldown": ("self",),
+    "cooldown": ("self", "hire"),
     "die": ("summon",),
     "lookup_item": ("none",),
 }
@@ -343,6 +343,16 @@ class GmGuard:
                 raise GmRefused(".modify mana max %d is not the unit's own max %d" % (maxmana, own))
             if mana < 0 or mana > maxmana:
                 raise GmRefused(".modify mana %d %d out of range" % (mana, maxmana))
+        elif kind == "modify_energy":
+            mana, maxmana = int(groups[0]), int(groups[1])
+            row = self._row(target)
+            own = int(row.get("max_power") or 0) or int(row.get("max_mana") or 0)
+            if not own:
+                raise GmRefused(".modify energy %s: the unit's max energy is unknown" % norm_guid(target))
+            if maxmana != own:
+                raise GmRefused(".modify energy max %d is not the unit's own max %d" % (maxmana, own))
+            if mana < 0 or mana > maxmana:
+                raise GmRefused(".modify energy %d %d out of range" % (mana, maxmana))
         elif kind == "npc_summon":
             entry = int(groups[0])
             if entry not in self.ctx.mob_entries:

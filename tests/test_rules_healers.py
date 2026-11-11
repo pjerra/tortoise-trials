@@ -36,7 +36,8 @@ BOT = "0x0000000000000002"
 MOB = "0xf13000000000abcd"
 
 REPEATS_4 = {"priest-holy-pws-def-arms", "priest-holy-pws-def-arms-2tank", "priest-holy-pws-def-arms-ooc",
-             "priest-holy-pws-bear-bal", "priest-holy-pws-bear-bal-2tank"}
+             "priest-holy-pws-bear-bal", "priest-holy-pws-bear-bal-2tank",
+             "priest-holy-heal-latency", "paladin-holy-heal-latency"}
 IDS = [
     "priest-holy-pws-def-arms", "priest-holy-pws-bear-bal", "priest-holy-pws-battle-control",
     "priest-holy-pws-forced-role", "priest-holy-heal-latency", "priest-holy-dispel-magic",

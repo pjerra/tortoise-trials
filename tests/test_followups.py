@@ -181,15 +181,17 @@ class PaladinHealLatencySituationTest(unittest.TestCase):
     def load(self, name):
         return scenario.load_trial(str(ROOT / "trials" / "healers" / (name + ".json")))
 
-    def test_it_is_lighter_than_the_priest_twin_that_scores(self):
+    def test_both_heal_latency_trials_make_the_chance(self):
         pal = self.load("paladin-holy-heal-latency")["situation"]
         pri = self.load("priest-holy-heal-latency")["situation"]
         self.assertEqual(scenario.validate(self.load("paladin-holy-heal-latency")), [])
-        self.assertLessEqual(pal["mobs"]["level_delta"], pri["mobs"]["level_delta"] - 4)   # weaker mob
-        self.assertEqual(pal["mobs"]["count"], 1)
-        self.assertLess(pal["floor_pct"], pri["floor_pct"])                                # lower rescue floor
-        self.assertLessEqual(pal["hp_band"][0], pri["hp_band"][0] - 10)                    # wider band
-        self.assertGreaterEqual(pal["max_rescues_per_min"], 12)                            # as the other capped trials
+        # P3b: the paladin keeps its lighter shape, and both make the trigger fall happen
+        self.assertEqual(pal["mobs"]["level_delta"], -4)
+        for sit in (pal, pri):
+            self.assertEqual(sit["mobs"]["count"], 1)
+            self.assertEqual(sit["hp_band"], [40, 80])
+            self.assertEqual(sit["top_up_to_pct"], 45)
+            self.assertGreaterEqual(sit.get("max_rescues_per_min"), 12)
 
     def test_the_ladder_never_makes_it_harder_and_the_window_has_mobs(self):
         trial = self.load("paladin-holy-heal-latency")

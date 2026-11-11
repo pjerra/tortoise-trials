@@ -113,11 +113,18 @@ A trial is one JSON file in `trials/<group>/`. Unknown keys are rejected by `val
   `extra_bots_role` when the reply is not a re-gear (an ungeared tank is a bench artefact).
 - `situation`: how to make the situation, by `kind` (`tank_damage`, `ooc_hurt`, `ooc_buffs`,
   `cc_target` and others): which mobs, a health band to hold the target in, a floor, a pull delay.
+  `top_up_to_pct` (a number inside the band, not for ooc kinds) drops the governor's top-up to that
+  percent instead of the band middle. `reset_hire_cooldowns: true` clears the hire's cooldowns before
+  the first summon (check `hire_cooldowns_reset`). `energy_drain {first_at_s 5-170, every_s >= 20,
+  to 0-19}` (rogue `tank_damage` only) empties the hire's bar on schedule with `energy_drain` marks.
+- `opportunity` (besides `unit`, `hp_lt`/`hp_gt`, `in_combat`): `has_aura` (a non-empty list of aura
+  ids; a sample counts only when its auras intersect the list).
 - `setup_checks`: facts that must hold before a repeat counts (the guards below).
 - `opportunity`: when the bot had a reason to act (the rules only count then).
 - `rules`: each has `id`, `source` (the bot code), `expect_today`, `why_expect`, a `check`
   (metric `count`, `ratio`, `latency`, `uptime`, `first`, `rate`, `walk_metric`), `pass_if`
-  (such as `== 0`) and `min_opportunity_s`.
+  (such as `== 0`), `min_opportunity_s` and `min_reps` (a trial verdict needs at least that many
+  PASS/FAIL reps, else INCONCLUSIVE with `valid reps <k> < min_reps <m>`).
 
 Shortened example (from `trials/healers/priest-holy-pws-def-arms-2tank.json`):
 
@@ -156,7 +163,7 @@ with another kit or another group.
   `player`, `bot`, `extra_bots`, `situation` and `rules`. Dicts merge key by key (so `{"situation": {"mobs":
   {"level_delta": -2}}}` changes that one number), a list or a scalar replaces what the base has (`extra_bots` is
   replaced whole) and `null` clears a value (`"gear": null`). Explicit fields win over the `level` shortcut.
-- `rules` is `{"RULE-ID": {"pass_if": ..., "min_n": ..., "min_opportunity_s": ...}}`: those three thresholds
+- `rules` is `{"RULE-ID": {"pass_if": ..., "min_n": ..., "min_opportunity_s": ..., "min_reps": ...}}`: those four thresholds
   are the only part of a rule a variant can change, and only for a rule that exists. A variant never adds,
   drops or rewrites a rule (its `check`, `source`, `expect_today` stay the base's): one behaviour per trial.
   A `bot.spec` variant (the same behaviour with another bot build, e.g. a frost mage on a fire-mage trial)
@@ -213,6 +220,9 @@ after the level and talents):
 
 ### Rule options for latency and filtered rules
 
+- `check.trigger` may be `{"kind": "mark", "mark": "<mark kind>"}` (latency rules only): the
+  triggers are the runner marks of that kind (e.g. `energy_drain`), on the events' time base and
+  inside the scored window. The debounce and response logic is unchanged.
 - `check.debounce_responder_s` (latency rules only, a number of seconds > 0, default off): the
   responder's own cooldown. A trigger that arrives less than N s after the bot's last matching
   response (same `response` filter, any target) is skipped: it is not counted and not a miss. Use it

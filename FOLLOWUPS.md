@@ -1,4 +1,10 @@
 
+## From the 2026-11-11 bench round (P3, not in this round)
+- apply the taunt chance fix (mobs count 3, 240 s, min_reps 3) to `tank-paladin-taunt-off-healer` after this round's live check.
+- add: a druid tank kit for the bear-bal pair.
+- add: the same chance fix for `druid-resto-heal-latency`.
+- add: a sample-based "mob target" uptime rule (a direct read of who holds aggro).
+
 ## From the #1553 between-pulls runs (2026-11-08)
 - ooc_hurt: count rules include casts before the window opens (t=0.2/2.1 while fight_start is ~t=9-10 s). Rules should start at the window (fight_start mark), like tank_damage does.
 - Cast events carry a stale `dst_hp_pct` (99-100 % while the sample says 35 %); the cast rows should take hp from the nearest sample.

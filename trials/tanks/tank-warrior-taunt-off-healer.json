@@ -48,7 +48,7 @@
     "kind": "tank_damage",
     "mobs": {
       "role": "melee",
-      "count": 1,
+      "count": 3,
       "level_delta": 0,
       "refill": true
     },
@@ -82,9 +82,9 @@
     "mobs_ready",
     "config_read"
   ],
-  "duration_s": 180,
-  "repeats": 3,
-  "min_valid_s": 120,
+  "duration_s": 240,
+  "repeats": 4,
+  "min_valid_s": 160,
   "rules": [
     {
       "id": "TNK-WAR-TAUNT",
@@ -120,7 +120,8 @@
         ]
       },
       "pass_if": ">= 0.7",
-      "min_n": 5
+      "min_n": 5,
+      "min_reps": 3
     },
     {
       "id": "TNK-WAR-MOBS-ON-TANK",

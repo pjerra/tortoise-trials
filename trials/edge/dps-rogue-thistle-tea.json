@@ -66,7 +66,13 @@
     "pull_after_s": 0,
     "ooc_wait_s": 0,
     "debuff": null,
-    "max_rescues_per_min": 30
+    "max_rescues_per_min": 30,
+    "energy_drain": {
+      "first_at_s": 20,
+      "every_s": 40,
+      "to": 0
+    },
+    "reset_hire_cooldowns": true
   },
   "setup_checks": [
     "player_level",
@@ -87,7 +93,7 @@
     "config_read"
   ],
   "duration_s": 180,
-  "repeats": 3,
+  "repeats": 4,
   "min_valid_s": 120,
   "opportunity": {
     "unit": "$player",
@@ -96,19 +102,30 @@
   "rules": [
     {
       "id": "DPS-ROG-TEA",
-      "desc": "A level 60 Combat rogue that carries Thistle Tea uses it (the tea's spell is Restore Energy) within 90 s of the fight starting",
+      "desc": "A level 60 Combat rogue that carries Thistle Tea uses it (the tea's spell is Restore Energy) within 5 s of an emptied bar, at least half the time",
       "source": "ai/playerbot/strategy/rogue/RogueStrategy.cpp:88-90 (no energy available -> thistle tea at ACTION_HIGH + 5); ai/playerbot/strategy/triggers/GenericTriggers.h:65-74 (NoEnergyAvailableTrigger: energy under 20); ai/playerbot/strategy/actions/UseItemAction.h:402-412 (the action is useful only for a rogue of level 60 or more); TortoiseBots upstream/dev 0c56cf649",
       "expect_today": "?",
-      "why_expect": "the trigger fires whenever the bar is under 20, which a rogue reaches inside seconds, and the action needs the item (7676) in the bags; the hire is given 3 by name, so whether the grant lands is part of what a run shows (bot_items). Expected PASS if it does, but nothing has run it",
+      "why_expect": "the runner empties the bar on a schedule (the TortoiseBots trigger is energy under 20); the tea's 5-min cooldown is reset each rep; the first answered drain ends the chances for 300 s (the responder cooldown)",
       "check": {
-        "metric": "first",
-        "where": {
+        "metric": "latency",
+        "trigger": {
+          "kind": "mark",
+          "mark": "energy_drain"
+        },
+        "response": {
           "kind": "cast",
           "src": "$bot",
           "spell": "Restore Energy"
-        }
+        },
+        "within_s": 5,
+        "debounce_responder_s": 300,
+        "debounce_responder_spells": [
+          "Restore Energy"
+        ]
       },
-      "pass_if": "<= 90"
+      "pass_if": ">= 0.5",
+      "min_n": 1,
+      "min_reps": 3
     },
     {
       "id": "DPS-ROG-TEA-ACTIVE",

@@ -86,14 +86,17 @@ def extra_victim_index(victim):
     return int(m.group(1)) if m else 0
 
 
-def damage_step(hp, max_hp, band_low, band_top):
+def damage_step(hp, max_hp, band_low, band_top, to_pct=None):
     """The largest GM damage that keeps the victim above band_low; 0 when none is due."""
     if not max_hp:
         return 0
     percent = 100.0 * float(hp) / float(max_hp)
     if percent <= float(band_top):
         return 0
-    middle = (float(band_low) + float(band_top)) / 2.0 * float(max_hp) / 100.0
+    if to_pct is None:
+        middle = (float(band_low) + float(band_top)) / 2.0 * float(max_hp) / 100.0
+    else:
+        middle = float(to_pct) * float(max_hp) / 100.0
     cap = float(hp) - float(band_low) * float(max_hp) / 100.0
     return max(0, int(min(float(hp) - middle, cap)))
 
@@ -272,6 +275,7 @@ class Governor:
     band: tuple = (40, 90)
     floor: int = 30
     victim_guid: str = ""
+    top_up_to: object = None
     now: object = time.time
     last_damage: float = 0.0
     rescues: list = field(default_factory=list)
@@ -378,8 +382,9 @@ class Governor:
         return max(1, min(int(max_hp), int(target * max_hp / 100.0)))
 
     def _top_up(self, hp, max_hp):
+        to_pct = self.top_up_to
         if self.victim == "player":
-            dmg = damage_step(hp, max_hp, self.band[0], self.band[1])
+            dmg = damage_step(hp, max_hp, self.band[0], self.band[1], to_pct=to_pct)
             if dmg < 1:
                 return
             try:
@@ -388,7 +393,10 @@ class Governor:
                 self._log("governor damage skipped: %s" % exc)
                 return
         else:
-            middle = int((float(self.band[0]) + float(self.band[1])) / 2.0 * max_hp / 100.0)
+            if to_pct is None:
+                middle = int((float(self.band[0]) + float(self.band[1])) / 2.0 * max_hp / 100.0)
+            else:
+                middle = int(float(to_pct) * max_hp / 100.0)
             if hp <= middle:
                 return
             try:
@@ -398,8 +406,6 @@ class Governor:
                 return
         self.last_damage = self.now()
         taken = (dmg if self.victim == "player" else hp - middle) * 100.0 / max(1, max_hp)
-        self.gm_fall_pending = max(0.0, taken)
-        self.gm_fall_samples = GM_FALL_SAMPLES
 
     def _wall(self, offset=0.0):
         stamp = getattr(self.marks, "now_iso", None)
@@ -481,6 +487,7 @@ class Situation:
         self.mob_source = "summon"
         self.fight_start = None
         self.ended = ""
+        self.drain_next = None
 
     def player_pulls(self):
         """The player pulls and fights unless the victim is the hired bot (the old bot-victim flow)."""
@@ -788,6 +795,9 @@ class Situation:
         mobs = self.sit.get("mobs") or {}
         role = mobs.get("role") or "melee"
         count = int(mobs.get("count") or 1)
+        self.drain_next = None
+        if self.sit.get("reset_hire_cooldowns"):
+            self.reset_hire_cooldowns()
         made = self.summon(role, count)
         if not made and getattr(self, "summon_blocked", False):
             # a summon that went unclaimed may stand in the arena: fighting it as a world mob would leave a
@@ -834,6 +844,7 @@ class Situation:
                             band=self.band, floor=self.floor,
                             max_rescues=self.max_rescues,
                             victim_guid=self.victim_target_guid(),
+                            top_up_to=self.sit.get("top_up_to_pct"),
                             stopped=getattr(self.collector, "_stop", None), log=self.log)
         self.collector.tick_hooks.append(governor.tick)
         # an extra_bots victim leaves the player fighting ungoverned: a floor-only governor
@@ -922,7 +933,8 @@ class Situation:
                     elif now >= debuff_gone_at:
                         self.apply_debuff(int(debuff_spell))
                         debuff_gone_at = None
-                time.sleep(1.0)
+                if self.sit.get("energy_drain"):
+                    self.drain_tick(now)
         finally:
             self.collector.tick_hooks.remove(governor.tick)
             if guard_gov is not None:
@@ -945,6 +957,45 @@ class Situation:
         for the fight, so a despawned corpse ("not in view") is gone.
         """
         return alive_summons(self.agent, self.ledger, only=self.summoned, absent_is_gone=True)
+
+    def reset_hire_cooldowns(self):
+        """`reset_hire_cooldowns`: clear the hire's cooldowns before the first summon.
+
+        Item-use cooldowns (Thistle Tea's 5-min cooldown) live on the reused hire. A refused
+        line is logged and the rep carries the `energy_drain_refused` mark; a rule with zero
+        triggers then scores INCONCLUSIVE, not FAIL.
+        """
+        try:
+            self.guard.send("cooldown", self.ctx.hire_guid)
+            ok, evidence = True, "cooldown sent to the hire"
+        except Exception as exc:  # noqa: BLE001 - a refused line is logged, not fatal
+            ok, evidence = False, "cooldown refused: %s" % exc
+            self.marks.add({"kind": "energy_drain_refused", "evidence": str(exc)[:120]})
+        self.ctx.checks.append({"id": "hire_cooldowns_reset", "ok": bool(ok),
+                                "value": None, "evidence": evidence})
+        self.marks.add({"kind": "cooldowns_reset"})
+
+    def drain_tick(self, now):
+        """One `energy_drain` tick: empty the rogue hire's bar on schedule after fight_start."""
+        cfg = self.sit.get("energy_drain")
+        if not cfg or not self.fight_start:
+            return
+        if self.drain_next is None:
+            self.drain_next = float(self.fight_start) + float(cfg.get("first_at_s") or 0)
+        if float(now) < float(self.drain_next):
+            return
+        self.drain_next = float(now) + float(cfg.get("every_s") or 0)
+        sample = (getattr(self.collector, "last_sample", None) or {}).get("bot") or {}
+        try:
+            max_power = int(sample.get("max_power") or 100)
+        except (TypeError, ValueError):
+            max_power = 100
+        try:
+            self.guard.send("modify_energy", self.ctx.hire_guid, int(cfg.get("to") or 0), max_power)
+        except Exception as exc:  # noqa: BLE001 - a refused line is logged, not fatal
+            self.marks.add({"kind": "energy_drain_refused", "evidence": str(exc)[:120]})
+            return
+        self.marks.add({"kind": "energy_drain", "to": int(cfg.get("to") or 0)})
 
     def run_ooc(self):
         wait = float(self.sit.get("ooc_wait_s") or 60)
