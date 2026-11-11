@@ -109,12 +109,18 @@ class ArenaFileLockTest(unittest.TestCase):
                 with lock:
                     held.setdefault(arena["id"], []).append(index)
                 out[index] = (arena["id"], s)
-                # hold the arena until both slots hold one, like a real repeat
+                # hold the arena until both slots hold one, like a real repeat;
+                # bounded so a stuck slot fails instead of hanging the suite
+                import time as _time
+                give_up = _time.time() + 60.0
                 while True:
                     with lock:
                         if len(held) >= 2:
                             break
-                    import time as _time
+                    if _time.time() >= give_up:
+                        out[index] = (arena["id"], s, "STUCK: other slot never took an arena")
+                        s.release_arena()
+                        return
                     _time.sleep(0.01)
                 s.release_arena()
 
@@ -124,7 +130,9 @@ class ArenaFileLockTest(unittest.TestCase):
                 th.start()
             for th in threads:
                 th.join(timeout=60)
-            self.assertEqual([t.is_alive() for t in threads], [False, False])
+            alive = [t.is_alive() for t in threads]
+            self.assertEqual(alive, [False, False],
+                             "slots still running after 60 s join: %s (held=%s)" % (alive, held))
             self.assertNotEqual(out[0][0], out[1][0])
             self.assertNotIn("a", held, "the not-quiet arena is never taken")
 
