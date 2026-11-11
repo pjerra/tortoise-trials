@@ -80,7 +80,35 @@ class LeaseLost(RepeatInvalid):
     pass
 
 
-# -- helpers ---------------------------------------------------------------
+def bench_state(tool_dir):
+    """The bench checkout behind `main`: sha, detached HEAD?, dirty tracked files?
+
+    A git error (not a repo, no git) counts as unpinned: `error` is set, detached False, dirty False.
+    """
+    def git(*args):
+        try:
+            res = subprocess.run(["git", "-C", str(tool_dir)] + list(args),
+                                 capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return res
+    sha_res = git("rev-parse", "HEAD")
+    sym_res = git("symbolic-ref", "-q", "HEAD")
+    st_res = git("status", "--porcelain", "--untracked-files=no")
+    if sha_res is None or sym_res is None or st_res is None:
+        return {"sha": "", "detached": False, "dirty": False, "error": "git unavailable"}
+    if sha_res.returncode != 0:
+        err = (sha_res.stderr or sha_res.stdout or "not a git checkout").strip().splitlines()
+        return {"sha": "", "detached": False, "dirty": False,
+                "error": err[0][-160:] if err else "not a git checkout"}
+    if sym_res.returncode != 0:
+        sha = (sha_res.stdout or "").strip()
+        dirty = bool((st_res.stdout or "").strip()) if st_res.returncode == 0 else False
+        return {"sha": sha, "detached": True, "dirty": dirty, "error": None}
+    sha = (sha_res.stdout or "").strip()
+    dirty = bool((st_res.stdout or "").strip()) if st_res.returncode == 0 else False
+    return {"sha": sha, "detached": False, "dirty": dirty, "error": None}
+
 
 def stamp():
     return datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -393,11 +421,12 @@ class SlotSession:
 # -- the run ---------------------------------------------------------------
 
 class Run:
-    def __init__(self, args, binary, run_dir, slots):
+    def __init__(self, args, binary, run_dir, slots, bench=None):
         self.args = args
         self.binary = binary
         self.run_dir = run_dir
         self.slots = slots
+        self.bench = dict(bench) if isinstance(bench, dict) else {}
         self.ledger = Ledger(os.path.join(run_dir, "ledger.jsonl"))
         self.run_stamp = stamp()
         self.started = iso_now()
@@ -1266,7 +1295,12 @@ class Run:
             "refused": self.refused,
             "args": {k: getattr(self.args, k) for k in
                      ("server", "label", "repeats", "parallel", "out", "bind", "dry_run")},
+            "bench_sha": self.bench.get("sha") or "",
+            "bench_detached": bool(self.bench.get("detached")),
+            "bench_dirty": bool(self.bench.get("dirty")),
         }
+        if self.bench.get("unpinned"):
+            doc["bench_unpinned"] = True
         with open(os.path.join(self.run_dir, "RUN.json"), "w") as f:
             json.dump(doc, f, indent=2, sort_keys=True)
 
@@ -1317,6 +1351,19 @@ def _install_signals():
 
 
 def main(args):
+    bench = bench_state(TOOL_ROOT)
+    pinned = bool(bench.get("detached")) and not bench.get("dirty") and not bench.get("error")
+    override = os.environ.get("TRIALS_ALLOW_UNPINNED") == "1"
+    if not getattr(args, "dry_run", False) and not pinned and not override:
+        if bench.get("error"):
+            print("refusing to run: bench checkout is not pinned (%s)." % bench["error"], file=sys.stderr)
+        elif not bench.get("detached"):
+            print("refusing to run: bench checkout is on a branch, not a detached HEAD. "
+                  "Run from a detached worktree, or set TRIALS_ALLOW_UNPINNED=1.", file=sys.stderr)
+        else:
+            print("refusing to run: bench checkout has modified tracked files. "
+                  "Commit or stash them, or set TRIALS_ALLOW_UNPINNED=1.", file=sys.stderr)
+        return 4
     binary = resolve_binary(args)
     allowed, detail = lease.place_allowed(args.server, binary)
     if not allowed:
@@ -1349,7 +1396,10 @@ def main(args):
         print("run dir would be %s" % run_dir)
         return 0
     _install_signals()
-    run = Run(args, binary, run_dir, slots)
+    bench = dict(bench)
+    if override:
+        bench["unpinned"] = True
+    run = Run(args, binary, run_dir, slots, bench=bench)
     run.run_stamp = stamp()
     # a real run shares realmd's login window with every other trials process on this machine
     run.pacer = pacing.LoginPacer(log=run.log, debug=run.debug, state_path=pacing.DEFAULT_STATE)

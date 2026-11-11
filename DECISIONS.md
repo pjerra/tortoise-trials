@@ -2,6 +2,15 @@
 
 Short, dated notes on choices that are not obvious from the code.
 
+## 2026-11-11: runs use a pinned, detached worktree
+
+Two runs on 2026-11-10 broke because someone was editing the live `~/tortoise-trials` checkout in the
+middle of the run (an IndentationError mid-edit, and FAILED rows while the working copy was being
+edited). `trials run` now refuses to start (exit 4, before any lease or server contact, `--dry-run`
+excepted) unless the tool directory has a detached HEAD and no modified tracked files. The override
+is `TRIALS_ALLOW_UNPINNED=1` (tests and emergencies); a run with the override records
+`"bench_unpinned": true`. Every `RUN.json` records `bench_sha`, `bench_detached` and `bench_dirty`.
+
 ## 2026-11-08: explicit `level_delta: 0` is 0 (was +1)
 
 `mobs.level_delta` is read by `trl/live/ladder.base_delta` (the live situation and the difficulty ladder

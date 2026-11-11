@@ -245,7 +245,8 @@ class LeaseTest(unittest.TestCase):
                 {"server": "s", "slot": {"id": "3", "character": "C", "port": 1113}, "state": "free"},
             ]
             with unittest.mock.patch.object(run.lease, "place_allowed", lambda s, b=None: (True, "alpha, gamma")), \
-                 unittest.mock.patch.object(run.lease, "list_slots", lambda b, s: (True, rows)):
+                 unittest.mock.patch.object(run.lease, "list_slots", lambda b, s: (True, rows)), \
+                 unittest.mock.patch.dict(os.environ, {"TRIALS_ALLOW_UNPINNED": "1"}):
                 self.assertEqual(run.main(args), 4)
 
     def test_server_not_allowed_exits_4(self):
@@ -340,7 +341,8 @@ class LeaseTest(unittest.TestCase):
                  unittest.mock.patch.object(run.lease, "LeaseKeeper", KeeperStub), \
                  unittest.mock.patch.object(run.SlotSession, "setup_slot", fake_setup), \
                  unittest.mock.patch.object(run.teardown, "slot_teardown",
-                                            lambda d, binary=None: {"ok": False, "rc": 1, "detail": "down"}):
+                                            lambda d, binary=None: {"ok": False, "rc": 1, "detail": "down"}), \
+                 unittest.mock.patch.dict(os.environ, {"TRIALS_ALLOW_UNPINNED": "1"}):
                 self.assertEqual(run.main(args), 4)
         self.assertIn(("1", "L1"), released)
         self.assertIn(("2", "L2"), released)

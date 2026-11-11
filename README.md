@@ -84,8 +84,25 @@ A run folder holds `RUN.json`, one folder per trial and repeat with the raw samp
 `cleanup` is safe to run twice. It reads the run's ledger and removes what the ledger says is
 still there. If a run dies, run `cleanup` on its folder before the next run.
 
-## Trial file format
+### Running from a pinned worktree
 
+`trials run` refuses to start (exit 4, before any lease or server contact; `--dry-run` excepted)
+unless the tool directory is a git checkout with a **detached HEAD** and **no modified tracked files**
+(`git status --porcelain --untracked-files=no` is empty). Run from a detached worktree of the bench
+commit you want:
+
+```
+sha=$(git -C ~/tortoise-trials-wt-bench rev-parse HEAD)
+git -C ~/tortoise-trials worktree add --detach ~/tortoise-trials-run-${sha:0:7} $sha
+cd ~/tortoise-trials-run-${sha:0:7} && . ~/tortoise-trials/local/trials.env   # local/ is gitignored
+./trials.sh run --server <test server> --trial ... --repeats 4 --parallel 1 --label bench-fix-1111
+```
+
+The override is `TRIALS_ALLOW_UNPINNED=1` (tests and emergencies only). A run with the override
+records `"bench_unpinned": true`. Every `RUN.json` records `bench_sha` (full sha), `bench_detached`
+and `bench_dirty`, so a run always says which bench it used.
+
+## Trial file format
 A trial is one JSON file in `trials/<group>/`. Unknown keys are rejected by `validate`.
 
 - `player`: class, level, talents (tree and spell ids), stance, forced role, auras, items, and `gear`

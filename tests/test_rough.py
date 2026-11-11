@@ -725,7 +725,8 @@ class ParallelTwoTest(unittest.TestCase):
             with unittest.mock.patch.object(run.lease, "place_allowed", lambda s, b=None: (True, "alpha")), \
                  unittest.mock.patch.object(run.lease, "pick_free", lambda b, s, n: rows), \
                  unittest.mock.patch.object(run.Run, "execute", fake_execute), \
-                 unittest.mock.patch.object(run, "_install_signals", lambda: None):
+                 unittest.mock.patch.object(run, "_install_signals", lambda: None), \
+                 unittest.mock.patch.dict(os.environ, {"TRIALS_ALLOW_UNPINNED": "1"}):
                 self.assertEqual(run.main(args), 0)
             r = holder["run"]
             self.assertEqual(len(r.slots), 2)
