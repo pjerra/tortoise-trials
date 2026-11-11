@@ -7,6 +7,7 @@ config_read is retried once, then the repeat is INVALID.
 """
 
 import json
+import math
 import os
 import re
 import time
@@ -58,6 +59,9 @@ VISIBLE_REPLY = re.compile(r"\bvisible\b", re.I)
 VISIBLE_FAILED = re.compile(r"\binvisib|no such command|unknown command|incorrect syntax|"
                             r"\bsyntax\b|\busage\b|not allowed|no access|you can.?t", re.I)
 VISIBLE_WINDOW_S = 30.0
+# a bot attack on a mob this close to the player shows the party is fighting at the player's spot
+# (bench-fix-1111: the bot tank's casts landed on mobs 0-3.5 yd away, and the player was never touched)
+NEAR_PLAYER_YD = 5.0
 EQUIPMENT_OFFHAND_SLOT = 16        # EQUIPMENT_SLOT_OFFHAND (1.12): HEAD 0 .. MAINHAND 15, OFFHAND 16, RANGED 17
 REASON_NOT_VISIBLE = "player not visible to bots"
 
@@ -1421,6 +1425,83 @@ def _events_rows(rep_dir):
     return rows
 
 
+def _samples_rows(rep_dir):
+    """The rep's samples.jsonl (empty when absent: the bench-fix fixtures carry events only)."""
+    path = os.path.join(rep_dir, "samples.jsonl")
+    rows = []
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    rows.append(json.loads(line))
+    except (OSError, ValueError):
+        return []
+    return rows
+
+
+def _unit_track(samples, unit):
+    """[(t, x, y, z)] of one sample `unit`, sorted by t."""
+    out = []
+    for sample in samples or []:
+        if sample.get("unit") != unit:
+            continue
+        try:
+            out.append((float(sample.get("t")), float(sample.get("x")), float(sample.get("y")),
+                        float(sample.get("z"))))
+        except (TypeError, ValueError):
+            continue
+    out.sort()
+    return out
+
+
+def _position_at(track, t):
+    """The last position at or before `t` (within 1 s: the sampler runs at 1 Hz), else None."""
+    best = None
+    for (st, x, y, z) in track:
+        if st <= t and t - st <= 1.0:
+            best = (x, y, z)
+        elif st > t:
+            break
+    return best
+
+
+def _bot_attacks_near_player(window, samples, yards):
+    """Bot attacks on a mob that stood within `yards` of the player at that moment.
+
+    bench-fix-1111: with a bot tank holding the mob nothing touches the player in the first 30 s, and
+    the five INVALID reps had 0 bot casts at the player and 0 mob hits on it, while the tank's casts
+    and swings landed on the mob 0-3.5 yd from the player. Samples carry the positions; a rep with no
+    samples.jsonl has no evidence here and falls back to the old rules.
+    """
+    player = None
+    tracks = {}
+    for probed in window:
+        if probed.get("kind") not in ("cast", "cast_start", "damage"):
+            continue
+        if probed.get("src_role") not in ("bot", "extra") or probed.get("dst_role") != "mob":
+            continue
+        try:
+            t = float(probed.get("t") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if player is None:
+            # the player's own track: the sampler labels it "player"
+            player = _unit_track(samples, "player")
+            if not player:
+                return []
+        mob = "mob:%s" % str(probed.get("dst_guid") or "").lower()
+        track = tracks.get(mob)
+        if track is None:
+            track = tracks[mob] = _unit_track(samples, mob)
+        here = _position_at(player, t)
+        there = _position_at(track, t)
+        if here is None or there is None:
+            continue
+        if math.dist(here, there) <= float(yards):
+            yield probed
+
+
 def check_player_visible(rep_dir, trial, window_s=VISIBLE_WINDOW_S):
     """REQUIRED in-fight check `player_visible`, from the rep's events.jsonl (None for a raid trial).
 
@@ -1428,7 +1509,9 @@ def check_player_visible(rep_dir, trial, window_s=VISIBLE_WINDOW_S):
     an extra_bots hire) cast a spell at the player. A hired HEALER must do so: a mob hitting the player proves nothing
     (live3: the hidden GM was hit by mobs in 6 of 9 reps and healed in none). For a bot that is not
     a healer, or when the player is not the trial's victim (victim extra1: it is a bystander), a mob
-    attack on the player counts too (nothing obliges the bot to cast at a full-health player). An
+    attack on the player counts too (nothing obliges the bot to cast at a full-health player), and so
+    does a bot attack on a mob standing within NEAR_PLAYER_YD of the player (bench-fix-1111: a bot
+    tank holds the mob, the player is never touched, and 5 reps were INVALID for nothing). An
     ooc_buffs / ooc_hurt trial looks at its whole window. Failing = the rep is INVALID with
     "player not visible to bots".
     """
@@ -1453,10 +1536,17 @@ def check_player_visible(rep_dir, trial, window_s=VISIBLE_WINDOW_S):
     # with an extra_bots victim the player is a bystander and a mob hitting it counts
     healer = (((trial or {}).get("bot") or {}).get("role") == "healer"
               and (sit.get("victim") or "player") == "player")
-    ok = bool(casts) or (not healer and bool(hits))
-    value = {"bot_casts_on_player": len(casts), "mob_hits_on_player": len(hits), "window_s": float(window_s)}
-    evidence = "first %.0f s of the fight: bot casts on the player %d, mob hits on the player %d%s" % (
-        window_s, len(casts), len(hits),
+    # the bot-tank case: nothing obliges a bot to touch an untouched player, but a bot fighting the mob
+    # the player stands in melee with proves the bots are in the same fight, not blind to the player
+    near = ([] if (healer or casts)
+            else list(_bot_attacks_near_player(window, _samples_rows(rep_dir), NEAR_PLAYER_YD)))
+    ok = bool(casts) or (not healer and (bool(hits) or bool(near)))
+    value = {"bot_casts_on_player": len(casts), "mob_hits_on_player": len(hits),
+             "bot_attacks_near_player": len(near), "near_yd": NEAR_PLAYER_YD,
+             "window_s": float(window_s)}
+    evidence = ("first %.0f s of the fight: bot casts on the player %d, mob hits on the player %d, "
+                "bot attacks on a mob within %.0f yd of the player %d%s") % (
+        window_s, len(casts), len(hits), NEAR_PLAYER_YD, len(near),
         "" if ok else " -> %s%s" % (REASON_NOT_VISIBLE,
                                     " (a healer must cast at the player; mob hits do not prove it)"
                                     if healer else ""))

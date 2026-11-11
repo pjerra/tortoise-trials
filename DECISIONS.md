@@ -2,6 +2,56 @@
 
 Short, dated notes on choices that are not obvious from the code.
 
+## 2026-11-11: bench fix round 2 (bench-fix-1111): summon claim, marker timing, tea, forms
+
+The FAIL reviews of run bench-fix-1111 (TRIAGE in the audit folder) named a bench problem behind most
+of the INVALID and INCONCLUSIVE reps: on this core `.npc summon` prints no guid, and `summon_mob`
+claimed a new summon only within 3 yd. 39 of 14 trials' summons stayed unclaimed, each one unit of
+the right entry at 3.27-14.7 yd, and every miss set `summon_blocked` and stopped the refills for the
+rest of the repeat. New rule: when exactly one fresh unit of the entry appeared (absent from the
+pre-summon list, not ledgered, not another slot's), claim it at any distance inside the 30 yd scan;
+with zero or two or more fresh units the 3 yd claim and the miss stay, because there is no way to
+tell them apart. The unclaimed row and its log line are unchanged.
+
+Markers are now stamped BEFORE the GM line they announce, not after it returns. The refill marker
+carries the `.npc summon` send wall (`summon_mob(..., now_iso=, sent=)` fills a dict before the send;
+`Situation.add_refill_mark` uses it), and `energy_drain` stamps `marks.now_iso()` before
+`.modify energy`. bench-fix-1111: rep3 of dps-mage-threat-cap stamped its refill 5.6 s after the
+summon and all 6 counted threat hits fell in that gap; rep4 of dps-rogue-thistle-tea drank 64 ms
+before the mark and the 300 s debounce then ate every later drain.
+
+`where.not_within_s_after_mark` takes a list of specs, and the rule's `min_opportunity_s` reads the
+same filtered samples (`rules.after_mark_samples`), so a window dropped from the count carries no
+opportunity either. dps-mage-threat-cap: leaves out `fight_start` 12 s and each refill 12 s, measures
+the opportunity on the mage (`$bot` in combat: a bot tank leaves the player out of combat) and needs
+3 valid reps; one rep decided it in bench-fix-1111.
+
+`check.debounce_responder_across_reps` (needs `debounce_responder_s`) carries the responder cooldown
+over the repeat boundary: `score_rep` receives the earlier repeats' events (`score_trial`, with each
+row placed on its own rep's fight_start wall) and adds a matching response as an excluded span on
+this rep's base. dps-rogue-thistle-tea uses it because `.cooldown` does NOT reset Thistle Tea's
+5-minute item cooldown (bench-fix-1111: the bot answered every drain at least 300 s after its last
+tea, within ~10 ms, and none inside). Every in-rep behaviour is unchanged.
+
+`situation.prepull_unaura: [<aura id>]` strips those auras off the hire before the pull
+(`Situation.clear_prepull_auras`, before the first summon). priest-shadow-form-prepull uses it for
+Shadowform 15473: the hire is reused, reps 2-3 "passed" only because the form carried over, and the
+per-rep value was a coin flip.
+
+The two second-tank PWS trials (priest-holy-pws-bear-bal-2tank, priest-holy-pws-def-arms-2tank) set
+`expect_today` PASS and their descriptions become regression guards: #1553 is fixed by TortoiseBots
+5f57e84f2 / PR #1557 (PriestActions.h:43-49 -> ShouldShieldTarget, ShieldTargetPolicy.h:23-39: the
+form/stance counts as a tank even when HasOtherTank makes GetPlayerRoles return the talent role).
+Both get `min_reps 3`: def-arms passed the round on one valid rep.
+
+`player_visible` passes for a bot that is not a healer when a bot attacked a mob within 5 yd of the
+player in the first 30 s (positions from `samples.jsonl`; a rep without samples keeps the older
+rules). bench-fix-1111: 5 reps were INVALID with 0 bot casts at the player and 0 mob hits on it while
+the tank's casts and swings landed on mobs 0-3.5 yd from the player; the player was never targeted by
+any bot in those reps, so a target-list rule would not have fired, and the "group" side of the option
+is already proven by the `grouped` setup check and would make the guard vacuous. A hired healer still
+must cast at the player (the live3 hidden-GM finding), and a `bot role` reread stays as strict.
+
 ## 2026-11-11: the marked mob is taunted into combat before the fight counts (P4)
 
 The moon-marked mob never entered combat (the bench keeps it idle on purpose), so TortoiseBots' CC

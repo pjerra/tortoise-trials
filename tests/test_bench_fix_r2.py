@@ -15,7 +15,6 @@ sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.join(ROOT, "tests"))
 
 import test_live as tl  # noqa: E402
-from trl import rules as rules_mod  # noqa: E402
 from trl import scenario as scenario_mod  # noqa: E402
 from trl import score as score_mod  # noqa: E402
 from trl.live import gm_guard, setup, situations  # noqa: E402
@@ -453,6 +452,78 @@ class TwoTankRegressionGuardTest(unittest.TestCase):
             self.assertIn("Regression guard", rule["desc"], tid)
             self.assertIn("#1557", rule["why_expect"], tid)
             self.assertEqual(scenario_mod.validate(trial), [], tid)
+
+
+# ---- 7. a bot tank's nearby fight proves the player visible ------------------------------
+
+class PlayerVisibleNearbyFightTest(unittest.TestCase):
+    """bench-fix-1111: a bot tank holds the mob, the player is never touched, and the first 30 s
+    are empty -> 5 reps INVALID for nothing (threat cap @lvl50 reps 1/3/4, taunt-off-healer rep1 x2)."""
+
+    def rep(self, tmp, events, samples):
+        rep = os.path.join(tmp, "rep1")
+        os.makedirs(rep, exist_ok=True)
+        for fname, rows in (("events.jsonl", events), ("samples.jsonl", samples)):
+            with open(os.path.join(rep, fname), "w") as f:
+                for row in rows:
+                    f.write(json.dumps(row) + "\n")
+        return rep
+
+    def trial(self, role="dps", victim="player"):
+        return {"id": "t", "group": "dps", "bot": {"role": role},
+                "situation": {"kind": "tank_damage", "victim": victim}}
+
+    def bot_swing(self, t):
+        return {"t": float(t), "wall": None, "kind": "damage", "src": "bot", "src_guid": BOT,
+                "dst": "mob", "dst_guid": MOBG, "src_unit": "$bot", "dst_unit": "mob:" + MOBG,
+                "spell_id": None, "spell": None, "amount": 90, "dst_hp_pct": 95,
+                "src_role": "bot", "dst_role": "mob", "origin": "ta"}
+
+    def pos(self, t, unit, guid, x, y, z=0.0):
+        return {"t": float(t), "wall": None, "unit": unit, "guid": guid, "hp": 100, "max_hp": 100,
+                "power": 0, "max_power": 0, "auras": [], "casting": None, "in_combat": True,
+                "target": "", "x": float(x), "y": float(y), "z": float(z)}
+
+    def samples(self, mob_x):
+        rows = []
+        for t in range(0, 31):
+            rows.append(self.pos(t, "player", PLAYER, 0.0, 0.0))
+            rows.append(self.pos(t, "bot", BOT, 1.0, 1.0))
+            rows.append(self.pos(t, "mob:" + MOBG, MOBG, float(mob_x), 0.0))
+        return rows
+
+    def test_a_swing_at_a_mob_beside_the_player_makes_it_visible(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rep = self.rep(tmp, [self.bot_swing(6.0)], self.samples(2.0))
+            got = setup.check_player_visible(rep, self.trial())
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(got["value"]["bot_attacks_near_player"], 1)
+        self.assertEqual(got["value"]["mob_hits_on_player"], 0)
+
+    def test_a_swing_at_a_distant_mob_still_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rep = self.rep(tmp, [self.bot_swing(6.0)], self.samples(30.0))
+            got = setup.check_player_visible(rep, self.trial())
+        self.assertFalse(got["ok"], got)
+        self.assertEqual(got["value"]["bot_attacks_near_player"], 0)
+        self.assertIn(REASON, got["evidence"])
+
+    def test_a_hired_healer_still_needs_a_cast_at_the_player(self):
+        # live3: the hidden GM was hit by mobs and healed in none; the new branch must not mask that
+        with tempfile.TemporaryDirectory() as tmp:
+            rep = self.rep(tmp, [self.bot_swing(6.0)], self.samples(2.0))
+            got = setup.check_player_visible(rep, self.trial(role="healer"))
+        self.assertFalse(got["ok"], got)
+
+    def test_a_rep_without_samples_keeps_the_old_answer(self):
+        # the bench-fix fixtures carry events only: no positions, no new evidence
+        with tempfile.TemporaryDirectory() as tmp:
+            rep = os.path.join(tmp, "rep1")
+            os.makedirs(rep)
+            with open(os.path.join(rep, "events.jsonl"), "w") as f:
+                f.write(json.dumps(self.bot_swing(6.0)) + "\n")
+            got = setup.check_player_visible(rep, self.trial())
+        self.assertFalse(got["ok"], got)
 
 
 if __name__ == "__main__":
