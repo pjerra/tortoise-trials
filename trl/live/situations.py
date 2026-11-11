@@ -512,6 +512,7 @@ class Situation:
         self.arena_state_dir = arena_state_dir
         self._arena_held = None        # the held arena span, released on every exit path
         self.current_arena = None
+        self.prepull_unaura = [int(x) for x in (self.sit.get("prepull_unaura") or [])]
         self.summoned = []
         self.mob_source = "summon"
         self.last_summon_wall = ""      # the `.npc summon` send wall of the last claimed summon
@@ -872,6 +873,8 @@ class Situation:
         role = mobs.get("role") or "melee"
         count = int(mobs.get("count") or 1)
         self.drain_next = None
+        if self.prepull_unaura:
+            self.clear_prepull_auras()
         if self.sit.get("reset_hire_cooldowns"):
             self.reset_hire_cooldowns()
         made = self.summon(role, count)
@@ -1031,6 +1034,24 @@ class Situation:
         for the fight, so a despawned corpse ("not in view") is gone.
         """
         return alive_summons(self.agent, self.ledger, only=self.summoned, absent_is_gone=True)
+
+    def clear_prepull_auras(self):
+        """`prepull_unaura`: strip the listed auras off the hire before the pull.
+
+        The hire is reused across repeats, so a form it cast in an earlier repeat is still up when
+        the next one starts (bench-fix-1111: reps 2-3 of priest-shadow-form-prepull had Shadowform
+        from the rep before, and the per-rep value was a coin flip). `.unaura <id>` on the hire makes
+        every repeat test the out-of-combat cast. A refused line is logged, never fatal.
+        """
+        if not self.ctx.hire_guid:
+            return
+        for spell in self.prepull_unaura:
+            try:
+                self.guard.send("unaura", self.ctx.hire_guid, int(spell))
+            except Exception as exc:  # noqa: BLE001 - the prepull rule still scores the rep
+                self.log("prepull unaura %s refused: %s" % (spell, exc))
+                continue
+            self.marks.add({"kind": "prepull_unaura", "spell": int(spell)})
 
     def add_refill_mark(self, guid, **extra):
         """The `refill` marker, stamped with the `.npc summon` SEND wall (bench-fix-1111).

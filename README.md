@@ -118,6 +118,9 @@ A trial is one JSON file in `trials/<group>/`. Unknown keys are rejected by `val
   the first summon (check `hire_cooldowns_reset`; it does NOT clear an item cooldown such as Thistle
   Tea's). `energy_drain {first_at_s 5-170, every_s >= 20, to 0-19}` (rogue `tank_damage` only)
   empties the hire's bar on schedule with `energy_drain` marks, stamped at the `.modify energy` send.
+  `prepull_unaura: [<aura id>, ...]` strips those auras off the hire before the pull: the hire is
+  reused between repeats, so a form an earlier repeat cast (e.g. Shadowform 15473) would otherwise
+  still be up.
 - `opportunity` (besides `unit`, `hp_lt`/`hp_gt`, `in_combat`): `has_aura` (a non-empty list of aura
   ids; a sample counts only when its auras intersect the list).
 - `setup_checks`: facts that must hold before a repeat counts (the guards below).

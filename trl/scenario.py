@@ -63,7 +63,7 @@ EXTRA_ITEM_FIELDS = {"name", "count"}
 SIT_FIELDS = {"kind", "mobs", "hp_band", "floor_pct", "victim", "pull_after_s",
               "ooc_wait_s", "debuff", "refill", "roles", "max_rescues_per_min",
               "hurt_every_s", "adaptive", "top_up_to_pct", "reset_hire_cooldowns",
-              "energy_drain"}
+              "energy_drain", "prepull_unaura"}
 TALENTS_FIELDS = {"tree", "spells"}
 OPPORTUNITY_FIELDS = {"unit", "hp_lt", "hp_gt", "in_combat", "has_aura"}
 MOBS_FIELDS = {"role", "count", "level_delta", "refill", "refill_every_s"}
@@ -788,6 +788,12 @@ def validate(trial, spells_path=None):
                         _err(errs, "%s: energy_drain every_s must be an int >= 20" % tid)
                     if (isinstance(to, bool) or not isinstance(to, int) or not 0 <= to <= 19):
                         _err(errs, "%s: energy_drain to must be an int 0-19" % tid)
+            strip = sit.get("prepull_unaura")
+            if strip is not None:
+                if (not isinstance(strip, list) or not strip
+                        or any(isinstance(x, bool) or not isinstance(x, int) or not 1 <= x <= 999999
+                               for x in strip)):
+                    _err(errs, "%s: prepull_unaura must be a non-empty list of aura/spell ids" % tid)
             if sit.get("kind") == "ooc_hurt":
                 # no mobs: the victim is hurt by a GM line, out of combat, inside hp_band
                 if (isinstance(band, list) and len(band) == 2

@@ -379,5 +379,64 @@ class TeaCrossRepCooldownTest(unittest.TestCase):
                             for e in scenario_mod.validate(missing)))
 
 
+# ---- 5. Shadowform is stripped off the hire before every rep -----------------------------
+
+SHADOW_TRIAL = os.path.join(ROOT, "trials", "healers", "priest-shadow-form-prepull.json")
+
+
+def load_shadow():
+    with open(SHADOW_TRIAL) as f:
+        return json.load(f)
+
+
+class PrepullUnauraTest(unittest.TestCase):
+    def situation(self, sit, guard=None, log=None):
+        agent = tl.FakeAgent()
+        return situations.Situation(agent, {"id": "t", "player": {"level": 40}, "situation": sit},
+                                    guard or SpendGuard(Clock()), tl.new_ledger(tempfile.mkdtemp()),
+                                    tl.FakeMarks(), tl.StubCollector(),
+                                    situations.SitContext(player_guid=PLAYER, bot_name="Helper",
+                                                          hire_guid=BOT),
+                                    arenas=[], mobs={}, log=log)
+
+    def test_the_hire_is_stripped_before_the_summon(self):
+        # reps 2-3 of priest-shadow-form-prepull "passed" only because the form carried over
+        order = []
+
+        class Guard:
+            def send(self, kind, target=None, *args):
+                order.append((kind, target) + tuple(args))
+                if kind == "cooldown":
+                    return ".cooldown"
+                return ".unaura %s" % args[0]
+
+        sit = self.situation({"kind": "tank_damage", "prepull_unaura": [15473],
+                              "mobs": {"role": "melee", "count": 1}}, guard=Guard())
+        sit.acquire_arena = lambda: {"id": "a1"}
+        sit.summon = lambda role, count, near_player=True: order.append(("summon", role, count)) or []
+        sit.world_pull = lambda: None
+        sit.run()
+        self.assertEqual(order, [("unaura", BOT, 15473), ("summon", "melee", 1)])
+
+    def test_a_refused_prepull_line_is_logged_and_not_fatal(self):
+        class Refusing:
+            def send(self, kind, target=None, *args):
+                raise RuntimeError("not in view")
+
+        logs = []
+        sit = self.situation({"kind": "tank_damage", "prepull_unaura": [15473]},
+                             guard=Refusing(), log=logs.append)
+        sit.clear_prepull_auras()
+        self.assertTrue(any("refused" in line for line in logs))
+
+    def test_the_trial_strips_shadowform_and_validates(self):
+        trial = load_shadow()
+        self.assertEqual(trial["situation"]["prepull_unaura"], [15473])
+        self.assertEqual(scenario_mod.validate(trial), [])
+        for bad in ([], "15473", [0], [True]):
+            trial["situation"]["prepull_unaura"] = bad
+            self.assertTrue(any("prepull_unaura" in e for e in scenario_mod.validate(trial)), bad)
+
+
 if __name__ == "__main__":
     unittest.main()
