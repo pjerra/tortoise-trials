@@ -438,5 +438,22 @@ class PrepullUnauraTest(unittest.TestCase):
             self.assertTrue(any("prepull_unaura" in e for e in scenario_mod.validate(trial)), bad)
 
 
+# ---- 6. the two second-tank PWS trials are regression guards now -------------------------
+
+class TwoTankRegressionGuardTest(unittest.TestCase):
+    TRIALS = {"priest-holy-pws-def-arms-2tank": "PRI-PWS-DEF-ARMS-2TANK",
+              "priest-holy-pws-bear-bal-2tank": "PRI-PWS-BEAR-BAL-2TANK"}
+
+    def test_the_stale_fail_expectation_is_gone(self):
+        for tid, rid in self.TRIALS.items():
+            trial = scenario_mod.load_trial(os.path.join(ROOT, "trials", "healers", tid + ".json"))
+            rule = [r for r in trial["rules"] if r["id"] == rid][0]
+            self.assertEqual(rule["expect_today"], "PASS", tid)
+            self.assertEqual(rule["min_reps"], 3, tid)
+            self.assertIn("Regression guard", rule["desc"], tid)
+            self.assertIn("#1557", rule["why_expect"], tid)
+            self.assertEqual(scenario_mod.validate(trial), [], tid)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -93,10 +93,10 @@
   "rules": [
     {
       "id": "PRI-PWS-DEF-ARMS-2TANK",
-      "desc": "Holy priest casts no Power Word: Shield on a Defensive-Stance Arms warrior above the critical band in combat, with a Protection paladin tank hired as a second tank in the group",
+      "desc": "Regression guard for #1553: a Holy priest casts no Power Word: Shield on a Defensive-Stance Arms warrior above the critical band in combat, with a Protection paladin hired as a second tank in the group",
       "source": "ai/playerbot/strategy/priest/PriestActions.h:42; ai/playerbot/policy/heal/ShieldTargetPolicy.h:16; ai/playerbot/PlayerbotAI.cpp:4007; ai/playerbot/AiFactory.cpp:491-504,520-576,597-611; issue #1553",
-      "expect_today": "FAIL",
-      "why_expect": "#1553 reproduces only with a second tank in the group. With a hired Protection paladin in the party, HasOtherTank (AiFactory.cpp:520-576) returns true for the warrior (the paladin has the tank strategy / Protection talents), so GetPlayerRoles (:597-611) returns GetTalentRoles(player) = Arms = DPS instead of reading Defensive Stance as TANK; the priest then treats the warrior as a DPS and shields him above the critical band. Expected FAIL (>= 1 shield on the warrior above critical) until #1553 is fixed",
+      "expect_today": "PASS",
+      "why_expect": "this pinned #1553, and #1553 is fixed (TortoiseBots 5f57e84f2, PR #1557), so the expectation is PASS: the trial now guards the fix. The bug reproduced only with a second tank: with the hired paladin in the party, HasOtherTank (AiFactory.cpp:520-576) returns true for the warrior and GetPlayerRoles (:597-611) returns GetTalentRoles(player) = Arms = DPS instead of reading Defensive Stance as TANK, so the priest shielded a tank read as a DPS above the critical band. PriestActions.h:43-49 now passes TankForShield(target, ..., warrior && HasAura(71), druid && (HasAura 5487 || 9634)) into ShouldShieldTarget (ShieldTargetPolicy.h:23-39): Defensive Stance counts as a tank whatever GetPlayerRoles says. The bench-fix-1111 run showed 0 shields in its one valid rep, so min_reps 3 keeps a single rep from deciding the guard",
       "check": {
         "metric": "count",
         "where": {
@@ -109,7 +109,8 @@
         }
       },
       "pass_if": "== 0",
-      "min_opportunity_s": 90
+      "min_opportunity_s": 90,
+      "min_reps": 3
     },
     {
       "id": "PRI-PWS-DEF-ARMS-2TANK-STANCE",

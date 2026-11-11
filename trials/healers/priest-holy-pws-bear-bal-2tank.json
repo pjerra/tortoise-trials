@@ -92,10 +92,10 @@
   "rules": [
     {
       "id": "PRI-PWS-BEAR-BAL-2TANK",
-      "desc": "Holy priest casts no Power Word: Shield on a Balance-talent druid in Dire Bear Form above the critical band in combat, with a Protection paladin tank hired as a second tank in the group",
+      "desc": "Regression guard for #1553: a Holy priest casts no Power Word: Shield on a Balance-talent druid in Dire Bear Form above the critical band in combat, with a Protection paladin hired as a second tank in the group",
       "source": "ai/playerbot/strategy/priest/PriestActions.h:42; ai/playerbot/policy/heal/ShieldTargetPolicy.h:16; ai/playerbot/PlayerbotAI.cpp:4007; ai/playerbot/AiFactory.cpp:491-504,520-576,597-611; issue #1553; ai/playerbot/AiFactory.cpp:248-345 (druid tab 0 = DPS)",
-      "expect_today": "FAIL",
-      "why_expect": "#1553 reproduces only with a second tank in the group. With a hired Protection paladin in the party, HasOtherTank (AiFactory.cpp:520-576) returns true for the druid, so GetPlayerRoles (:597-611) returns GetTalentRoles(player) = Balance = DPS instead of reading Dire Bear Form as TANK; the priest then treats the druid as a DPS and shields him above the critical band. Expected FAIL (>= 1 shield on the druid above critical) until #1553 is fixed",
+      "expect_today": "PASS",
+      "why_expect": "this pinned #1553, and #1553 is fixed (TortoiseBots 5f57e84f2, PR #1557), so the expectation is PASS: the trial now guards the fix. The bug reproduced only with a second tank: with the hired paladin in the party, HasOtherTank (AiFactory.cpp:520-576) returns true for the druid and GetPlayerRoles (:597-611) returns GetTalentRoles(player) = Balance = DPS instead of reading Dire Bear Form as TANK, so the priest shielded a tank read as a DPS above the critical band. PriestActions.h:43-49 now passes TankForShield(..., druid && (HasAura 5487 || 9634)) into ShouldShieldTarget (ShieldTargetPolicy.h:23-39): the bear form counts as a tank whatever GetPlayerRoles says. Tortoise-trials measured 16 shields before the fix and 0 after, and the bench-fix-1111 run had 0 in all 3 valid reps. A shield above critical is the regression; min_reps 3 because previous rounds let one valid rep decide the trial",
       "check": {
         "metric": "count",
         "where": {
@@ -108,7 +108,8 @@
         }
       },
       "pass_if": "== 0",
-      "min_opportunity_s": 90
+      "min_opportunity_s": 90,
+      "min_reps": 3
     },
     {
       "id": "PRI-PWS-BEAR-BAL-2TANK-FORM",

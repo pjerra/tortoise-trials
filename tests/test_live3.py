@@ -743,9 +743,13 @@ class DefArmsExpectationTest(unittest.TestCase):
         for needle in ("NOT a before-case", "t1106g", "PASS for both builds", "HasOtherTank", "AiFactory.cpp:503"):
             self.assertIn(needle, why)
 
-    def test_the_two_tank_trial_stays_the_before_case(self):
+    def test_the_two_tank_trial_is_a_regression_guard_now(self):
+        # #1553 is fixed (TortoiseBots 5f57e84f2, PR #1557): the stale FAIL was what bench-fix-1111
+        # reported as "expected FAIL, got PASS"
         rule = trh.rule_of(trial("priest-holy-pws-def-arms-2tank"), "PRI-PWS-DEF-ARMS-2TANK")
-        self.assertEqual(rule["expect_today"], "FAIL")
+        self.assertEqual(rule["expect_today"], "PASS")
+        self.assertIn("#1557", rule["why_expect"])
+        self.assertIn("Regression guard", rule["desc"])
 
 
 # ---------------------------------------------------------------------------------------------

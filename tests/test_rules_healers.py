@@ -547,7 +547,8 @@ class ShadowformTest(RepMixin, unittest.TestCase):
 # test_sources_point_at_real_lines and the validate/unique-id tests cover the new files
 TWO_TANK = ["priest-holy-pws-def-arms-2tank", "priest-holy-pws-bear-bal-2tank"]
 IDS.extend(TWO_TANK)
-EXPECT.update({"PRI-PWS-DEF-ARMS-2TANK": "FAIL", "PRI-PWS-BEAR-BAL-2TANK": "FAIL"})
+# #1553 is fixed (TortoiseBots 5f57e84f2, PR #1557): the two second-tank trials are regression guards now
+EXPECT.update({"PRI-PWS-DEF-ARMS-2TANK": "PASS", "PRI-PWS-BEAR-BAL-2TANK": "PASS"})
 # live3: the control with a hired BOT warrior (extra_bots) forced to the dps role
 IDS.append("priest-holy-pws-bot-warrior-control")
 EXPECT.update({"PRI-PWS-BOT-WARRIOR-CONTROL": "PASS"})
@@ -578,7 +579,10 @@ class TwoTankTrialFilesTest(unittest.TestCase):
     def test_two_tank_rules_cite_the_second_tank_lines_and_the_issue(self):
         for tid, rid in zip(TWO_TANK, ("PRI-PWS-DEF-ARMS-2TANK", "PRI-PWS-BEAR-BAL-2TANK")):
             rule = rule_of(load(tid), rid)
-            self.assertEqual(rule["expect_today"], "FAIL")
+            # the expectation is stale on 4180cde: #1553 was fixed by TortoiseBots PR #1557
+            self.assertEqual(rule["expect_today"], "PASS")
+            self.assertEqual(rule["min_reps"], 3)
+            self.assertIn("Regression guard", rule["desc"])
             for text in (rule["source"], rule["why_expect"]):
                 self.assertIn("1553", text + rule["source"])
             self.assertIn("520-576", rule["source"])
@@ -586,6 +590,7 @@ class TwoTankTrialFilesTest(unittest.TestCase):
             self.assertIn("AiFactory.cpp:520-576", rule["why_expect"])
             self.assertIn("597-611", rule["why_expect"])
             self.assertIn("#1553", rule["why_expect"])
+            self.assertIn("#1557", rule["why_expect"])
             self.assertEqual(rule["pass_if"], "== 0")
             self.assertEqual(rule["check"], rule_of(load(tid.replace("-2tank", "")),
                                                     rid.replace("-2TANK", ""))["check"])

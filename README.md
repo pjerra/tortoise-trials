@@ -144,7 +144,7 @@ Shortened example (from `trials/healers/priest-holy-pws-def-arms-2tank.json`):
                 "hp_band": [40, 90], "floor_pct": 12, "victim": "player"},
   "opportunity": {"unit": "$player", "hp_lt": 90, "hp_gt": "$critical", "in_combat": true},
   "rules": [{"id": "PRI-PWS-DEF-ARMS-2TANK", "source": "ai/playerbot/AiFactory.cpp:520-576,597-611",
-             "expect_today": "FAIL",
+             "expect_today": "PASS",
              "check": {"metric": "count", "where": {"kind": "cast", "src": "$bot", "dst": "$player",
                        "spell": "Power Word: Shield", "dst_hp_gt": "$critical", "in_combat": true}},
              "pass_if": "== 0", "min_opportunity_s": 90}]
