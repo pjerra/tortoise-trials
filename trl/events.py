@@ -123,6 +123,92 @@ def _merge_spans(spans):
             out.append((a, b, w))
     return out
 
+def _time_base(marks, samples):
+    """The fight_start wall (or setup_ok when no pull): ONE base for samples and raws alike."""
+    base_wall = None
+    for mark in marks or []:
+        if mark.get("kind") == "fight_start":
+            base_wall = _wall_secs(mark.get("wall"))
+            break
+    if base_wall is None:
+        for mark in marks or []:
+            if mark.get("kind") == "setup_ok":
+                base_wall = _wall_secs(mark.get("wall"))
+                break
+    if base_wall is None:
+        base_wall = _wall_secs((samples[0].get("wall") if samples else None)) or 0.0
+    return base_wall
+
+
+def _mono_offset(samples):
+    """Median (sample wall - mono_ms): the agent's monotonic clock on the runner's steady wall.
+
+    The host wall clock steps back ~2-3 s every ~32 s and the agent stamps its events with that
+    clock too (`time`). Events also carry `mono_ms` (the same axis `status.mono_ms` reports):
+    when the samples carry the status mono_ms next to the runner's steady wall, an event's time
+    is that offset plus its mono_ms. Old runs (no mono_ms in the samples) keep the `time` rebase.
+    """
+    offsets = sorted(
+        w - float(smp["mono_ms"]) / 1000.0
+        for smp in samples or []
+        for w in [_wall_secs(smp.get("wall"))]
+        if w is not None and smp.get("mono_ms") is not None)
+    return offsets[len(offsets) // 2] if offsets else None
+
+
+def _raw_time(raw, base_wall, mono_offset):
+    """A raw row's re-based seconds (the normaliser's `t`): mono_ms first, then ISO wall."""
+    try:
+        fallback = float(raw.get("t", 0.0))
+    except (TypeError, ValueError):
+        fallback = 0.0
+    t = _rewall(raw.get("time"), base_wall)
+    if t is None:
+        t = fallback
+    if mono_offset is not None and raw.get("mono_ms") is not None and base_wall:
+        try:
+            t = mono_offset + float(raw["mono_ms"]) / 1000.0 - base_wall
+        except (TypeError, ValueError):
+            pass
+    try:
+        return float(t)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def attack_victims(raws, marks, samples):
+    """Per-attacker [(seq, t, victim)] from attack_start (a victim) / attack_stop (no victim).
+
+    `raws` are the raw agent rows (seq, time, mono_ms, source/target guids); times are re-based
+    onto the fight_start wall with the normaliser's own clock (`_raw_time`, rounded like
+    events), one entry per packet in file order. A stop means the attacker has no victim
+    (None), not "unknown". `seq` is None when the packet carries none.
+    """
+    base_wall = _time_base(marks, samples)
+    mono = _mono_offset(samples)
+    by_guid = {}
+    for raw in raws or []:
+        kind = raw.get("kind")
+        if kind not in ("attack_start", "attack_stop"):
+            continue
+        guid = _side_guid(raw, "source")
+        if not guid:
+            continue
+        try:
+            seq = int(raw.get("seq")) if raw.get("seq") is not None else None
+        except (TypeError, ValueError):
+            seq = None
+        t = _raw_time(raw, base_wall, mono)
+        victim = None
+        if kind == "attack_start":
+            victim = _side_guid(raw, "target") or None
+        by_guid.setdefault(guid, []).append((seq, round(t, 2), victim))
+    # (t, file order): the stable sort keeps file order within equal t, which is seq order
+    # from the agent's single stream. The matcher takes the last entry below the scored seq.
+    for rows in by_guid.values():
+        rows.sort(key=lambda item: item[1])
+    return by_guid
+
 
 def normalise(rep_dir, trial):
     """Write events.jsonl in rep_dir; return the rows list.
@@ -153,18 +239,7 @@ def normalise(rep_dir, trial):
     # t = wall - fight_start wall (or setup_ok when no pull): ONE base for
     # samples and raws alike. Re-base rows carrying an ISO wall; rows with
     # no usable wall keep their (already re-based) t.
-    base_wall = None
-    for mark in marks:
-        if mark.get("kind") == "fight_start":
-            base_wall = _wall_secs(mark.get("wall"))
-            break
-    if base_wall is None:
-        for mark in marks:
-            if mark.get("kind") == "setup_ok":
-                base_wall = _wall_secs(mark.get("wall"))
-                break
-    if base_wall is None:
-        base_wall = _wall_secs((samples[0].get("wall") if samples else None)) or 0.0
+    base_wall = _time_base(marks, samples)
 
     # Excluded spans in re-based seconds (ONE source for score/rules: the
     # kind: excluded rows below). ISO from/to are re-based; numeric from/to
@@ -184,25 +259,10 @@ def normalise(rep_dir, trial):
                 excluded.append((w - base_wall, w - base_wall + 3.0, "floor"))
     excluded = _merge_spans(excluded)
 
-    # live3: the host wall clock (WSL2) steps back ~2-3 s every ~32 s, and the agent stamps its
-    # events with that clock too (`time`), so events ran backwards in blocks. Events also carry
-    # `mono_ms` (the agent's monotonic axis, the same one `status.mono_ms` reports): when the
-    # samples carry the status mono_ms next to the runner's steady wall, an event's time is that
-    # offset plus its mono_ms. Old runs (no mono_ms in the samples) keep the `time` rebase.
-    offsets = sorted(
-        w - float(smp["mono_ms"]) / 1000.0
-        for smp in samples
-        for w in [_wall_secs(smp.get("wall"))]
-        if w is not None and smp.get("mono_ms") is not None)
-    mono_offset = offsets[len(offsets) // 2] if offsets else None
-
-    def rebase(value, fallback):
-        secs = _wall_secs(value)
-        if secs is None:
-            return fallback
-        if base_wall and abs(base_wall) > 1e-9:
-            return secs - base_wall
-        return fallback
+    # The host wall clock steps back ~2-3 s every ~32 s and the agent stamps its
+    # events with that clock too (`time`); `_mono_offset` recovers the agent's
+    # monotonic axis from the samples. Old runs (no mono_ms) keep the `time` rebase.
+    mono_offset = _mono_offset(samples)
 
     def role_of(guid):
         if guid and guid == player:
@@ -310,22 +370,13 @@ def normalise(rep_dir, trial):
         if kind is None:
             dropped_kinds[row.get("kind")] = dropped_kinds.get(row.get("kind"), 0) + 1
             continue
-        try:
-            fallback = float(row.get("t", 0.0))
-        except (TypeError, ValueError):
-            fallback = 0.0
-        t = rebase(row.get("time"), fallback)
-        if mono_offset is not None and row.get("mono_ms") is not None and base_wall:
-            try:
-                t = mono_offset + float(row["mono_ms"]) / 1000.0 - base_wall
-            except (TypeError, ValueError):
-                pass
-        try:
-            t = float(t)
-        except (TypeError, ValueError):
-            t = fallback
+        t = _raw_time(row, base_wall, mono_offset)
         src_guid = _side_guid(row, "source")
         dst_guid = _side_guid(row, "target")
+        try:
+            seq = int(row.get("seq")) if row.get("seq") is not None else None
+        except (TypeError, ValueError):
+            seq = None
         spell_id = row.get("spell_id")
         try:
             spell_id = int(spell_id) if spell_id is not None else None
@@ -339,6 +390,7 @@ def normalise(rep_dir, trial):
             "t": round(t, 2),
             "wall": row.get("time"),
             "kind": kind,
+            "seq": seq,
             "src": _side_name(row, "source"),
             "src_guid": src_guid,
             "dst": _side_name(row, "target"),

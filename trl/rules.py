@@ -146,6 +146,43 @@ def _at(samples_by_guid, guid, t):
             break
     return best
 
+def _packet_victim(victims_by_guid, guid, t, seq=None):
+    """(victim, decided): the attacker's victim from its last attack_start/stop packet.
+
+    Reads the per-attacker (seq, t, victim) table (attack_victims in trl/events.py) and takes
+    the last entry strictly below the scored event's seq, falling back to (t, file order) when
+    seqs are missing. An attack_stop entry (victim None) means the attacker has no victim, so
+    `decided` is still True. Only a packet within the last 5 s decides: anything older is no
+    fresher than the 1 Hz sample it replaces, so the caller falls back to the sample.
+    """
+    rows = (victims_by_guid or {}).get(str(guid or "").lower()) or []
+    try:
+        t = float(t)
+    except (TypeError, ValueError):
+        return None, False
+    try:
+        seq = int(seq) if seq is not None else None
+    except (TypeError, ValueError):
+        seq = None
+    victim = None
+    decided = False
+    for (vseq, vt, entry) in rows:
+        try:
+            vt = float(vt)
+        except (TypeError, ValueError):
+            continue
+        if seq is not None and vseq is not None:
+            if vseq >= seq:
+                break
+        elif vt > t:
+            break
+        if t - vt <= 5.0:
+            victim = entry
+            decided = True
+        else:
+            decided = False
+    return victim, decided
+
 
 def _unit_hp(samples_by_guid, guid, t):
     sample = _at(samples_by_guid, guid, t)
@@ -274,13 +311,18 @@ def _matches(row, where, samples_by_guid, ctx, trial):
     for key in ("src_target_of", "dst_target_of"):
         if key in where and where[key] is not None:
             side = key.split("_")[0] + "_guid"
-            sample = _at(samples_by_guid, row.get(side), row.get("t", 0.0))
-            if sample is None:
-                return False
+            victims = ctx.get("victims_by_guid") if isinstance(ctx, dict) else None
+            victim, decided = _packet_victim(victims, row.get(side), row.get("t", 0.0),
+                                            row.get("seq"))
+            if not decided:
+                sample = _at(samples_by_guid, row.get(side), row.get("t", 0.0))
+                if sample is None:
+                    return False
+                victim = str(sample.get("target") or "").lower() or None
             want = str(where[key]).lower()
             guids = (ctx.get("guids") or {}) if isinstance(ctx, dict) else {}
             alias = _alias_map(guids).get(want, want)
-            if str(sample.get("target") or "").lower() != str(alias or "").lower():
+            if str(victim or "").lower() != str(alias or "").lower():
                 return False
     if "src_within_of_marked" in where and where["src_within_of_marked"] is not None:
         try:

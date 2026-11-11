@@ -223,7 +223,7 @@ def _ctx(run_dir, trial, setup, window=None):
 def _load_rep_rows(rep_dir, trial):
     setup = _read_json(os.path.join(rep_dir, "setup.json"), {}) or {}
     if not os.path.exists(os.path.join(rep_dir, "setup.json")):
-        return None, None, None, None, True
+        return None, None, None, None, None, True
     samples = _read_jsonl(os.path.join(rep_dir, "samples.jsonl"))
     marks = _read_jsonl(os.path.join(rep_dir, "marks.jsonl"))
     rows = _read_jsonl(os.path.join(rep_dir, "events.jsonl"))
@@ -231,7 +231,11 @@ def _load_rep_rows(rep_dir, trial):
         rows = _events.normalise(rep_dir, trial)
         samples = _read_jsonl(os.path.join(rep_dir, "samples.jsonl"))
         marks = _read_jsonl(os.path.join(rep_dir, "marks.jsonl"))
-    return setup, samples, marks, rows, False
+    # The victim table needs the raw agent packets (attack_start/stop), which the
+    # normaliser drops; build it here once per rep the same way samples_by_guid is built.
+    raw = _read_jsonl(os.path.join(rep_dir, "raw-ta.jsonl"))
+    victims = _events.attack_victims(raw, marks, samples) if raw else {}
+    return setup, samples, marks, rows, victims, False
 
 
 def cut_short_reason(marks, scored):
@@ -251,7 +255,7 @@ def cut_short_reason(marks, scored):
 
 
 def score_rep(rep_dir, trial):
-    setup, samples, marks, rows, missing = _load_rep_rows(rep_dir, trial)
+    setup, samples, marks, rows, victims, missing = _load_rep_rows(rep_dir, trial)
     if missing:
         # A rep dir without setup.json is INVALID with a reason (not dropped).
         reason = "rep without setup.json"
@@ -268,6 +272,7 @@ def score_rep(rep_dir, trial):
     lo, hi, end_missing = _fight_window(marks, samples)
     window = (lo, hi) if lo is not None else None
     ctx = _ctx(run_dir, trial, setup, window)
+    ctx["victims_by_guid"] = victims or {}
     excluded = _excluded_spans(rows, marks)
     out = {"trial": trial.get("id"), "rep": os.path.basename(rep_dir.rstrip("/")),
            "ok_setup": bool(setup.get("ok")), "rules": [],
