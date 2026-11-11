@@ -406,6 +406,8 @@ class Governor:
                 return
         self.last_damage = self.now()
         taken = (dmg if self.victim == "player" else hp - middle) * 100.0 / max(1, max_hp)
+        self.gm_fall_pending = max(0.0, taken)
+        self.gm_fall_samples = GM_FALL_SAMPLES
 
     def _wall(self, offset=0.0):
         stamp = getattr(self.marks, "now_iso", None)
@@ -974,6 +976,7 @@ class Situation:
                         debuff_gone_at = None
                 if self.sit.get("energy_drain"):
                     self.drain_tick(now)
+                time.sleep(1.0)
         finally:
             self.collector.tick_hooks.remove(governor.tick)
             if guard_gov is not None:
