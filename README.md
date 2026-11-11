@@ -115,8 +115,9 @@ A trial is one JSON file in `trials/<group>/`. Unknown keys are rejected by `val
   `cc_target` and others): which mobs, a health band to hold the target in, a floor, a pull delay.
   `top_up_to_pct` (a number inside the band, not for ooc kinds) drops the governor's top-up to that
   percent instead of the band middle. `reset_hire_cooldowns: true` clears the hire's cooldowns before
-  the first summon (check `hire_cooldowns_reset`). `energy_drain {first_at_s 5-170, every_s >= 20,
-  to 0-19}` (rogue `tank_damage` only) empties the hire's bar on schedule with `energy_drain` marks.
+  the first summon (check `hire_cooldowns_reset`; it does NOT clear an item cooldown such as Thistle
+  Tea's). `energy_drain {first_at_s 5-170, every_s >= 20, to 0-19}` (rogue `tank_damage` only)
+  empties the hire's bar on schedule with `energy_drain` marks, stamped at the `.modify energy` send.
 - `opportunity` (besides `unit`, `hp_lt`/`hp_gt`, `in_combat`): `has_aura` (a non-empty list of aura
   ids; a sample counts only when its auras intersect the list).
 - `setup_checks`: facts that must hold before a repeat counts (the guards below).
@@ -241,8 +242,9 @@ itself or a hire (the runner resets the hire's cooldowns before the first summon
   triggers per source before anything is answered.
 - `check.where.not_within_s_after_mark` (`{"kind": "<mark kind>", "s": N}`, only in `check.where`,
   any metric, default off): drop the events and samples within N s after each runner mark of that
-  kind (the marks are the ones in `marks.jsonl`; `refill` is written when a refilled mob is
-  summoned). A mob refill brings a fresh mob that the bot has not engaged yet, so a rule about
+  kind (the marks are the ones in `marks.jsonl`; `refill` is written at the `.npc summon` send of a
+  refilled mob, so it precedes the claim). A mob refill brings a fresh mob that the bot has not
+  engaged yet, so a rule about
   threat or aggro can leave that window out. Excluded-span rows stay; hp, aura and combat
   lookups still read all samples.
 

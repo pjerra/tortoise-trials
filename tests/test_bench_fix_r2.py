@@ -66,5 +66,117 @@ class SummonClaimAnyDistanceTest(unittest.TestCase):
                              MOB.lower())
 
 
+# ---- 2. the refill and energy_drain markers are stamped before the GM line ----
+class Clock:
+    """A shared fake wall clock: a GM line spends real time, the runner's marks do not."""
+
+    def __init__(self, start=1_800_000_000.0):
+        self.now = float(start)
+        self.sends = []
+
+    def iso(self, offset=0.0):
+        return datetime.datetime.fromtimestamp(self.now + float(offset),
+                                               datetime.timezone.utc).isoformat(timespec="milliseconds")
+
+    def spend(self, seconds):
+        self.now += float(seconds)
+
+
+class ClockMarks:
+    """Marks with the steady clock and a recording `add` (no file)."""
+
+    def __init__(self, clock):
+        self.clock = clock
+        self.rows = []
+
+    def now_iso(self, offset=0.0):
+        return self.clock.iso(offset)
+
+    def add(self, row):
+        row = dict(row)
+        row.setdefault("wall", self.now_iso())
+        self.rows.append(row)
+        return row
+
+    def excluded(self, start, end, why):
+        return self.add({"kind": "excluded", "from": start, "to": end, "why": why})
+
+    def kinds(self, kind):
+        return [r for r in self.rows if r.get("kind") == kind]
+
+
+class SpendGuard:
+    """A guard double whose GM line spends `cost` seconds of clock time."""
+
+    def __init__(self, clock, cost=2.0):
+        self.clock = clock
+        self.cost = cost
+        self.sent = []
+
+    def send(self, kind, target=None, *args):
+        self.sent.append({"kind": kind, "target": target, "args": args, "before": self.clock.iso()})
+        self.clock.spend(self.cost)
+        return "sent"
+
+
+class MarkerBeforeCommandTest(unittest.TestCase):
+    def test_the_energy_drain_mark_precedes_the_line(self):
+        # rep4 of dps-rogue-thistle-tea: the tea came 64 ms before a mark stamped after the send, and
+        # the 300 s responder debounce then ate every later drain ("no triggers")
+        trial = {"id": "t", "player": {"level": 60},
+                 "situation": {"kind": "tank_damage", "mobs": {"role": "melee", "count": 1},
+                               "energy_drain": {"first_at_s": 20, "every_s": 40, "to": 0}}}
+        clock = Clock()
+        marks = ClockMarks(clock)
+        guard = SpendGuard(clock)
+        sit = situations.Situation(tl.FakeAgent(), trial, guard, tl.new_ledger(tempfile.mkdtemp()),
+                                   marks, tl.StubCollector(),
+                                   situations.SitContext(player_guid=tl.PLAYER, bot_name="Helper",
+                                                         hire_guid=tl.HIRE),
+                                   arenas=[], mobs={})
+        sit.fight_start = clock.now
+        sit.collector.last_sample = {"bot": {"max_power": 100}}
+        sit.drain_tick(clock.now + 20.0)
+        self.assertEqual(len(guard.sent), 1)
+        drain = marks.kinds("energy_drain")[0]
+        self.assertEqual(drain["wall"], guard.sent[0]["before"])   # the pre-send stamp
+        self.assertLess(drain["wall"], clock.iso())                # strictly before the line returned
+
+    def test_the_summon_send_wall_is_stamped_before_the_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            clock = Clock()
+            agent = tl.FakeAgent()
+            agent.units_queue = [[], [unit(MOB, 9.0)]]
+            led = tl.new_ledger(tmp)
+            guard = gm_guard.GmGuard(agent, led, tl.ctx_for())
+            sent = {}
+            orig = guard.send
+
+            def send(kind, target=None, *args):
+                if kind == "npc_summon":
+                    guard.at = clock.iso()
+                    clock.spend(5.0)
+                return orig(kind, target, *args)
+
+            guard.send = send
+            situations.summon_mob(agent, guard, led, 1234, timeout=1.0, poll=0.01,
+                                  now_iso=clock.iso, sent=sent)
+            self.assertEqual(sent["wall"], guard.at)          # the pre-send stamp
+            self.assertLess(sent["wall"], clock.iso())        # and before the claim wait
+
+    def test_the_refill_mark_carries_the_summon_send_wall(self):
+        clock = Clock()
+        marks = ClockMarks(clock)
+        sit = situations.Situation(tl.FakeAgent(), {"id": "t", "player": {"level": 60}},
+                                   SpendGuard(clock), tl.new_ledger(tempfile.mkdtemp()), marks,
+                                   tl.StubCollector(), situations.SitContext(), arenas=[], mobs={})
+        clock.spend(4.0)                     # the "claim" takes 4 s after the send
+        sit.last_summon_wall = clock.iso(-4.0)
+        row = sit.add_refill_mark(MOB.lower(), every=40)
+        self.assertEqual(row["wall"], clock.iso(-4.0))
+        self.assertLess(row["wall"], clock.iso())
+        self.assertEqual(row["every"], 40)
+
+
 if __name__ == "__main__":
     unittest.main()

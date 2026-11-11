@@ -123,8 +123,15 @@ def _guid_words(text):
     return out
 
 
+def _wall_now(offset=0.0):
+    """An ISO wall time (the fallback when the caller has no steady clock to stamp with)."""
+    import datetime
+    return (datetime.datetime.now().astimezone()
+            + datetime.timedelta(seconds=offset)).isoformat(timespec="milliseconds")
+
+
 def summon_mob(agent, guard, ledger, entry, within=3.0, timeout=5.0, poll=0.5, foreign=None, log=None,
-               arena=None):
+               arena=None, now_iso=None, sent=None):
     """Summon one entry and claim it by the reply's guid, or by a NEW unit.
 
     `within` is the claim radius that tells apart two or more fresh units: a nearby same-entry
@@ -135,6 +142,8 @@ def summon_mob(agent, guard, ledger, entry, within=3.0, timeout=5.0, poll=0.5, f
     every refill for the rest of the repeat. Two or more fresh units keep the 3 yd rule and the
     miss, because there is no way to tell them apart.
     `foreign` (parallel runs) returns the guids the OTHER slots summoned: never claimed here.
+    `now_iso` stamps the send (the caller's steady clock); `sent` receives {"wall": ...} right
+    BEFORE the `.npc summon` line goes out, so a marker keyed on it precedes the command.
     An unclaimed summon may still stand in the arena (sweep-1b: five of them, in combat with the player,
     made the arena "not quiet" for the next 11 reps), so it is written to the ledger as
     `summon_unclaimed` with what was in view, and logged; the caller stops summoning.
@@ -146,6 +155,8 @@ def summon_mob(agent, guard, ledger, entry, within=3.0, timeout=5.0, poll=0.5, f
     before = {norm_guid(u.get("guid")) for u in agent.units_must(entry=int(entry), within=30)
               if u.get("guid")}
     since = agent.snapshot()
+    if sent is not None:
+        sent["wall"] = now_iso() if now_iso is not None else _wall_now()
     guard.send("npc_summon", None, int(entry))
     deadline = time.time() + timeout
     seen = []
@@ -503,6 +514,7 @@ class Situation:
         self.current_arena = None
         self.summoned = []
         self.mob_source = "summon"
+        self.last_summon_wall = ""      # the `.npc summon` send wall of the last claimed summon
         self.fight_start = None
         self.ended = ""
         self.drain_next = None
@@ -654,9 +666,13 @@ class Situation:
             tries += 1
             if not row:
                 break
+            sent = {}
             guid = summon_mob(self.agent, self.guard, self.ledger, row["entry"],
                               foreign=self.foreign_summons, log=self.log,
-                              arena=getattr(self, "current_arena", None))
+                              arena=getattr(self, "current_arena", None),
+                              now_iso=self._wall, sent=sent)
+            if guid:
+                self.last_summon_wall = sent.get("wall")
             if not guid:
                 # an unclaimed summon may stand in the arena: another entry, or another refill, would only
                 # add orphans (sweep-1b: 5 from one refill). Stop summoning for this repeat.
@@ -961,7 +977,7 @@ class Situation:
                         self._last_refill = now
                         added = self.summon(role, 1)
                         if added:
-                            self.marks.add({"kind": "refill", "guid": added[0]})
+                            self.add_refill_mark(added[0])
                             if self.player_pulls():
                                 self.attack(added[0])
                 if next_refill and now >= next_refill:
@@ -974,7 +990,7 @@ class Situation:
                     if alive is not None and alive < REFILL_CAP:
                         added = self.summon((self.sit.get("mobs") or {}).get("role") or "melee", 1)
                         if added:
-                            self.marks.add({"kind": "refill", "guid": added[0], "every": refill_every})
+                            self.add_refill_mark(added[0], every=refill_every)
                             if self.player_pulls():
                                 self.attack(added[0])
                 if self.player_pulls() and now - last_threat > 6.0 and self.summoned:
@@ -1016,6 +1032,20 @@ class Situation:
         """
         return alive_summons(self.agent, self.ledger, only=self.summoned, absent_is_gone=True)
 
+    def add_refill_mark(self, guid, **extra):
+        """The `refill` marker, stamped with the `.npc summon` SEND wall (bench-fix-1111).
+
+        A mark added after `summon()` returns carries the claim time, and the claim loop waits up
+        to 5 s (plus 3 s for the unit row): rep3 of dps-mage-threat-cap stamped its refill 5.6 s
+        after the summon and all 6 counted hits fell in that gap. With the send wall the marker
+        precedes the new mob, so `not_within_s_after_mark` covers it.
+        """
+        row = {"kind": "refill", "guid": guid}
+        if self.last_summon_wall:
+            row["wall"] = self.last_summon_wall
+        row.update(extra)
+        return self.marks.add(row)
+
     def reset_hire_cooldowns(self):
         """`reset_hire_cooldowns`: clear the hire's cooldowns before the first summon.
 
@@ -1048,12 +1078,15 @@ class Situation:
             max_power = int(sample.get("max_power") or 100)
         except (TypeError, ValueError):
             max_power = 100
+        # the marker is stamped BEFORE the line goes out: the bot can answer within milliseconds
+        # (rep4 of dps-rogue-thistle-tea drank 64 ms before a mark stamped after the send)
+        wall = self._wall()
         try:
             self.guard.send("modify_energy", self.ctx.hire_guid, int(cfg.get("to") or 0), max_power)
         except Exception as exc:  # noqa: BLE001 - a refused line is logged, not fatal
             self.marks.add({"kind": "energy_drain_refused", "evidence": str(exc)[:120]})
             return
-        self.marks.add({"kind": "energy_drain", "to": int(cfg.get("to") or 0)})
+        self.marks.add({"kind": "energy_drain", "to": int(cfg.get("to") or 0), "wall": wall})
 
     def run_ooc(self):
         wait = float(self.sit.get("ooc_wait_s") or 60)
