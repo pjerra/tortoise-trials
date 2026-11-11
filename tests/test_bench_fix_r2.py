@@ -281,5 +281,103 @@ class ThreatCapWindowsTest(unittest.TestCase):
         self.assertIn("opportunity", got["NO-AGGRO"]["reason"])
 
 
+# ---- 4. the tea's 300 s cooldown is carried across reps ----------------------------------
+
+TEA_TRIAL = os.path.join(ROOT, "trials", "edge", "dps-rogue-thistle-tea.json")
+
+
+def load_tea():
+    with open(TEA_TRIAL) as f:
+        return json.load(f)
+
+
+def tea_rule(trial):
+    return [r for r in trial["rules"] if r["id"] == "DPS-ROG-TEA"][0]
+
+
+def wall(base_seconds, offset):
+    return datetime.datetime.fromtimestamp(base_seconds + offset,
+                                           datetime.timezone.utc).isoformat(timespec="milliseconds")
+
+
+def write_rep(trial_dir, name, base_seconds, duration, drains, teas):
+    rep = os.path.join(trial_dir, name)
+    os.makedirs(rep)
+    setup = {"ok": True, "guids": {"player": PLAYER, "bot": BOT, "mobs": [MOBG]}, "config": {}}
+    with open(os.path.join(rep, "setup.json"), "w") as f:
+        json.dump(setup, f)
+    marks = [{"kind": "fight_start", "wall": wall(base_seconds, 0)}]
+    marks += [{"kind": "energy_drain", "wall": wall(base_seconds, t), "to": 0} for t in drains]
+    marks.append({"kind": "fight_end", "wall": wall(base_seconds, duration), "ended": "duration"})
+    events = [{"t": float(t), "wall": None, "kind": "cast", "src": "b", "src_guid": BOT,
+               "dst": "b", "dst_guid": BOT, "src_unit": "$bot", "dst_unit": "$bot",
+               "spell_id": 9512, "spell": "Restore Energy", "amount": 0, "dst_hp_pct": 100,
+               "src_role": "bot", "dst_role": "bot", "origin": "ta"} for t in teas]
+    for fname, rows in (("marks.jsonl", marks), ("events.jsonl", events), ("samples.jsonl", [])):
+        with open(os.path.join(rep, fname), "w") as f:
+            for row in rows:
+                f.write(json.dumps(row) + "\n")
+    return rep
+
+
+class TeaCrossRepCooldownTest(unittest.TestCase):
+    def trial(self, across=True):
+        rule = {"id": "DPS-ROG-TEA", "expect_today": "?",
+                "check": {"metric": "latency",
+                          "trigger": {"kind": "mark", "mark": "energy_drain"},
+                          "response": {"kind": "cast", "src": "$bot", "spell": "Restore Energy"},
+                          "within_s": 5, "debounce_responder_s": 300,
+                          "debounce_responder_spells": ["Restore Energy"]},
+                "pass_if": ">= 0.5", "min_n": 1}
+        if across:
+            rule["check"]["debounce_responder_across_reps"] = True
+        return {"id": "tea", "group": "tanks-melee", "class": "rogue", "spec": "combat",
+                "player": {"class": "warrior", "level": 60,
+                           "talents": {"tree": "arms", "spells": [16462, 12286]}},
+                "bot": {"class": "rogue", "spec": "combat", "role": "dps", "level": 60},
+                "situation": {"kind": "tank_damage", "mobs": {"role": "melee", "count": 1,
+                                                              "level_delta": 0},
+                              "hp_band": [40, 90], "floor_pct": 12},
+                "opportunity": {"unit": "$player", "in_combat": True},
+                "rules": [rule]}
+
+    def score(self, across=True):
+        """rep1 drinks at t=95; rep2 starts 100 s later, so its two early drains see the 300 s."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tdir = os.path.join(tmp, "run", "tea")
+            write_rep(tdir, "rep1", 1_800_000_000.0, 120, [20], [20.1, 95.0])
+            write_rep(tdir, "rep2", 1_800_000_100.0, 400, [50, 100, 350], [350.1])
+            out = score_mod.score_trial(tdir, self.trial(across))
+        return out["verdicts"][0]
+
+    def test_a_drain_inside_the_prior_reps_tea_cooldown_is_no_chance(self):
+        # bench-fix-1111: rep2's drains 241 s and 282 s after the rep1 tea were scored as misses
+        got = self.score(across=True)
+        self.assertEqual((got["verdict"], got["k"], got["n"]), ("PASS", 2, 2), got)
+        rep2 = [d for d in got["detail"] if d["rep"] == "rep2"][0]
+        self.assertEqual((rep2["k"], rep2["n"]), (1, 1), rep2)
+
+    def test_without_the_option_the_same_reps_score_the_misses(self):
+        got = self.score(across=False)
+        self.assertEqual((got["verdict"], got["k"], got["n"]), ("FAIL", 2, 4), got)
+        rep2 = [d for d in got["detail"] if d["rep"] == "rep2"][0]
+        self.assertEqual((rep2["k"], rep2["n"]), (1, 3), rep2)
+
+    def test_the_trial_carries_the_option_and_says_why(self):
+        rule = tea_rule(load_tea())
+        self.assertTrue(rule["check"]["debounce_responder_across_reps"])
+        self.assertIn("item cooldown", rule["why_expect"])
+
+    def test_the_option_is_validated(self):
+        bad = self.trial()
+        bad["rules"][0]["check"]["debounce_responder_across_reps"] = False
+        self.assertTrue(any("debounce_responder_across_reps" in e
+                            for e in scenario_mod.validate(bad)))
+        missing = self.trial()
+        del missing["rules"][0]["check"]["debounce_responder_s"]
+        self.assertTrue(any("debounce_responder_across_reps" in e
+                            for e in scenario_mod.validate(missing)))
+
+
 if __name__ == "__main__":
     unittest.main()

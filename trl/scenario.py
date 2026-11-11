@@ -71,7 +71,8 @@ RULE_FIELDS = {"id", "desc", "source", "expect_today", "why_expect",
                "check", "pass_if", "min_opportunity_s", "min_n", "min_reps"}
 CHECK_FIELDS = {"metric", "where", "num", "den", "trigger", "response",
                 "within_s", "response_dst", "same_dst", "trigger_debounce_s",
-                "debounce_responder_s", "debounce_responder_spells", "per", "min_alive_s", "name", "aura", "unit", "phase", "alive", "triggers", "min_n"}
+                "debounce_responder_s", "debounce_responder_spells", "debounce_responder_across_reps",
+                "per", "min_alive_s", "name", "aura", "unit", "phase", "alive", "triggers", "min_n"}
 TRIGGER_FIELDS = (WHERE_KEYS - {"response_dst", "same_dst", "trigger_debounce_s"}) | {"unit", "below", "mark"}
 RESPONSE_FIELDS = {"kind", "src", "dst", "spell", "spell_id", "in_combat"}
 SPEC_IDS = {
@@ -288,6 +289,12 @@ def _check_rule(rule, trial_id, errs, spells_path=None):
             _err(errs, "%s/%s: min_alive_s needs per: mob_alive" % (trial_id, rid))
         if isinstance(min_alive, bool) or not isinstance(min_alive, (int, float)) or min_alive <= 0:
             _err(errs, "%s/%s: bad min_alive_s %r (seconds > 0)" % (trial_id, rid, min_alive))
+    across = check.get("debounce_responder_across_reps")
+    if across is not None:
+        if across is not True:
+            _err(errs, "%s/%s: debounce_responder_across_reps must be true (or absent)" % (trial_id, rid))
+        if cd is None:
+            _err(errs, "%s/%s: debounce_responder_across_reps needs debounce_responder_s" % (trial_id, rid))
     cds = check.get("debounce_responder_spells")
     if cds is not None:
         if cd is None:

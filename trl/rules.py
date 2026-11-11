@@ -600,6 +600,43 @@ def after_mark_spans(rule, marks):
     return out
 
 
+def prior_response_spans(rule, prior, base_wall, ctx):
+    """[(a, b)] of a responder cooldown that started in an EARLIER repeat, on this rep's base.
+
+    Only a rule with `check.debounce_responder_across_reps` reads them. bench-fix-1111: the Thistle
+    Tea's 5-minute item cooldown survives `.cooldown` (the core's RemoveAllSpellCooldown does not
+    cover item cooldowns), so a rep that starts less than 300 s after the hire's last tea has no
+    chance at that drain and must not score it as a miss. `prior` is [(absolute wall, row)] from the
+    reps scored before this one; `base_wall` is this rep's fight_start (or setup_ok) wall.
+    """
+    check = (rule or {}).get("check") or {}
+    if not check.get("debounce_responder_across_reps") or base_wall is None:
+        return []
+    try:
+        cooldown = float(check.get("debounce_responder_s") or 0.0)
+    except (TypeError, ValueError):
+        return []
+    if cooldown <= 0:
+        return []
+    where = {k: v for k, v in (check.get("response") or {}).items() if k != "dst"}
+    if check.get("debounce_responder_spells"):
+        where["spell"] = check["debounce_responder_spells"]
+    trial = (ctx or {}).get("trial") or {}
+    spans = []
+    for entry in prior or []:
+        try:
+            abs_wall, row = entry
+        except (TypeError, ValueError):
+            continue
+        if abs_wall is None or not isinstance(row, dict):
+            continue
+        if not _matches(row, where, {}, ctx, trial):
+            continue
+        a = float(abs_wall) - float(base_wall)
+        spans.append((a, a + cooldown))
+    return sorted(spans)
+
+
 def after_mark_samples(samples, rule, marks):
     """`samples` without the spans `after_mark_spans` drops (the rule's opportunity reads the same set)."""
     spans = after_mark_spans(rule, marks)

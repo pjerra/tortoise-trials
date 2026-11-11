@@ -256,7 +256,7 @@ def cut_short_reason(marks, scored):
     return "cut short (%.0f s, ended: %s)" % (scored, ended or "unknown")
 
 
-def score_rep(rep_dir, trial):
+def score_rep(rep_dir, trial, prior_events=None):
     setup, samples, marks, rows, victims, missing = _load_rep_rows(rep_dir, trial)
     if missing:
         # A rep dir without setup.json is INVALID with a reason (not dropped).
@@ -275,6 +275,7 @@ def score_rep(rep_dir, trial):
     window = (lo, hi) if lo is not None else None
     ctx = _ctx(run_dir, trial, setup, window)
     ctx["victims_by_guid"] = victims or {}
+    base_wall = _events._time_base(marks, samples)
     excluded = _excluded_spans(rows, marks)
     out = {"trial": trial.get("id"), "rep": os.path.basename(rep_dir.rstrip("/")),
            "ok_setup": bool(setup.get("ok")), "rules": [],
@@ -310,7 +311,15 @@ def score_rep(rep_dir, trial):
         _write(os.path.join(rep_dir, "verdicts.json"), out)
         return out
     for rule in trial.get("rules") or []:
-        res = _rules.evaluate(rule, rows, samples, marks, ctx)
+        # a rule that carries the responder's cooldown across reps gets the earlier responses as excluded
+        # spans on this rep's base: a trigger inside one is no chance, exactly like an in-rep cooldown
+        rule_rows = rows
+        spans = _rules.prior_response_spans(rule, prior_events, base_wall, ctx)
+        if spans:
+            rule_rows = list(rows) + [{"kind": "excluded", "from": round(a, 3), "to": round(b, 3),
+                                       "why": "prior rep responder cooldown", "t": round(a, 3)}
+                                      for (a, b) in spans]
+        res = _rules.evaluate(rule, rule_rows, samples, marks, ctx)
         min_opp = rule.get("min_opportunity_s") or 0
         min_n = rule.get("min_n") or rule.get("check", {}).get("min_n", 0) or 0
         guard_hold = True
@@ -355,19 +364,43 @@ def _write(path, doc):
         json.dump(doc, f, indent=2, sort_keys=True, allow_nan=False)
 
 
+def _prior_events(rep_dir):
+    """[(absolute wall, row)] of one scored repeat, for the next repeat's cross-rep debounce.
+
+    The wall is the repeat's own fight_start (or setup_ok) wall plus the row's re-based `t`: both come
+    from the runner's steady clock, so the difference between two repeats is real seconds.
+    """
+    marks = _read_jsonl(os.path.join(rep_dir, "marks.jsonl"))
+    base = _events._time_base(marks, [])
+    if not base:
+        return []
+    out = []
+    for row in _read_jsonl(os.path.join(rep_dir, "events.jsonl")):
+        try:
+            out.append((base + float(row.get("t") or 0.0), row))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
 def score_trial(trial_dir, trial):
     reps = sorted(glob.glob(os.path.join(trial_dir, "rep*")))
+    carries = any(((r.get("check") or {}).get("debounce_responder_across_reps")
+                   for r in trial.get("rules") or []))
+    prior = []
     scored = []
     for rep in reps:
         if not os.path.isdir(rep):
             continue
         if os.path.exists(os.path.join(rep, "setup.json")):
-            scored.append(score_rep(rep, trial))
+            scored.append(score_rep(rep, trial, prior_events=prior))
         elif os.path.exists(os.path.join(rep, "verdicts.json")):
             # Pre-scored (hand-written test reps): read as-is.
             scored.append(_read_json(os.path.join(rep, "verdicts.json"), {}) or {})
         else:
-            scored.append(score_rep(rep, trial))
+            scored.append(score_rep(rep, trial, prior_events=prior))
+        if carries:
+            prior = prior + _prior_events(rep)
     rules = {}
     for rep in scored:
         for row in rep.get("rules") or []:

@@ -239,7 +239,11 @@ itself or a hire (the runner resets the hire's cooldowns before the first summon
   source mob's `trigger_debounce_s` window. `check.debounce_responder_spells` (a list of response
   spell names, each one of the `response` spells; needs `debounce_responder_s`) limits which responses
   start the cooldown: Taunt has a 10 s cooldown, a Mocking Blow does not start it. `trigger_debounce_s` is different: it thins the
-  triggers per source before anything is answered.
+  triggers per source before anything is answered. `check.debounce_responder_across_reps: true` (needs
+  `debounce_responder_s`) carries that cooldown over the repeat boundary: a trigger less than N s after
+  the bot's last matching response in ANY earlier repeat of the trial is skipped as well. Use it when the
+  runner cannot reset the cooldown (bench-fix-1111: `.cooldown` does not clear Thistle Tea's 5-minute
+  item cooldown, so a rep starting soon after the last tea has no chance at its drains).
 - `check.where.not_within_s_after_mark` (`{"kind": "<mark kind>", "s": N}`, or a list of these;
   only in `check.where`, any metric, default off): drop the events and samples within N s after
   each runner mark of that kind (the marks are the ones in `marks.jsonl`; `refill` is written at
