@@ -11,6 +11,7 @@ import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.join(ROOT, "tests"))
 
 from trl import scenario as scenario_mod  # noqa: E402
 from trl.live import situations as sit_mod  # noqa: E402
