@@ -89,8 +89,20 @@
     "config_read"
   ],
   "duration_s": 180,
-  "repeats": 3,
+  "repeats": 4,
   "min_valid_s": 120,
+  "opportunity": {
+    "unit": "$marked",
+    "has_aura": [
+      118,
+      12824,
+      12825,
+      12826,
+      28270,
+      28271,
+      28272
+    ]
+  },
   "rules": [
     {
       "id": "DPS-MAG-CC-RESPECT",
@@ -115,14 +127,15 @@
           ]
         }
       },
-      "pass_if": "== 0"
+      "pass_if": "== 0",
+      "min_opportunity_s": 10
     },
     {
       "id": "DPS-MAG-CC-POLYMORPH",
       "desc": "Precondition: the mage casts Polymorph on the moon-marked mob at least once, so the respect rule has a sheep to respect",
       "source": "ai/playerbot/strategy/mage/MageStrategy.cpp:446-448 (polymorph row, ACTION_INTERRUPT); ai/playerbot/strategy/mage/MageAiObjectContext.cpp:171,238; ai/playerbot/strategy/values/CcTargetValue.cpp (the assigned mark); TortoiseBots upstream/dev abb91ff62",
       "expect_today": "PASS",
-      "why_expect": "the runner assigns the moon mark with .bot cc moon <bot> (setup check cc_mark_set); the polymorph row fires on the assigned mark",
+      "why_expect": "the runner assigns the moon mark with .bot cc moon <bot> (setup check cc_mark_set); the polymorph row fires on the assigned mark; the cc chooser only sees mobs in combat with the group (TargetValue.cpp:19-22, AttackersValue.cpp:340,490), so the runner Taunts the marked mob into combat without damage before the fight counts",
       "check": {
         "metric": "count",
         "where": {
@@ -132,7 +145,8 @@
           "spell": "Polymorph"
         }
       },
-      "pass_if": ">= 1"
+      "pass_if": ">= 1",
+      "min_reps": 3
     }
   ]
 }

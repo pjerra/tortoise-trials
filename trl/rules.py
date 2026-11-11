@@ -582,11 +582,16 @@ def evaluate(rule, rows, samples, marks, ctx):
                 "evidence": ["%s = %s" % (name, value)], "guard": guard_note}
     if metric == "count":
         hits = scored([r for r in rows if _matches(r, where, samples_by_guid, ctx, trial)])
-        if str(rule.get("pass_if", "")).strip() == "== 0" and not hits:
+        if not hits:
             nowhere = {k: v for k, v in where.items() if k != "dst"}
             same = scored([r for r in rows if _matches(r, nowhere, samples_by_guid, ctx, trial)])
             opp = opportunity_seconds(trial, samples, excluded, ctx)
-            ev = ["opportunity %.0f s, %d same-spell casts on other targets" % (opp, len(same))]
+            if isinstance(trial, dict) and trial.get("opportunity"):
+                opp_s = "opportunity %.0f s" % opp
+            else:
+                opp_s = "opportunity n/a (no opportunity block)"
+            ev = ["%s, %d same-spell casts on other targets" % (opp_s, len(same))]
+            ev += [evidence_line(r) for r in same[:3]]
         else:
             ev = [evidence_line(r) for r in hits[:5]]
         return {"value": len(hits), "k": len(hits), "n": 1,
@@ -904,6 +909,17 @@ def opportunity_seconds(trial, samples, excluded, ctx):
                 ok = False
             if "in_combat" in opp and opp["in_combat"] is not None and bool(sample.get("in_combat")) != bool(opp["in_combat"]):
                 ok = False
+            if "has_aura" in opp and opp["has_aura"] is not None:
+                try:
+                    want = {int(a) for a in (opp.get("has_aura") or [])}
+                except (TypeError, ValueError):
+                    want = set()
+                try:
+                    have = {int(a) for a in (sample.get("auras") or [])}
+                except (TypeError, ValueError):
+                    have = set()
+                if not (have & want):
+                    ok = False
             if ok:
                 # The interval (prev, t] contributes its length minus any
                 # merged excluded overlap — never double-counted.

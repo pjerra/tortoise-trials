@@ -218,6 +218,13 @@ after the level and talents):
   kit items' armor). A class, role or level with no kit fails `validate` and the setup, with the reason; an
   agent without an `equipment` read fails it too instead of passing unverified.
 
+### Guarded GM kinds
+
+Every GM line goes through the guard (a closed template set, each kind bound to a target class).
+`modify_energy {cur} {max}` (hire only) sets the hire's energy bar; `.cooldown` targets the player
+itself or a hire (the runner resets the hire's cooldowns before the first summon when the trial sets
+`reset_hire_cooldowns`).
+
 ### Rule options for latency and filtered rules
 
 - `check.trigger` may be `{"kind": "mark", "mark": "<mark kind>"}` (latency rules only): the

@@ -2,6 +2,28 @@
 
 Short, dated notes on choices that are not obvious from the code.
 
+## 2026-11-11: the marked mob is taunted into combat before the fight counts (P4)
+
+The moon-marked mob never entered combat (the bench keeps it idle on purpose), so TortoiseBots' CC
+chooser never saw it (candidates come from the group's attackers, which need InCombat) while the mage
+free-picked an unmarked mob — 0 sheep on the mark in every valid rep, RESPECT passing with nothing to
+respect. New `engage_marked` (called between `mark_and_cc` and the unmarked attacks; the run's pull
+order lives in `run_cc_pull`): walk near, Taunt (355, already learned, melee range, no damage) under
+the action lock, wait for `in_combat`, retry the cast once. Only `engage_marked` may send that Taunt;
+no attack ever targets the marked guid, and the player's last selection is an unmarked mob again
+(`threat()` casts on the selection). `mobs_ready` takes `marked` and names it in the evidence
+("marked <guid> in combat: yes/no"); a mark left idle makes the rep INVALID. Rules: `opportunity`
+gains `has_aura` (non-empty int list; a sample counts only when its auras intersect it); the trial gets
+`opportunity {unit $marked, has_aura <all 7 Polymorph ranks>}` and RESPECT `min_opportunity_s 10`, so
+no sheep means INCONCLUSIVE, never a vacuous PASS. The `count` zero-hit branch now prints, for any
+`pass_if`, `opportunity <x>` (or `n/a (no opportunity block)`, never "0 s" with no block) plus the
+same-spell casts on other targets with up to 3 evidence lines — a POLYMORPH FAIL with the mark in
+combat and other-target polymorphs reads as the free sheep holding the chooser, and is filed against
+TortoiseBots. POLYMORPH `min_reps 3`, repeats 3 → 4. Old baselines of this trial are not comparable
+with new runs. Pre-existing, out of scope: `test_cc_gap.py::test_no_unmarked_mob_alive...` fails on
+the base commit too (its `run_fight` stubs `sit.arena` but `run()` calls `acquire_arena`, so the run
+ends "no arena"); the P4 fake update only adds the `engage_marked` stub.
+
 ## 2026-11-11: minimum samples, more chances, and the Bulwark level move (P3)
 
 One valid rep decided the trial verdict (a majority of PASS/FAIL reps; taunt-off-healer went PASS →

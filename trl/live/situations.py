@@ -695,6 +695,35 @@ class Situation:
         marked = self.ctx.guids.get("marked")
         return [g for g in self.summoned if not marked or norm_guid(g) != norm_guid(marked)]
 
+    def engage_marked(self, timeout=5.0):
+        """cc_target: taunt the marked mob into combat before the fight counts.
+
+        The CC chooser only sees mobs in combat with the group (CcTargetValue reads the group's
+        attackers, which need InCombat), and a sheeped mob never fights on its own. Taunt (355,
+        already .learned by the stance setup) deals no damage and is only ever sent here, never an
+        attack on the marked guid. The player's last selection stays an unmarked mob: threat()
+        casts on the selection and must never Taunt the sheep.
+        """
+        marked = self.ctx.guids.get("marked")
+        if not marked:
+            return
+        self.walk_near(marked, 4.0)
+        with self.agent.action_lock:
+            self.target(marked)
+            self.agent.cast(355, target=norm_guid(marked))
+        if not wait_until(lambda: (self.agent.unit(guid=marked) or {}).get("in_combat"),
+                          timeout=timeout, poll=0.5):
+            with self.agent.action_lock:
+                self.target(marked)
+                self.agent.cast(355, target=norm_guid(marked))
+            wait_until(lambda: (self.agent.unit(guid=marked) or {}).get("in_combat"),
+                       timeout=timeout, poll=0.5)
+        # the player's last selection is an unmarked mob: threat() casts on the selection
+        # and must never Taunt the sheep
+        unmarked = self.cc_targets()
+        if unmarked:
+            self.target(unmarked[0])
+
     def engage_cc_targets(self, timeout=10.0):
         """cc_target: the player attacks every UNMARKED summon, one after the other (the marked mob is
         never touched: damaging it would break the crowd control the trial watches), then mobs_ready is
@@ -709,7 +738,8 @@ class Situation:
         wait_until(lambda: all((self.agent.unit(guid=g) or {}).get("in_combat") for g in targets),
                    timeout=timeout, poll=0.5)
         lo, hi = self.level_window()
-        row = mobs_ready_row(self.agent, self.ledger, (lo, hi), self.summoned, engaged=targets)
+        row = mobs_ready_row(self.agent, self.ledger, (lo, hi), self.summoned,
+                             engaged=targets, marked=self.ctx.guids.get("marked"))
         checks = self.ctx.checks
         for i, check in enumerate(checks):
             if check.get("id") == "mobs_ready":
@@ -717,6 +747,18 @@ class Situation:
                 break
         else:
             checks.append(row)
+
+    def run_cc_pull(self):
+        """cc_target pull order: mark_and_cc, engage_marked, then the unmarked attacks."""
+        kind = self.sit.get("kind")
+        if kind != "cc_target" or not self.summoned or len(self.summoned) < 2:
+            return
+        marked = self.summoned[1]
+        mark_row = self.mark_and_cc(marked)
+        self.ctx.checks.append(mark_row)
+        self.ctx.guids["marked"] = marked
+        self.engage_marked()
+        self.engage_cc_targets()
 
     CC_GAP_TAIL_S = 3.0     # a refilled mob is summoned and pulled; it needs a moment to be the target
 
@@ -815,10 +857,7 @@ class Situation:
             self.bring_hire_near()
 
         if kind == "cc_target" and len(self.summoned) >= 2:
-            marked = self.summoned[1]
-            mark_row = self.mark_and_cc(marked)
-            self.ctx.checks.append(mark_row)
-            self.ctx.guids["marked"] = marked
+            self.run_cc_pull()
         elif kind == "cc_target" and len(self.summoned) == 1:
             self.ctx.checks.append({"id": "cc_mark_set", "ok": False, "value": None,
                                     "evidence": "cc_target wants two humanoid mobs, got 1"})
@@ -1189,7 +1228,7 @@ class Situation:
         except Exception as exc:  # noqa: BLE001
             self.log("debuff refused: %s" % exc)
 
-def mobs_ready_row(agent, ledger, window, guids, engaged=None):
+def mobs_ready_row(agent, ledger, window, guids, engaged=None, marked=None):
     """`engaged`: guids that must also be in combat (cc_target: every unmarked summon)."""
     lo, hi = window
     alive = []
@@ -1203,5 +1242,9 @@ def mobs_ready_row(agent, ledger, window, guids, engaged=None):
         fighting = [g for g in engaged if (agent.unit(guid=g) or {}).get("in_combat")]
         ok = ok and len(fighting) == len(engaged)
         evidence += "; %d/%d unmarked summons in combat" % (len(fighting), len(engaged))
+    if marked:
+        in_combat = bool((agent.unit(guid=marked) or {}).get("in_combat"))
+        ok = ok and in_combat
+        evidence += "; marked %s in combat: %s" % (marked, "yes" if in_combat else "no")
     return {"id": "mobs_ready", "ok": ok, "value": [norm_guid(g) for g in alive], "evidence": evidence}
 

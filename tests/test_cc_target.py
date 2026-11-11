@@ -60,12 +60,21 @@ class CcTargetEngageTest(unittest.TestCase):
         self.assertFalse(row[0]["ok"])
         self.assertIn("1/2 unmarked summons in combat", row[0]["evidence"])
 
-    def test_mobs_ready_passes_when_all_unmarked_are_in_combat_even_if_the_marked_one_is_not(self):
-        sit, agent = make(in_combat=(A, C))               # B is sheeped: not in combat
+    def test_mobs_ready_fails_when_the_marked_mob_is_idle(self):
+        sit, agent = make(in_combat=(A, C))               # B is the mark and idle: engage first
+        sit.engage_cc_targets(timeout=0.0)
+        row = [c for c in sit.ctx.checks if c["id"] == "mobs_ready"][0]
+        self.assertFalse(row["ok"], row["evidence"])
+        self.assertIn("marked", row["evidence"])
+        self.assertIn("in combat: no", row["evidence"])
+
+    def test_mobs_ready_passes_when_the_mark_was_taunted_into_combat(self):
+        sit, agent = make(in_combat=(A, B, C))            # engage_marked taunted B into combat
         sit.engage_cc_targets(timeout=0.0)
         row = [c for c in sit.ctx.checks if c["id"] == "mobs_ready"][0]
         self.assertTrue(row["ok"], row["evidence"])
         self.assertIn("2/2 unmarked summons in combat", row["evidence"])
+        self.assertIn("in combat: yes", row["evidence"])
 
     def test_run_calls_it_for_cc_target(self):
         # wiring: run() hands the pull to engage_cc_targets (no summoned[0]-only attack)

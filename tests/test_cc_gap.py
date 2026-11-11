@@ -56,6 +56,7 @@ def run_fight(tmp, unmarked_dead_from=None, refill=False, duration=60):
         return list(sit.summoned)
     sit.summon = summon
     sit.mark_and_cc = lambda guid: {"id": "cc_mark_set", "ok": True, "value": guid, "evidence": ""}
+    sit.engage_marked = lambda timeout=5.0: None
     sit.engage_cc_targets = lambda timeout=10.0: None
     sit.walk_near = lambda *a, **k: True
     sit.abort = lambda: ""

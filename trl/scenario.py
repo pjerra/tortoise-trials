@@ -65,7 +65,7 @@ SIT_FIELDS = {"kind", "mobs", "hp_band", "floor_pct", "victim", "pull_after_s",
               "hurt_every_s", "adaptive", "top_up_to_pct", "reset_hire_cooldowns",
               "energy_drain"}
 TALENTS_FIELDS = {"tree", "spells"}
-OPPORTUNITY_FIELDS = {"unit", "hp_lt", "hp_gt", "in_combat"}
+OPPORTUNITY_FIELDS = {"unit", "hp_lt", "hp_gt", "in_combat", "has_aura"}
 MOBS_FIELDS = {"role", "count", "level_delta", "refill", "refill_every_s"}
 RULE_FIELDS = {"id", "desc", "source", "expect_today", "why_expect",
                "check", "pass_if", "min_opportunity_s", "min_n", "min_reps"}
@@ -850,6 +850,11 @@ def validate(trial, spells_path=None):
                 _err(errs, "%s: bad opportunity %s %r" % (tid, key, opp.get(key)))
         if opp.get("in_combat") is not None and not isinstance(opp.get("in_combat"), bool):
             _err(errs, "%s: bad opportunity in_combat %r" % (tid, opp.get("in_combat")))
+        if opp.get("has_aura") is not None:
+            ha = opp.get("has_aura")
+            if (not isinstance(ha, list) or not ha
+                    or any(isinstance(x, bool) or not isinstance(x, int) for x in ha)):
+                _err(errs, "%s: bad opportunity has_aura %r (a non-empty list of ints)" % (tid, ha))
     rules = trial.get("rules")
     if not isinstance(rules, list) or not rules:
         _err(errs, "%s: rules must be a non-empty list" % tid)
