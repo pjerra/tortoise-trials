@@ -94,17 +94,44 @@ class PacketVictimTest(unittest.TestCase):
         self.assertTrue(rules_mod._matches(row, where("$player"), by_guid, dict(ctx()), {}))
         self.assertFalse(rules_mod._matches(row, where("$extra1"), by_guid, dict(ctx()), {}))
 
-    def test_attack_stop_means_no_victim(self):
-        samples = [sample(t, MOB, PLAYER) for t in (12.0, 13.0)]
-        victims = {MOB.lower(): [(40, 13.1, None)]}
+    def test_newer_sample_overrules_older_packet(self):
+        # HIGH round-1 finding: an old healer packet with a newer player sample under
+        # the cast must NOT decide by packet: the cast off the player still counts.
+        samples = [sample(t, MOB, HEALER) for t in (12.0,)] + [sample(13.2, MOB, PLAYER)]
+        victims = {MOB.lower(): [(41, 13.0, HEALER.lower())]}
         row = cast(13.38, 42)
         by_guid = rules_mod._sample_rows(samples)
         c = dict(ctx(), victims_by_guid=victims)
-        self.assertFalse(rules_mod._matches(row, where("$player"), by_guid, c, {}))
+        self.assertTrue(rules_mod._matches(row, where("$player"), by_guid, c, {}))
+        self.assertFalse(rules_mod._matches(row, where("$extra1"), by_guid, c, {}))
+
+    def test_same_time_packet_is_ignored_time_path(self):
+        # CRITICAL round-1 finding: the taunt's attack_stop/start land on the same
+        # mono_ms as the cast's spell_go, so the normaliser gives them the same t.
+        # The time path must use only strictly earlier packets (vt < t): a cast whose
+        # only same-t packet is the switch to the bot still sees the old player victim
+        # and counts as a taunt off the player.
+        samples = [sample(t, MOB, PLAYER) for t in (12.0, 13.0)]
+        victims = {MOB.lower(): [(None, 12.5, PLAYER.lower()), (None, 13.38, BOT.lower())]}
+        row = dict(cast(13.38, None))
+        row.pop("seq")
+        by_guid = rules_mod._sample_rows(samples)
+        c = dict(ctx(), victims_by_guid=victims)
+        self.assertTrue(rules_mod._matches(row, where("$player"), by_guid, c, {}))
 
     def test_packet_older_than_5s_falls_back_to_sample(self):
         samples = [sample(t, MOB, PLAYER) for t in (12.0, 13.0)]
         victims = {MOB.lower(): [(40, 7.0, HEALER.lower())]}
+        row = cast(13.38, 42)
+        by_guid = rules_mod._sample_rows(samples)
+        c = dict(ctx(), victims_by_guid=victims)
+        self.assertTrue(rules_mod._matches(row, where("$player"), by_guid, c, {}))
+
+    def test_lone_attack_stop_falls_back_to_sample(self):
+        # LOW round-1 finding: an attack_stop alone means nothing when no packet
+        # follows it within 1.5 s before the cast; the sample decides.
+        samples = [sample(t, MOB, PLAYER) for t in (12.0, 13.0)]
+        victims = {MOB.lower(): [(40, 10.0, None)]}
         row = cast(13.38, 42)
         by_guid = rules_mod._sample_rows(samples)
         c = dict(ctx(), victims_by_guid=victims)
@@ -119,13 +146,36 @@ class PacketVictimTest(unittest.TestCase):
         c = dict(ctx(), victims_by_guid=victims)
         self.assertTrue(rules_mod._matches(row, where("$extra1"), by_guid, c, {}))
 
+    def test_switch_above_cast_seq_is_ignored(self):
+        # seq-path mirror of the same-t case: the switch packets sit above the cast's
+        # seq, so they decide nothing; the old player victim stands and the cast counts.
+        samples = [sample(t, MOB, PLAYER) for t in (12.0, 13.0)]
+        victims = {MOB.lower(): [(40, 12.5, PLAYER.lower()), (43, 13.38, BOT.lower())]}
+        row = cast(13.38, 42)
+        by_guid = rules_mod._sample_rows(samples)
+        c = dict(ctx(), victims_by_guid=victims)
+        self.assertTrue(rules_mod._matches(row, where("$player"), by_guid, c, {}))
+        self.assertFalse(rules_mod._matches(row, where("$bot"), by_guid, c, {}))
+
     def test_seq_orders_packets_not_file_or_time(self):
-        # the higher-seq packet wins even when filed first with a later t.
+        # the highest seq below the cast wins even when filed first with an earlier t.
         victims = {MOB.lower(): [(43, 13.4, HEALER.lower()), (42, 13.5, PLAYER.lower())]}
         row = cast(13.6, 44)
         by_guid = rules_mod._sample_rows([sample(13.0, MOB, HEALER)])
         c = dict(ctx(), victims_by_guid=victims)
-        self.assertTrue(rules_mod._matches(row, where("$player"), by_guid, c, {}))
+        self.assertTrue(rules_mod._matches(row, where("$extra1"), by_guid, c, {}))
+        self.assertFalse(rules_mod._matches(row, where("$player"), by_guid, c, {}))
+
+    def test_raw_time_falls_back_to_row_t_when_base_wall_zero(self):
+        # LOW round-1 finding: the _raw_time refactor changed the normaliser. When
+        # the base wall is 0, an ISO `time` re-bases to its raw epoch and must fall
+        # back to the row's own t, as the old code did.
+        row = {"t": 12.5, "time": "2026-01-01T00:00:11+00:00"}
+        self.assertEqual(events_mod._raw_time(row, 0.0, None), 12.5)
+
+    def test_raw_time_rebases_numeric_time(self):
+        # The old code re-based a numeric `time` too; the refactor must keep that.
+        self.assertEqual(events_mod._raw_time({"t": 0.0, "time": 100.0}, 90.0, None), 10.0)
 
     def test_events_carry_seq_and_victim_table_rounds_like_events(self):
         tmp = tempfile.mkdtemp()
@@ -184,6 +234,48 @@ class PacketVictimTest(unittest.TestCase):
             got = [r for r in out["rules"] if r["id"] == "TNK-WAR-NO-TAUNT"][0]
             self.assertEqual(got["value"], 0 if with_raw else 1)
             self.assertEqual(got["verdict"], "PASS" if with_raw else "FAIL")
+
+    def test_score_rep_renormalises_seq_free_rows_from_raw(self):
+        # CRITICAL round-1 finding (a): existing runs' events.jsonl has no seq, so
+        # the old code never took the seq path. When the loaded rows lack seq but
+        # raw-ta.jsonl exists, score must re-normalise from raw so old runs take it.
+        # The raw here mirrors nightly paladin rep2 t=34.71: the cast (seq 42) goes
+        # off while the mob is on the player; the stop/start switch to the bot sits
+        # above the cast's seq, so the re-normalised rep counts the cast.
+        from trl import scenario as scenario_mod
+        trial = scenario_mod.load_trial(
+            os.path.join(ROOT, "trials", "tanks", "tank-paladin-no-taunt-tank-player.json"))
+        samples = [sample(t, MOB, PLAYER) for t in (12.0, 13.2)]
+        rows = [dict(cast(13.38, None), spell="Hand of Reckoning", spell_id=51302)]
+        rows[0].pop("seq")
+        marks = [{"kind": "fight_start", "wall": "2026-01-01T00:00:00+00:00"},
+                 {"kind": "fight_end", "wall": "2026-01-01T00:03:20+00:00", "ended": "duration"}]
+        tmp = tempfile.mkdtemp()
+        rep = os.path.join(tmp, "run", "tank-paladin-no-taunt-tank-player", "rep1")
+        os.makedirs(rep)
+        with open(os.path.join(rep, "setup.json"), "w") as f:
+            json.dump({"ok": True, "guids": GUIDS,
+                       "config": {"critical": 20, "low": 50, "medium": 70}}, f)
+        for name, data in (("samples.jsonl", samples), ("events.jsonl", rows),
+                           ("marks.jsonl", marks)):
+            with open(os.path.join(rep, name), "w") as f:
+                for row in data:
+                    f.write(json.dumps(row) + "\n")
+        with open(os.path.join(rep, "raw-ta.jsonl"), "w") as f:
+            for row in (raw("attack_start", 40, MOB, PLAYER, 0),
+                        {"seq": 42, "time": "2026-01-01T00:00:13+00:00", "kind": "spell_go",
+                         "source": {"name": "b", "guid": BOT},
+                         "target": {"name": "m", "guid": MOB}, "spell_id": 51302},
+                        raw("attack_stop", 43, MOB, PLAYER, 13),
+                        raw("attack_start", 44, MOB, BOT, 13)):
+                f.write(json.dumps(row) + "\n")
+        out = score_mod.score_rep(rep, trial)
+        scored = [json.loads(line) for line in open(os.path.join(rep, "events.jsonl"))
+                  if line.strip()]
+        self.assertTrue(any(r.get("seq") is not None for r in scored))
+        got = [r for r in out["rules"] if r["id"] == "TNK-PAL-NO-TAUNT"][0]
+        self.assertEqual(got["value"], 1)
+        self.assertEqual(got["verdict"], "FAIL")
 
 
 if __name__ == "__main__":
