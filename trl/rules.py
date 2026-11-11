@@ -147,21 +147,21 @@ def _at(samples_by_guid, guid, t):
     return best
 
 def _packet_victim(victims_by_guid, guid, t, seq=None, samples_by_guid=None):
-    """(victim, decided): the attacker's victim from its last attack_start/stop packet.
+    """(victim, decided): the attacker's victim from its last attack_start packet.
 
     Reads the per-attacker (seq, t, victim) table (attack_victims in trl/events.py).
-    On the seq path (the scored event carries a seq) the winner is the packet with
-    the highest seq below the cast's seq — never the taunt's own switch, which the
-    server sends above the cast's seq on the same mono_ms. On the time path (no seq)
-    only packets strictly earlier than the cast (vt < t) are eligible, for the same
-    reason: a packet at the cast's own t is the cast's echo, not its cause. Either
-    way only a packet within the last 5 s decides: anything older is no fresher than
-    the 1 Hz sample it replaces, so the caller falls back to the sample. An
-    attack_stop entry (victim None) means the attacker has no victim, but only when
-    it is fresh: a stop with nothing after it within 1.5 s before the cast is stale,
-    so the caller falls back to the sample. And the packet only decides when it is
-    at least as new as the latest sample at or before the cast: a newer sample is
-    the fresher observation, so the caller uses the sample instead.
+    On the seq path (the scored event carries a seq) the winner is the latest
+    attack_start packet with seq below the cast's seq — never the taunt's own
+    switch, which the server sends above the cast's seq on the same mono_ms. On
+    the time path (no seq) only attack_start packets strictly earlier than the
+    cast (vt < t) are eligible, for the same reason: a packet at the cast's own
+    t is the cast's echo, not its cause. Either way only a packet within the
+    last 5 s decides: anything older is no fresher than the 1 Hz sample it
+    replaces, so the caller falls back to the sample. An attack_stop entry
+    (victim None) decides nothing on its own: the caller falls back to the
+    latest eligible sample. And the packet only decides when it is at least as
+    new as the latest sample at or before the cast: a newer sample is the
+    fresher observation, so the caller uses the sample instead.
     """
     rows = (victims_by_guid or {}).get(str(guid or "").lower()) or []
     try:
@@ -194,7 +194,9 @@ def _packet_victim(victims_by_guid, guid, t, seq=None, samples_by_guid=None):
     if best is None:
         return None, False
     _rank, victim, vt = best
-    if victim is None and t - vt > 1.5:
+    if victim is None:
+        # A standalone attack_stop decides nothing: the mob's victim is
+        # unknown from packets, so the caller uses the latest sample.
         return None, False
     if samples_by_guid is not None:
         latest = None

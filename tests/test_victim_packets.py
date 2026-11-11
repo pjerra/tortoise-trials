@@ -127,15 +127,29 @@ class PacketVictimTest(unittest.TestCase):
         c = dict(ctx(), victims_by_guid=victims)
         self.assertTrue(rules_mod._matches(row, where("$player"), by_guid, c, {}))
 
-    def test_lone_attack_stop_falls_back_to_sample(self):
-        # LOW round-1 finding: an attack_stop alone means nothing when no packet
-        # follows it within 1.5 s before the cast; the sample decides.
+    def test_lone_attack_stop_falls_back_to_sample_seq_path(self):
+        # Round 2: a standalone attack_stop decides nothing. A stop 0.2 s
+        # before the cast (inside the old 1.5 s rule) with a sample saying
+        # the player must still count the cast as off the player.
         samples = [sample(t, MOB, PLAYER) for t in (12.0, 13.0)]
-        victims = {MOB.lower(): [(40, 10.0, None)]}
+        victims = {MOB.lower(): [(40, 13.2, None)]}
         row = cast(13.38, 42)
         by_guid = rules_mod._sample_rows(samples)
         c = dict(ctx(), victims_by_guid=victims)
         self.assertTrue(rules_mod._matches(row, where("$player"), by_guid, c, {}))
+        self.assertFalse(rules_mod._matches(row, where("$extra1"), by_guid, c, {}))
+
+    def test_lone_attack_stop_falls_back_to_sample_time_path(self):
+        # Same case on the time path (no seq anywhere): the stop decides
+        # nothing, so the latest eligible sample decides.
+        samples = [sample(t, MOB, PLAYER) for t in (12.0, 13.0)]
+        victims = {MOB.lower(): [(None, 13.2, None)]}
+        row = dict(cast(13.38, None))
+        row.pop("seq")
+        by_guid = rules_mod._sample_rows(samples)
+        c = dict(ctx(), victims_by_guid=victims)
+        self.assertTrue(rules_mod._matches(row, where("$player"), by_guid, c, {}))
+        self.assertFalse(rules_mod._matches(row, where("$extra1"), by_guid, c, {}))
 
     def test_same_t_packet_orders_by_file_order(self):
         # no seqs: the later file row at the same t wins.
