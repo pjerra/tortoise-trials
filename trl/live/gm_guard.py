@@ -28,6 +28,7 @@ TEMPLATES = {
     "modify_hp": ".modify hp {0} {1}",
     "modify_mana": ".modify mana {0} {1}",
     "modify_energy": ".modify energy {0} {1}",
+    "npc_summon": ".npc summon {0}",
     "go_xyz": ".go xyz {0} {1} {2} {3}",
     "additem": ".additem {0} {1}",
     "additem_self": ".additem {0} {1}",      # the player's own gear kit (trl/gear.py); see send(), never classified
@@ -48,6 +49,7 @@ CLASSIFY = [
     (re.compile(r"\.modify hp (\d{1,6}) (\d{1,6})"), "modify_hp"),
     (re.compile(r"\.modify mana (\d{1,6}) (\d{1,6})"), "modify_mana"),
     (re.compile(r"\.modify energy (\d{1,3}) (\d{1,3})"), "modify_energy"),
+    (re.compile(r"\.npc summon (\d{1,6})"), "npc_summon"),
     (re.compile(r"\.go xyz (-?\d{1,6}) (-?\d{1,6}) (-?\d{1,6})(?: (\d{1,2}))?"), "go_xyz"),
     (re.compile(r"\.additem (\d{1,6}) (-?\d{1,2})"), "additem"),
     (re.compile(r"\.cooldown"), "cooldown"),
