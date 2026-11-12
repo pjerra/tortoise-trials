@@ -81,11 +81,17 @@ def event(t, kind, src, dst, spell_id, hp=None):
             "dst_hp_pct": hp, "src_role": src, "dst_role": dst, "origin": "ta"}
 
 
-def series(secs, player_hp=lambda t: 600, player_auras=(), bot_auras=(), combat=True):
+def series(secs, player_hp=lambda t: 600, player_auras=(), bot_auras=(), combat=True,
+           bot_power=500, bot_dead=lambda t: False):
     out = []
     for t in range(0, secs + 1):
+        power = bot_power(t) if callable(bot_power) else bot_power
         out.append(sample(t, PLAYER, hp=player_hp(t), auras=player_auras, combat=combat))
-        out.append(sample(t, BOT, hp=1000, auras=bot_auras, combat=combat))
+        row = sample(t, BOT, hp=1000, auras=bot_auras, combat=combat)
+        row["power"] = power
+        if bot_dead(t) if callable(bot_dead) else bot_dead:
+            row["dead"] = True
+        out.append(row)
     return out
 
 
@@ -445,6 +451,57 @@ class HealLatencyTest(RepMixin, unittest.TestCase):
                              series(200, player_hp=dropping_hp, player_auras=[71]))
         self.assertEqual(entry["verdict"], "PASS")
 
+    def test_triggers_while_the_healer_is_out_of_mana_are_skipped(self):
+        # bench-fix-1112: 22 of 24 paladin misses and 14 of 19 priest misses sat under 10 %
+        # mana. Answered crossings still count; the OOM ones are no opportunity.
+        rid, heal = HEALS["priest-holy-heal-latency"]
+        oom = lambda t: 30 if 55 <= t <= 115 else 500      # noqa: E731 (10 % of the 500 pool is 50)
+        events = [event(d + 2, "cast", "bot", "player", heal, 40) for d in DROPS]
+        entry = self.verdict("priest-holy-heal-latency", rid, events,
+                             series(200, player_hp=dropping_hp, player_auras=[71], bot_power=oom))
+        self.assertEqual((entry["verdict"], entry["k"], entry["n"]), ("INCONCLUSIVE", 4, 4))
+
+    def test_triggers_while_the_healer_is_dead_are_skipped(self):
+        # bench-fix-1112: the priest lay dead at 124.3 s in rep3 (@lvl50). A dead healer and a
+        # Spirit of Redemption healer (aura 27827) carry no chance either.
+        rid, heal = HEALS["priest-holy-heal-latency"]
+        late = [event(d + 2, "cast", "bot", "player", heal, 40) for d in DROPS[:4]]
+        dead = lambda t: t >= 100                            # noqa: E731
+        entry = self.verdict("priest-holy-heal-latency", rid, late,
+                             series(200, player_hp=dropping_hp, player_auras=[71], bot_dead=dead))
+        self.assertEqual((entry["verdict"], entry["k"], entry["n"]), ("INCONCLUSIVE", 4, 4))
+        sor = series(200, player_hp=dropping_hp, player_auras=[71],
+                     bot_auras=[27827], bot_dead=lambda t: True)
+        entry = self.verdict("priest-holy-heal-latency", rid, late, sor)
+        self.assertEqual((entry["verdict"], entry["n"]), ("INCONCLUSIVE", 0))
+
+    def test_the_heal_trials_skip_oom_dead_triggers_and_space_the_damage(self):
+        for tid in ("priest-holy-heal-latency", "paladin-holy-heal-latency"):
+            trial = load(tid)
+            rule = [r for r in trial["rules"] if r["id"] == HEALS[tid][0]][0]
+            self.assertEqual(rule["check"]["skip_trigger_while"],
+                             {"unit": "$bot", "power_below_pct": 10, "skip_when_dead": True})
+            self.assertEqual(trial["situation"]["damage_interval_s"], 15)
+
+    def test_bad_skip_and_interval_shapes_are_rejected(self):
+        import copy
+        from trl import scenario as scenario_mod
+        trial = load("priest-holy-heal-latency")
+        orig = copy.deepcopy([r for r in trial["rules"] if r["id"] == "PRI-HEAL-LATENCY"][0]["check"])
+        for bad in ({"unit": "$bot", "power_below_pct": 0, "skip_when_dead": True},
+                    {"unit": "$bot", "power_below_pct": 100, "skip_when_dead": True},
+                    {"unit": "$mob", "power_below_pct": 10, "skip_when_dead": True},
+                    {"unit": "$bot", "power_below_pct": 10, "skip_when_dead": False},
+                    {"unit": "$bot", "power_below_pct": 10, "skip_when_dead": True, "extra": 1}):
+            trial["rules"][0]["check"]["skip_trigger_while"] = bad
+            self.assertTrue(any("skip_trigger_while" in e for e in scenario_mod.validate(trial)), bad)
+        trial["rules"][0]["check"]["skip_trigger_while"] = orig["skip_trigger_while"]
+        for bad_sit in (3, 61, "15"):
+            trial["situation"]["damage_interval_s"] = bad_sit
+            self.assertTrue(any("damage_interval_s" in e for e in scenario_mod.validate(trial)), bad_sit)
+        trial["situation"]["damage_interval_s"] = 15
+        self.assertEqual(scenario_mod.validate(trial), [])
+
 
 # ---- dispel, OOC and shadowform ---------------------------------------------
 
@@ -520,13 +577,24 @@ SHADOWFORM = 15473
 class ShadowformTest(RepMixin, unittest.TestCase):
     def test_shadowform_prepull_pass_and_fail(self):
         samples = series(200, player_hp=lambda t: 800, player_auras=[71], bot_auras=[SHADOWFORM])
-        # cast out of combat before the pull (t < 0) is outside the window: the form was up at the pull
+        # a cast long before the pull (t -5) is outside the window: the form was up at the pull
         before = [event(-5, "cast", "bot", "bot", SHADOWFORM, 100)]
         good = self.verdict("priest-shadow-form-prepull", "PRI-SHADOWFORM-PREPULL", before, samples)
         late = self.verdict("priest-shadow-form-prepull", "PRI-SHADOWFORM-PREPULL",
                             [event(1.2, "cast", "bot", "bot", SHADOWFORM, 100)], samples)
         self.assertEqual((good["verdict"], good["value"]), ("PASS", 0))
         self.assertEqual((late["verdict"], late["value"]), ("FAIL", 1))
+
+    def test_a_cast_at_the_pull_counts_from_3_s_before(self):
+        # bench-fix-1112: casts 0.3-0.4 s before fight_start coin-flipped the per-rep value.
+        # The window opens at t -3, so a cast at the pull counts.
+        samples = series(200, player_hp=lambda t: 800, player_auras=[71], bot_auras=[SHADOWFORM])
+        pull = [event(-0.43, "cast", "bot", "bot", SHADOWFORM, 100)]
+        entry = self.verdict("priest-shadow-form-prepull", "PRI-SHADOWFORM-PREPULL", pull, samples)
+        self.assertEqual((entry["verdict"], entry["value"]), ("FAIL", 1))
+        trial = load("priest-shadow-form-prepull")
+        rule = [r for r in trial["rules"] if r["id"] == "PRI-SHADOWFORM-PREPULL"][0]
+        self.assertEqual((rule["check"]["where"]["t_from"], rule["check"]["where"]["t_to"]), (-3, 8))
 
     def test_a_recast_late_in_the_fight_is_not_the_pull(self):
         samples = series(200, player_hp=lambda t: 800, player_auras=[71], bot_auras=[SHADOWFORM])

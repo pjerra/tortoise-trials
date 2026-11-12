@@ -45,6 +45,11 @@ DEFAULT_CC_AURAS = frozenset({
     2094,
 })
 
+# Spirit of Redemption (the priest talent that keeps healing for 15 s after death): a healer under
+# this aura is dead for scoring purposes (bench-fix-1112: triggers while the priest lay dead at
+# 124.3 s in rep3 must not score as misses, same as triggers under 10 % mana).
+SPIRIT_OF_REDEMPTION_AURAS = frozenset({20711, 20713, 20721, 20723, 27792, 27795, 27827})
+
 
 def _num(value, ctx, default=None):
     if isinstance(value, (int, float)):
@@ -623,6 +628,9 @@ def _triggers(check, samples, ctx):
                 prev = pct
                 continue
             if prev is not None and pct < below <= prev:
+                if _skip_trigger(check, t, ctx):
+                    prev = pct
+                    continue
                 out.append({"t": t, "guid": alias, "unit": unit,
                             "src_guid": str(alias or "").lower(),
                             "dst_guid": str(alias or "").lower()})
@@ -639,6 +647,49 @@ def _triggers(check, samples, ctx):
     where = {k: v for k, v in trig.items() if k not in ("unit", "below")}
     samples_by_guid = _sample_rows(ctx.get("samples_all", samples))
     return [r for r in (ctx.get("rows") or []) if _matches(r, where, samples_by_guid, ctx, ctx.get("trial") or {})]
+
+
+def _skip_trigger(check, t, ctx):
+    """True when a latency trigger at `t` carries no chance: the answering bot is out of mana or dead.
+
+    bench-fix-1112: the heal-latency mana treadmill (22 of 24 paladin misses under 10 % mana, 14 of 19
+    priest) and the dead-healer rep (the priest lay dead at 124.3 s in rep3) score as misses today.
+    `check.skip_trigger_while` is `{"unit": alias, "power_below_pct": N, "skip_when_dead": true}`.
+    """
+    spec = (check or {}).get("skip_trigger_while")
+    if not isinstance(spec, dict):
+        return False
+    guids = (ctx.get("guids") or {}) if isinstance(ctx, dict) else {}
+    unit = spec.get("unit")
+    alias = _alias_map(guids).get(unit, unit)
+    by_guid = _sample_rows((ctx.get("samples_all") or []))
+    sample = _at(by_guid, str(alias or "").lower(), t)
+    if not isinstance(sample, dict):
+        return False
+    if spec.get("skip_when_dead"):
+        if sample.get("dead"):
+            return True
+        try:
+            have = {int(a) for a in (sample.get("auras") or [])}
+        except (TypeError, ValueError):
+            have = set()
+        if have & SPIRIT_OF_REDEMPTION_AURAS:
+            return True
+    limit = spec.get("power_below_pct")
+    if limit is not None:
+        try:
+            limit = float(limit)
+        except (TypeError, ValueError):
+            return False
+        try:
+            pct = 100.0 * float(sample.get("power")) / float(sample.get("max_power"))
+        except (TypeError, ValueError, ZeroDivisionError):
+            return False
+        if sample.get("max_power") and pct < limit:
+            return True
+    return False
+
+
 
 
 def mark_times(marks, kind, window=None):
@@ -729,6 +780,11 @@ def prior_response_spans(rule, prior, base_wall, ctx):
     if cooldown <= 0:
         return []
     where = {k: v for k, v in (check.get("response") or {}).items() if k != "dst"}
+    if check.get("metric") == "first" and not where:
+        # a `first` rule has no `response` block: the answered ability is the
+        # `where` filter itself (bench-fix-1112: the potion's Restore Mana).
+        where = {k: v for k, v in (check.get("where") or {}).items()
+                 if k in ("kind", "src", "dst", "spell", "spell_id")}
     if check.get("debounce_responder_spells"):
         where["spell"] = check["debounce_responder_spells"]
     trial = (ctx or {}).get("trial") or {}
@@ -774,7 +830,7 @@ def evaluate(rule, rows, samples, marks, ctx):
     window = ctx.get("window")
     all_samples = samples
     if window:
-        rows = window_rows(rows, window)
+        rows = window_rows(rows, rule_window(window, rule))
         samples = window_samples(samples, window)
     check = rule.get("check") or {}
     metric = check.get("metric")
@@ -1036,6 +1092,28 @@ def evaluate(rule, rows, samples, marks, ctx):
         hits = sorted(scored([r for r in rows if _matches(r, where, samples_by_guid, ctx, trial)]),
                       key=lambda r: r.get("t", 0.0))
         if not hits:
+            # A responder cooldown carried across reps (bench-fix-1112: the 120 s potion item cooldown
+            # survives `.cooldown`): a match only inside such a span had no chance, so the repeat is
+            # INCONCLUSIVE (no opportunity), never a miss. No match at all keeps the +inf path below.
+            if check.get("debounce_responder_across_reps"):
+                cool = []
+                for r in rows:
+                    if r.get("kind") != "excluded" or r.get("why") != "prior rep responder cooldown":
+                        continue
+                    try:
+                        a, b = float(r.get("from")), float(r.get("to"))
+                    except (TypeError, ValueError):
+                        continue
+                    if b > a:
+                        cool.append((a, b))
+                covered = [r for r in rows if _matches(r, where, samples_by_guid, ctx, trial)
+                           and any(a <= float(r.get("t", 0.0) or 0.0) <= b for (a, b) in cool)]
+                if covered:
+                    return {"value": None, "no_match": True, "k": 0, "n": 0,
+                            "verdict": "INCONCLUSIVE",
+                            "evidence": ["only match inside an earlier rep's responder cooldown"],
+                            "reason": "no opportunity (item on cooldown from an earlier rep)",
+                            "guard": guard_note}
             # No match: pass_if still decides, as +inf (e.g. "< 30" FAILs, "> 30"
             # PASSes). The +inf stays internal; the stored value is null (JSON-safe).
             return {"value": None, "no_match": True, "k": 0, "n": 1,
@@ -1085,6 +1163,30 @@ def window_rows(rows, window):
         if lo <= t <= hi:
             out.append(r)
     return out
+
+
+def rule_window(window, rule):
+    """The row window for one rule: the fight window, widened below fight_start
+    when the rule's own `where` reads before it (bench-fix-1112: the potion
+    rule accepts a drink from t >= -2, the shadowform rule counts from
+    t_from -3; a cast in that headroom scores, it is not outside the window).
+    Samples keep the fight window: hp/aura lookups already read all samples.
+    """
+    if not window:
+        return window
+    where = ((rule or {}).get("check") or {}).get("where") or {}
+    try:
+        pre = float(where.get("t_from")) if where.get("t_from") is not None else None
+    except (TypeError, ValueError):
+        pre = None
+    if pre is None or pre >= 0:
+        return window
+    # a trigger row (cross/mark) keeps the fight window: only the `where`
+    # filter of a count/first/rate rule moves rows, never the trigger times.
+    if ((rule or {}).get("check") or {}).get("trigger") is not None:
+        return window
+    lo, hi = window
+    return (min(lo, pre), hi)
 
 
 def window_samples(samples, window):

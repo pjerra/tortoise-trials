@@ -52,7 +52,8 @@
     "ooc_wait_s": 0,
     "debuff": null,
     "max_rescues_per_min": 12,
-    "top_up_to_pct": 45
+    "top_up_to_pct": 45,
+    "damage_interval_s": 15
   },
   "setup_checks": [
     "player_level",
@@ -75,10 +76,10 @@
   "rules": [
     {
       "id": "PRI-HEAL-LATENCY",
-      "desc": "Holy priest answers the player crossing below 50 percent with a heal or shield within 4 s, at least 80 percent of the time",
+      "desc": "Holy priest answers the player crossing below 50 percent with a heal or shield within 4 s, at least 80 percent of the time (crossings while the priest is under 10 percent mana or dead carry no chance and are skipped)",
       "source": "ai/playerbot/strategy/priest/HolyPriestStrategy.cpp:29-72",
       "expect_today": "PASS",
-      "why_expect": "critical/low/medium rows all queue a heal or shield on the party member",
+      "why_expect": "critical/low/medium rows all queue a heal or shield on the party member. A crossing while the priest is under 10 percent mana or dead (Spirit of Redemption) is no opportunity, not a miss: the bench skips the trigger. The governor spaces wounds 15 s apart so mana lasts the rep",
       "check": {
         "metric": "latency",
         "trigger": {
@@ -99,12 +100,16 @@
             "Power Word: Shield"
           ]
         },
-        "within_s": 4
+        "within_s": 4,
+        "skip_trigger_while": {
+          "unit": "$bot",
+          "power_below_pct": 10,
+          "skip_when_dead": true
+        }
       },
       "pass_if": ">= 0.8",
       "min_n": 5,
-      "min_reps": 3,
-      "min_n": 5
+      "min_reps": 3
     }
   ],
   "variants": [

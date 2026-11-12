@@ -33,6 +33,13 @@ DROP_WINDOW_S = 20.0        # only falls this recent drive an early rescue
 HURT_EVERY_S = 20.0
 STANCE_RECAST_GAP_S = 5.0
 PREPULL_AURA_WAIT_S = 3.0  # the hire's aura row drops a tick or two after `.unaura`; then it must be gone
+# ooc drink settle (bench-fix-1112): a low-mana hire starts drinking during setup, and the window's
+# `.unaura all` strips that setup drink. A stripped drink can leave the AI asleep in the meal, so the
+# window must not open on a stripped drink: when a Drink aura was on the hire, wait (bounded) for the
+# healthy immediate re-drink and open the window on it. Each rep then tests "starts a drink".
+DRINK_AURA_IDS = frozenset({430, 431, 432, 1133, 1135, 1137, 10250, 22734, 24355, 25696, 26261, 26402,
+                            26473, 26475, 29007})  # keep in sync with PRI-LOWMANA-DRINK-UPTIME's aura list
+DRINK_SETTLE_S = 10.0  # a healthy re-drink lands within ~2 s (rep2/4 shape); then open the window anyway
 # -- arena lock (one exclusive file lock per arena, held for the whole repeat) --
 ARENA_WAIT_S = 15.0        # wait between passes when every arena is locked or not quiet
 ARENA_GIVE_UP_S = 600.0    # give up after 10 min with the existing "no quiet arena" outcome
@@ -305,9 +312,10 @@ class Governor:
     victim_guid: str = ""
     top_up_to: object = None
     now: object = time.time
+    max_rescues: int = MAX_RESCUES_PER_MIN
+    top_up_gap: float = 4.0
     last_damage: float = 0.0
     rescues: list = field(default_factory=list)
-    max_rescues: int = MAX_RESCUES_PER_MIN
     ended: str = ""
     own_hp: int = 0
     own_max: int = 0
@@ -378,7 +386,8 @@ class Governor:
                 self.ended = "floor"
                 return self.ended
             return None
-        if percent > float(self.band[1]) and now - self.last_damage > 4.0 and victim.get("in_combat", True):
+        if percent > float(self.band[1]) and now - self.last_damage > float(self.top_up_gap) \
+                and victim.get("in_combat", True):
             self._top_up(hp, max_hp)
         return None
 
@@ -924,6 +933,7 @@ class Situation:
                             max_rescues=self.max_rescues,
                             victim_guid=self.victim_target_guid(),
                             top_up_to=self.sit.get("top_up_to_pct"),
+                            top_up_gap=float(self.sit.get("damage_interval_s") or 4.0),
                             stopped=getattr(self.collector, "_stop", None), log=self.log)
         self.collector.tick_hooks.append(governor.tick)
         # an extra_bots victim leaves the player fighting ungoverned: a floor-only governor
@@ -1157,14 +1167,40 @@ class Situation:
             return
         self.marks.add({"kind": "energy_drain", "to": int(cfg.get("to") or 0), "wall": wall})
 
+    def ooc_drink_settled(self):
+        """Wait (bounded) for the re-drink after `.unaura all` stripped a setup drink.
+
+        bench-fix-1112: `.unaura all` at fight_start strips a drink the hire started during setup,
+        and the strip can leave the AI asleep in the meal (nightly rep1/rep3: first drink at 49.8).
+        The caller saw a Drink aura on the hire before the strip. The window opens on the healthy
+        immediate re-drink (rep2/rep4: back within ~2 s), or after DRINK_SETTLE_S with a log line
+        and an `ooc_drink_settle_timeout` mark (the asleep bot then scores its FAIL, which the
+        bot-side meal-sleep fix addresses).
+        """
+        self.log("ooc drink settle: stripped a setup drink, waiting for the re-drink")
+        deadline = time.time() + DRINK_SETTLE_S
+        while time.time() < deadline:
+            if self.abort_reason():
+                return
+            have = self.hire_aura_ids()
+            if have is not None and (have & DRINK_AURA_IDS):
+                self.log("ooc drink settle: the hire re-drank, opening the window")
+                return
+            time.sleep(0.5)
+        self.log("ooc drink settle: no re-drink in %.0f s, opening the window anyway" % DRINK_SETTLE_S)
+        self.marks.add({"kind": "ooc_drink_settle_timeout"})
+
     def run_ooc(self):
         wait = float(self.sit.get("ooc_wait_s") or 60)
+        stripped = bool(self.ctx.hire_guid and (self.hire_aura_ids() or set()) & DRINK_AURA_IDS)
         for target in (self.ctx.player_guid, self.ctx.hire_guid):
             if target:
                 try:
                     self.guard.send("unaura", target, "all")
                 except Exception:  # noqa: BLE001 - a refused cleanup must not stop the window
                     pass
+        if stripped:
+            self.ooc_drink_settled()
         self.marks.add({"kind": "fight_start", "mobs": [], "ooc": True})
         deadline = time.time() + wait
         invalid = ""

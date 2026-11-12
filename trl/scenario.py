@@ -62,7 +62,7 @@ EXTRA_BOT_FIELDS = {"class", "spec", "role", "level", "items", "gear"}
 EXTRA_ITEM_FIELDS = {"name", "count"}
 SIT_FIELDS = {"kind", "mobs", "hp_band", "floor_pct", "victim", "pull_after_s",
               "ooc_wait_s", "debuff", "refill", "roles", "max_rescues_per_min",
-              "hurt_every_s", "adaptive", "top_up_to_pct", "reset_hire_cooldowns",
+              "hurt_every_s", "adaptive", "top_up_to_pct", "damage_interval_s", "reset_hire_cooldowns",
               "energy_drain", "prepull_unaura"}
 TALENTS_FIELDS = {"tree", "spells"}
 OPPORTUNITY_FIELDS = {"unit", "hp_lt", "hp_gt", "in_combat", "has_aura"}
@@ -71,6 +71,7 @@ RULE_FIELDS = {"id", "desc", "source", "expect_today", "why_expect",
                "check", "pass_if", "min_opportunity_s", "min_n", "min_reps", "pool"}
 CHECK_FIELDS = {"metric", "where", "num", "den", "trigger", "response",
                 "within_s", "response_dst", "same_dst", "trigger_debounce_s",
+                "skip_trigger_while",
                 "debounce_responder_s", "debounce_responder_spells", "debounce_responder_across_reps",
                 "per", "min_alive_s", "name", "aura", "unit", "phase", "alive", "triggers", "min_n"}
 TRIGGER_FIELDS = (WHERE_KEYS - {"response_dst", "same_dst", "trigger_debounce_s"}) | {"unit", "below", "mark"}
@@ -288,10 +289,36 @@ def _check_rule(rule, trial_id, errs, spells_path=None):
     debounce = check.get("trigger_debounce_s")
     if debounce is not None and not _is_num(debounce):
         _err(errs, "%s/%s: bad trigger_debounce_s %r" % (trial_id, rid, debounce))
+    skip = check.get("skip_trigger_while")
+    if skip is not None:
+        # bench-fix-1112: heal-latency skips triggers while the healer is out of mana or dead.
+        if metric != "latency" or not isinstance(check.get("trigger"), dict) \
+                or (check.get("trigger") or {}).get("kind") != "cross":
+            _err(errs, "%s/%s: skip_trigger_while only applies to a latency rule with a cross trigger"
+                 % (trial_id, rid))
+        elif not isinstance(skip, dict) or set(skip) - {"unit", "power_below_pct", "skip_when_dead"} \
+                or skip.get("unit") not in CROSS_UNITS:
+            _err(errs, "%s/%s: bad skip_trigger_while %r (want {unit, power_below_pct, skip_when_dead})"
+                 % (trial_id, rid, skip))
+        else:
+            limit = skip.get("power_below_pct")
+            if limit is not None and (isinstance(limit, bool) or not isinstance(limit, (int, float))
+                                      or not 0 < limit < 100):
+                _err(errs, "%s/%s: bad skip_trigger_while power_below_pct %r (a percent 0-100)"
+                     % (trial_id, rid, limit))
+            if "skip_when_dead" in skip and skip.get("skip_when_dead") is not True:
+                _err(errs, "%s/%s: skip_trigger_while skip_when_dead must be true (or absent)"
+                     % (trial_id, rid))
+
     cd = check.get("debounce_responder_s")
     if cd is not None:
-        if metric != "latency":
-            _err(errs, "%s/%s: debounce_responder_s only applies to a latency rule" % (trial_id, rid))
+        # Latency rules skip triggers inside the responder's own cooldown; a `first` rule with an
+        # across-reps cooldown (bench-fix-1112: the potion's 120 s item cooldown) reads the same
+        # spans as no opportunity instead (no trigger to skip on a first-match rule).
+        if metric not in ("latency", "first"):
+            _err(errs, "%s/%s: debounce_responder_s only applies to a latency or first rule" % (trial_id, rid))
+        if metric == "first" and check.get("trigger") is not None:
+            _err(errs, "%s/%s: debounce_responder_s on a first rule takes no trigger" % (trial_id, rid))
         if isinstance(cd, bool) or not isinstance(cd, (int, float)) or cd <= 0:
             _err(errs, "%s/%s: bad debounce_responder_s %r (a number of seconds > 0)" % (trial_id, rid, cd))
     per = check.get("per")
@@ -314,7 +341,9 @@ def _check_rule(rule, trial_id, errs, spells_path=None):
         if cd is None:
             _err(errs, "%s/%s: debounce_responder_spells needs debounce_responder_s" % (trial_id, rid))
         resp_spells = (resp or {}).get("spell") if isinstance(resp, dict) else None
-        resp_spells = resp_spells if isinstance(resp_spells, list) else ([resp_spells] if resp_spells else [])
+        if resp_spells is None and metric == "first":
+            # a `first` rule has no `response` block: the answered ability is the `where` filter itself
+            resp_spells = (where or {}).get("spell") if isinstance(where, dict) else None
         if (not isinstance(cds, list) or not cds
                 or not all(isinstance(x, str) and x for x in cds)):
             _err(errs, "%s/%s: bad debounce_responder_spells %r (a non-empty list of spell names)"
@@ -322,7 +351,7 @@ def _check_rule(rule, trial_id, errs, spells_path=None):
         else:
             for name in cds:
                 if name not in resp_spells:
-                    _err(errs, "%s/%s: debounce_responder_spells %r is not one of the response spells"
+                    _err(errs, "%s/%s: debounce_responder_spells %r is not one of the answered spells"
                          % (trial_id, rid, name))
     within = check.get("within_s")
     if within is not None and not _is_num(within):
@@ -781,6 +810,12 @@ def validate(trial, spells_path=None):
             if hurt is not None and (isinstance(hurt, bool) or not isinstance(hurt, (int, float))
                                      or not 8 <= hurt <= 120):
                 _err(errs, "%s: hurt_every_s must be a number from 8 to 120" % tid)
+            gap = sit.get("damage_interval_s")
+            if gap is not None:
+                if sit.get("kind") != "tank_damage":
+                    _err(errs, "%s: damage_interval_s needs kind tank_damage (it paces the governor top-up)" % tid)
+                elif (isinstance(gap, bool) or not isinstance(gap, (int, float)) or not 4 <= gap <= 60):
+                    _err(errs, "%s: damage_interval_s must be a number from 4 to 60" % tid)
             top_up = sit.get("top_up_to_pct")
             if top_up is not None:
                 if sit.get("kind") in ("ooc_buffs", "ooc_hurt"):
