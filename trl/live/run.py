@@ -1166,10 +1166,11 @@ class Run:
         setup_doc["mob_source"] = situation.mob_source
         setup_doc["outcome"] = outcome
         failed = [c for c in setup_doc["checks"] if not c.get("ok") and c.get("id") != "config_read"]
-        # no arena / no mobs = no fight happened: the failed mobs_ready and player_visible rows are only
-        # its consequence, so the rep says WHY there was no fight (sweep-1b read "player not visible" and
-        # "0/0 summons" for 7 reps whose real cause was a polluted arena)
-        no_fight = str(outcome.get("ended") or "") in ("no arena", "no mobs")
+        # no arena / no mobs / prepull = no fight happened: the failed mobs_ready and player_visible rows
+        # are only its consequence, so the rep says WHY there was no fight (sweep-1b read "player not
+        # visible" and "0/0 summons" for 7 reps whose real cause was a polluted arena; a refused
+        # prepull unaura must keep its own reason, not "player not visible")
+        no_fight = str(outcome.get("ended") or "") in ("no arena", "no mobs", "prepull")
         setup_doc["ok"] = not failed and not outcome.get("invalid_reason")
         if no_fight and outcome.get("invalid_reason"):
             setup_doc["invalid_reason"] = outcome["invalid_reason"]
@@ -1216,7 +1217,7 @@ class Run:
         self.log("  %s %s: %s" % (visible["id"], "ok" if visible["ok"] else "FAIL", visible["evidence"][:160]))
         if not visible["ok"]:
             setup_doc["ok"] = False
-            setup_doc["invalid_reason"] = REASON_NOT_VISIBLE
+            setup_doc["invalid_reason"] = visible.get("invalid_reason") or REASON_NOT_VISIBLE
         self.write_setup(rep_dir, setup_doc)
         return visible
 

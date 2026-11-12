@@ -32,6 +32,7 @@ DROP_WINDOW_S = 20.0        # only falls this recent drive an early rescue
 # ooc_hurt: the victim is set to a percent inside hp_band every this many seconds (scenario: 8-120)
 HURT_EVERY_S = 20.0
 STANCE_RECAST_GAP_S = 5.0
+PREPULL_AURA_WAIT_S = 3.0  # the hire's aura row drops a tick or two after `.unaura`; then it must be gone
 # -- arena lock (one exclusive file lock per arena, held for the whole repeat) --
 ARENA_WAIT_S = 15.0        # wait between passes when every arena is locked or not quiet
 ARENA_GIVE_UP_S = 600.0    # give up after 10 min with the existing "no quiet arena" outcome
@@ -123,13 +124,27 @@ def _guid_words(text):
     return out
 
 
-def summon_mob(agent, guard, ledger, entry, within=3.0, timeout=5.0, poll=0.5, foreign=None, log=None,
-               arena=None):
-    """Summon one entry and claim it by the reply's guid, or by a NEW unit within 3 yd.
+def _wall_now(offset=0.0):
+    """An ISO wall time (the fallback when the caller has no steady clock to stamp with)."""
+    import datetime
+    return (datetime.datetime.now().astimezone()
+            + datetime.timedelta(seconds=offset)).isoformat(timespec="milliseconds")
 
-    `within` is the claim radius for the fallback: a nearby same-entry unit that
-    was absent from the pre-summon list, never a distance match to any unit.
+
+def summon_mob(agent, guard, ledger, entry, within=3.0, timeout=5.0, poll=0.5, foreign=None, log=None,
+               arena=None, now_iso=None, sent=None):
+    """Summon one entry and claim it by the reply's guid, or by a NEW unit.
+
+    `within` is the claim radius that tells apart two or more fresh units: a nearby same-entry
+    unit that was absent from the pre-summon list, never a distance match to any unit. When the
+    reply names no guid and exactly ONE fresh unit of the entry appeared (bench-fix-1111: the
+    reply carries none on this core, and 39 of 14 trials' summons stood 3.3-14.7 yd away), that
+    single new unit is claimed at any distance inside the 30 yd scan: an unclaimed summon stops
+    every refill for the rest of the repeat. Two or more fresh units keep the 3 yd rule and the
+    miss, because there is no way to tell them apart.
     `foreign` (parallel runs) returns the guids the OTHER slots summoned: never claimed here.
+    `now_iso` stamps the send (the caller's steady clock); `sent` receives {"wall": ...} right
+    BEFORE the `.npc summon` line goes out, so a marker keyed on it precedes the command.
     An unclaimed summon may still stand in the arena (sweep-1b: five of them, in combat with the player,
     made the arena "not quiet" for the next 11 reps), so it is written to the ledger as
     `summon_unclaimed` with what was in view, and logged; the caller stops summoning.
@@ -141,6 +156,8 @@ def summon_mob(agent, guard, ledger, entry, within=3.0, timeout=5.0, poll=0.5, f
     before = {norm_guid(u.get("guid")) for u in agent.units_must(entry=int(entry), within=30)
               if u.get("guid")}
     since = agent.snapshot()
+    if sent is not None:
+        sent["wall"] = now_iso() if now_iso is not None else _wall_now()
     guard.send("npc_summon", None, int(entry))
     deadline = time.time() + timeout
     seen = []
@@ -173,6 +190,17 @@ def summon_mob(agent, guard, ledger, entry, within=3.0, timeout=5.0, poll=0.5, f
             ledger.add({"kind": "summon", "guid": guid, "entry": int(entry)})
             return guid
         seen = [(norm_guid(u.get("guid")), u.get("distance")) for u in fresh]
+        if len(fresh) == 1:
+            # exactly one new unit of the entry: it is this summon, wherever it walked to inside the
+            # 30 yd scan (the reply names no guid on this core). Two or more stay a miss without a
+            # 3 yd candidate: there is nothing to tell them apart by.
+            guid = norm_guid(fresh[0].get("guid"))
+            dist = fresh[0].get("distance", -1)
+            if guid and dist is not None and dist >= 0:
+                ledger.add({"kind": "summon", "guid": guid, "entry": int(entry)})
+                if log:
+                    log("summon entry %s: claimed the only new unit at %.1f yd" % (entry, float(dist)))
+                return guid
         if time.time() >= deadline:
             ledger.add({"kind": "summon_unclaimed", "entry": int(entry),
                         "new_units": [{"guid": g, "distance": d} for g, d in seen],
@@ -485,8 +513,10 @@ class Situation:
         self.arena_state_dir = arena_state_dir
         self._arena_held = None        # the held arena span, released on every exit path
         self.current_arena = None
+        self.prepull_unaura = [int(x) for x in (self.sit.get("prepull_unaura") or [])]
         self.summoned = []
         self.mob_source = "summon"
+        self.last_summon_wall = ""      # the `.npc summon` send wall of the last claimed summon
         self.fight_start = None
         self.ended = ""
         self.drain_next = None
@@ -638,9 +668,13 @@ class Situation:
             tries += 1
             if not row:
                 break
+            sent = {}
             guid = summon_mob(self.agent, self.guard, self.ledger, row["entry"],
                               foreign=self.foreign_summons, log=self.log,
-                              arena=getattr(self, "current_arena", None))
+                              arena=getattr(self, "current_arena", None),
+                              now_iso=self._wall, sent=sent)
+            if guid:
+                self.last_summon_wall = sent.get("wall")
             if not guid:
                 # an unclaimed summon may stand in the arena: another entry, or another refill, would only
                 # add orphans (sweep-1b: 5 from one refill). Stop summoning for this repeat.
@@ -840,6 +874,10 @@ class Situation:
         role = mobs.get("role") or "melee"
         count = int(mobs.get("count") or 1)
         self.drain_next = None
+        if self.prepull_unaura:
+            failed = self.clear_prepull_auras()
+            if failed:
+                return {"ok": False, "ended": "prepull", "invalid_reason": failed}
         if self.sit.get("reset_hire_cooldowns"):
             self.reset_hire_cooldowns()
         made = self.summon(role, count)
@@ -945,7 +983,7 @@ class Situation:
                         self._last_refill = now
                         added = self.summon(role, 1)
                         if added:
-                            self.marks.add({"kind": "refill", "guid": added[0]})
+                            self.add_refill_mark(added[0])
                             if self.player_pulls():
                                 self.attack(added[0])
                 if next_refill and now >= next_refill:
@@ -958,7 +996,7 @@ class Situation:
                     if alive is not None and alive < REFILL_CAP:
                         added = self.summon((self.sit.get("mobs") or {}).get("role") or "melee", 1)
                         if added:
-                            self.marks.add({"kind": "refill", "guid": added[0], "every": refill_every})
+                            self.add_refill_mark(added[0], every=refill_every)
                             if self.player_pulls():
                                 self.attack(added[0])
                 if self.player_pulls() and now - last_threat > 6.0 and self.summoned:
@@ -1000,6 +1038,83 @@ class Situation:
         """
         return alive_summons(self.agent, self.ledger, only=self.summoned, absent_is_gone=True)
 
+    def clear_prepull_auras(self):
+        """`prepull_unaura`: strip the listed auras off the hire before the pull.
+
+        The hire is reused across repeats, so a form it cast in an earlier repeat is still up when
+        the next one starts (bench-fix-1111: reps 2-3 of priest-shadow-form-prepull had Shadowform
+        from the rep before, and the per-rep value was a coin flip). `.unaura <id>` on the hire makes
+        every repeat test the out-of-combat cast. A refused line, a missing hire identity or an aura
+        still up after a fresh read must not score the rep: it returns the reason and the caller ends
+        the repeat INVALID before the summon (the old code logged the refusal and carried on, so the
+        prepull rule scored a form the hire never lost).
+        """
+        if not self.ctx.hire_guid:
+            why = "prepull unaura: no hire identity"
+            self.marks.add({"kind": "prepull_unaura_failed", "reason": why})
+            return why
+        for spell in self.prepull_unaura:
+            try:
+                self.guard.send("unaura", self.ctx.hire_guid, int(spell))
+            except Exception as exc:  # noqa: BLE001 - a refused line makes the rep INVALID
+                self.log("prepull unaura %s refused: %s" % (spell, exc))
+                why = "prepull unaura %s refused: %s" % (spell, str(exc)[:120])
+                self.marks.add({"kind": "prepull_unaura_failed", "reason": why})
+                return why
+            self.marks.add({"kind": "prepull_unaura", "spell": int(spell)})
+        wanted = {int(spell) for spell in self.prepull_unaura}
+
+        def gone():
+            have = self.hire_aura_ids()
+            return have is not None and not (wanted & have)
+
+        if not wait_until(gone, timeout=PREPULL_AURA_WAIT_S, poll=0.3):
+            have = self.hire_aura_ids()
+            if have is None:
+                why = "prepull unaura: no fresh aura sample of the hire"
+            else:
+                why = "prepull unaura left aura(s) %s on the hire" % ", ".join(
+                    str(s) for s in sorted(wanted & have))
+            self.log(why)
+            self.marks.add({"kind": "prepull_unaura_failed", "reason": why})
+            return why
+        return ""
+
+    def hire_aura_ids(self):
+        """The hire's aura ids from a fresh unit read (None when the agent cannot answer).
+
+        A missing, null or partly malformed `auras` list is not an empty list: `gone()` reads an
+        empty set as every aura absent, so the prepull rule scored a form the hire never lost.
+        Only a list in which every entry parses counts as a sample.
+        """
+        unit = self.agent.unit(guid=self.ctx.hire_guid)
+        if not isinstance(unit, dict):
+            return None
+        auras = unit.get("auras")
+        if not isinstance(auras, list):
+            return None
+        out = set()
+        for aura in auras:
+            try:
+                out.add(int(aura["spell_id"]))
+            except (TypeError, ValueError, KeyError):
+                return None
+        return out
+
+    def add_refill_mark(self, guid, **extra):
+        """The `refill` marker, stamped with the `.npc summon` SEND wall (bench-fix-1111).
+
+        A mark added after `summon()` returns carries the claim time, and the claim loop waits up
+        to 5 s (plus 3 s for the unit row): rep3 of dps-mage-threat-cap stamped its refill 5.6 s
+        after the summon and all 6 counted hits fell in that gap. With the send wall the marker
+        precedes the new mob, so `not_within_s_after_mark` covers it.
+        """
+        row = {"kind": "refill", "guid": guid}
+        if self.last_summon_wall:
+            row["wall"] = self.last_summon_wall
+        row.update(extra)
+        return self.marks.add(row)
+
     def reset_hire_cooldowns(self):
         """`reset_hire_cooldowns`: clear the hire's cooldowns before the first summon.
 
@@ -1032,12 +1147,15 @@ class Situation:
             max_power = int(sample.get("max_power") or 100)
         except (TypeError, ValueError):
             max_power = 100
+        # the marker is stamped BEFORE the line goes out: the bot can answer within milliseconds
+        # (rep4 of dps-rogue-thistle-tea drank 64 ms before a mark stamped after the send)
+        wall = self._wall()
         try:
             self.guard.send("modify_energy", self.ctx.hire_guid, int(cfg.get("to") or 0), max_power)
         except Exception as exc:  # noqa: BLE001 - a refused line is logged, not fatal
             self.marks.add({"kind": "energy_drain_refused", "evidence": str(exc)[:120]})
             return
-        self.marks.add({"kind": "energy_drain", "to": int(cfg.get("to") or 0)})
+        self.marks.add({"kind": "energy_drain", "to": int(cfg.get("to") or 0), "wall": wall})
 
     def run_ooc(self):
         wait = float(self.sit.get("ooc_wait_s") or 60)

@@ -575,6 +575,76 @@ def mark_spans(marks, kind, seconds):
     return [(t, t + seconds) for t in mark_times(marks, kind)]
 
 
+def after_mark_spans(rule, marks):
+    """[(a, b)] dropped by `where.not_within_s_after_mark`, merged: one spec or a list of them.
+
+    The lists are what bench-fix-1111 needed: the threat rule leaves out the 12 s after each refill AND
+    the opening 12 s of the fight, where the fresh mob holds the mage on proximity, not threat.
+    """
+    where = ((rule or {}).get("check") or {}).get("where") or {}
+    spec = where.get("not_within_s_after_mark")
+    if isinstance(spec, dict):
+        spec = [spec]
+    spans = []
+    for one in spec or []:
+        if not isinstance(one, dict):
+            continue
+        spans.extend(mark_spans(marks, one.get("kind"), one.get("s")))
+    spans.sort()
+    out = []
+    for (a, b) in spans:
+        if out and a <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], b))
+        else:
+            out.append((a, b))
+    return out
+
+
+def prior_response_spans(rule, prior, base_wall, ctx):
+    """[(a, b)] of a responder cooldown that started in an EARLIER repeat, on this rep's base.
+
+    Only a rule with `check.debounce_responder_across_reps` reads them. bench-fix-1111: the Thistle
+    Tea's 5-minute item cooldown survives `.cooldown` (the core's RemoveAllSpellCooldown does not
+    cover item cooldowns), so a rep that starts less than 300 s after the hire's last tea has no
+    chance at that drain and must not score it as a miss. `prior` is [(absolute wall, row)] from the
+    reps scored before this one; `base_wall` is this rep's fight_start (or setup_ok) wall.
+    """
+    check = (rule or {}).get("check") or {}
+    if not check.get("debounce_responder_across_reps") or base_wall is None:
+        return []
+    try:
+        cooldown = float(check.get("debounce_responder_s") or 0.0)
+    except (TypeError, ValueError):
+        return []
+    if cooldown <= 0:
+        return []
+    where = {k: v for k, v in (check.get("response") or {}).items() if k != "dst"}
+    if check.get("debounce_responder_spells"):
+        where["spell"] = check["debounce_responder_spells"]
+    trial = (ctx or {}).get("trial") or {}
+    spans = []
+    for entry in prior or []:
+        try:
+            abs_wall, row = entry
+        except (TypeError, ValueError):
+            continue
+        if abs_wall is None or not isinstance(row, dict):
+            continue
+        if not _matches(row, where, {}, ctx, trial):
+            continue
+        a = float(abs_wall) - float(base_wall)
+        spans.append((a, a + cooldown))
+    return sorted(spans)
+
+
+def after_mark_samples(samples, rule, marks):
+    """`samples` without the spans `after_mark_spans` drops (the rule's opportunity reads the same set)."""
+    spans = after_mark_spans(rule, marks)
+    if not spans:
+        return list(samples or [])
+    return [s for s in samples or [] if not _in_spans(spans, s.get("t", 0.0))]
+
+
 def _in_spans(spans, t):
     try:
         t = float(t)
@@ -599,15 +669,14 @@ def evaluate(rule, rows, samples, marks, ctx):
     check = rule.get("check") or {}
     metric = check.get("metric")
     where = check.get("where") or {}
-    # where.not_within_s_after_mark {kind, s}: drop the events and samples within s seconds after each
-    # runner mark of that kind (e.g. a mob refill, whose summon adds a fresh mob that is not the bot's
-    # doing). Excluded-span rows stay: they carry the spans. Hp/aura lookups still read all samples.
-    after_mark = where.get("not_within_s_after_mark")
-    if isinstance(after_mark, dict):
-        spans = mark_spans(marks, after_mark.get("kind"), after_mark.get("s"))
-        if spans:
-            rows = [r for r in rows if r.get("kind") == "excluded" or not _in_spans(spans, r.get("t", 0.0))]
-            samples = [s for s in samples or [] if not _in_spans(spans, s.get("t", 0.0))]
+    # where.not_within_s_after_mark {kind, s} (or a list of them): drop the events and samples within s
+    # seconds after each runner mark of that kind (e.g. a mob refill, whose summon adds a fresh mob that is
+    # not the bot's doing; `fight_start` covers the opening pull). Excluded-span rows stay: they carry the
+    # spans. Hp/aura lookups still read all samples.
+    spans = after_mark_spans(rule, marks)
+    if spans:
+        rows = [r for r in rows if r.get("kind") == "excluded" or not _in_spans(spans, r.get("t", 0.0))]
+        samples = [s for s in samples or [] if not _in_spans(spans, s.get("t", 0.0))]
     ctx["rows"] = rows
     ctx["samples_all"] = all_samples
     ctx["marks"] = marks

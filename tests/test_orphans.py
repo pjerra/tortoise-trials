@@ -70,7 +70,9 @@ class UnclaimedRowCarriesTheArenaTest(unittest.TestCase):
     def test_the_row_has_the_new_units_and_the_arena_point(self):
         import test_sweep_fixes as sf
         with tempfile.TemporaryDirectory() as tmp:
-            far = [{"guid": "0xF130000000000E01", "entry": 767, "dead": False, "distance": 12.0}]
+            # two fresh units keep the miss (a lone one is claimed at any distance: bench fix r2)
+            far = [{"guid": "0xF130000000000E01", "entry": 767, "dead": False, "distance": 12.0},
+                   {"guid": "0xF130000000000E02", "entry": 767, "dead": False, "distance": 13.0}]
             agent, led, guard = sf.UnclaimedSummonTest().make(tmp, far)
             arena = {"id": "a1", "map": 0, "x": 1.5, "y": 2.5, "z": 3.5, "extra": "dropped"}
             self.assertIsNone(situations.summon_mob(agent, guard, led, 767, timeout=0.1, poll=0.02, arena=arena))

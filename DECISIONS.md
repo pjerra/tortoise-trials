@@ -2,6 +2,103 @@
 
 Short, dated notes on choices that are not obvious from the code.
 
+## 2026-11-12: fix round 2 (trials/bench-fix-r2): an unreadable aura list is no sample
+
+Codex HIGH: `hire_aura_ids()` built an empty set when the unit row had no `auras`, a null `auras`
+or only malformed entries. `clear_prepull_auras`'s `gone()` reads an empty set as every aura
+absent, so the prepull rule scored a form the hire never lost. The sample now counts only when
+`auras` is a list and every entry has an integer `spell_id`; otherwise it returns `None`, the same
+as an unreadable unit row, and the repeat ends INVALID `prepull unaura: no fresh aura sample of
+the hire` before the summon. Three tests (missing, null, malformed entry) assert that path and no
+summon; README names the unreadable sample next to the refused line.
+
+Suite delta against main 4180cde in a scratch copy (both `python3 -m unittest discover -s tests -v`,
+under `nice` and `flock /tmp/trials-tests.lock`): branch `Ran 839 tests ... FAILED (failures=12,
+errors=5, skipped=5)`, main `Ran 806 tests ... FAILED (failures=12, errors=5, skipped=5)` (the 33
+extra tests are this branch's own). The `FAIL:`/`ERROR:` name lists are identical, 17 names in
+cc_gap (1), cc_target (1), hire_talents (1), live (4), ooc_hurt (8) and orphans (2). The lists are
+quoted in the round report.
+
+## 2026-11-12: fix round 1 (trials/bench-fix-r2): direct visibility proof, prepull failure, suite delta
+
+Codex HIGH: `player_visible` passed on a bot attacking a mob within 5 yd of the player. That proves
+the party shares the spot, not that a bot ever saw the player, so the check now passes only on direct
+evidence: a hired bot (main or extra) casting/healing/buffing at the player in the window, or a
+sampler row where a bot's own API `target` is the player (`_bot_targets_player`). The nearby fight
+and mob hits on the player stay in the row's value and evidence as diagnostics; nothing else passes.
+When one of the old fallbacks was the only evidence the rep is INVALID with `visibility unproven`
+(`REASON_VISIBILITY_UNPROVEN`, carried by `apply_player_visible`) instead of the generic
+`player not visible to bots`. Group membership is not used as proof: every non-raid trial already
+requires the `grouped` setup check, and live3's hidden GM was grouped while the bots skipped it, so
+the branch would be vacuous; no rep file records group membership anyway. Mob hits on the player no
+longer pass for a non-healer either (test_live3's two mob-hit tests now assert INVALID): a mob seeing
+the player says nothing about the bots.
+
+Codex HIGH: a refused `.unaura` was logged and the run continued, and a missing hire guid returned
+silently. `clear_prepull_auras` now returns a reason for a missing hire identity, a refused line, an
+unreadable fresh aura read, or an aura still on the hire after the unaura; `run()` ends the repeat
+INVALID (`ended: "prepull"`, the reason is kept because "prepull" counts as no fight) before the
+summon. The fresh read is a `unit` RPC sample polled for `PREPULL_AURA_WAIT_S` 3 s: the aura must be
+absent, not merely the line accepted.
+
+Suite delta against main 4180cde in a scratch copy (both `python3 -m unittest discover -s tests -v`,
+under `nice` and `flock /tmp/trials-tests.lock`): branch `Ran 836 tests ... FAILED (failures=9,
+errors=5, skipped=5)`, main `Ran 806 tests ... FAILED (failures=9, errors=5, skipped=5)` (the 30
+extra tests are this branch's own). The two lists are identical, 14 names in cc_gap (1), cc_target
+(1), live (2), ooc_hurt (9) and orphans (2), so this round added no failing test. Every one ends on
+the pre-existing test bug that stubs `sit.arena` while `run()` calls `acquire_arena`, so the repeat
+ends "no quiet arena" after the 10-minute give-up. The lists are quoted in the round report.
+
+## 2026-11-11: bench fix round 2 (bench-fix-1111): summon claim, marker timing, tea, forms
+
+The FAIL reviews of run bench-fix-1111 (TRIAGE in the audit folder) named a bench problem behind most
+of the INVALID and INCONCLUSIVE reps: on this core `.npc summon` prints no guid, and `summon_mob`
+claimed a new summon only within 3 yd. 39 of 14 trials' summons stayed unclaimed, each one unit of
+the right entry at 3.27-14.7 yd, and every miss set `summon_blocked` and stopped the refills for the
+rest of the repeat. New rule: when exactly one fresh unit of the entry appeared (absent from the
+pre-summon list, not ledgered, not another slot's), claim it at any distance inside the 30 yd scan;
+with zero or two or more fresh units the 3 yd claim and the miss stay, because there is no way to
+tell them apart. The unclaimed row and its log line are unchanged.
+
+Markers are now stamped BEFORE the GM line they announce, not after it returns. The refill marker
+carries the `.npc summon` send wall (`summon_mob(..., now_iso=, sent=)` fills a dict before the send;
+`Situation.add_refill_mark` uses it), and `energy_drain` stamps `marks.now_iso()` before
+`.modify energy`. bench-fix-1111: rep3 of dps-mage-threat-cap stamped its refill 5.6 s after the
+summon and all 6 counted threat hits fell in that gap; rep4 of dps-rogue-thistle-tea drank 64 ms
+before the mark and the 300 s debounce then ate every later drain.
+
+`where.not_within_s_after_mark` takes a list of specs, and the rule's `min_opportunity_s` reads the
+same filtered samples (`rules.after_mark_samples`), so a window dropped from the count carries no
+opportunity either. dps-mage-threat-cap: leaves out `fight_start` 12 s and each refill 12 s, measures
+the opportunity on the mage (`$bot` in combat: a bot tank leaves the player out of combat) and needs
+3 valid reps; one rep decided it in bench-fix-1111.
+
+`check.debounce_responder_across_reps` (needs `debounce_responder_s`) carries the responder cooldown
+over the repeat boundary: `score_rep` receives the earlier repeats' events (`score_trial`, with each
+row placed on its own rep's fight_start wall) and adds a matching response as an excluded span on
+this rep's base. dps-rogue-thistle-tea uses it because `.cooldown` does NOT reset Thistle Tea's
+5-minute item cooldown (bench-fix-1111: the bot answered every drain at least 300 s after its last
+tea, within ~10 ms, and none inside). Every in-rep behaviour is unchanged.
+
+`situation.prepull_unaura: [<aura id>]` strips those auras off the hire before the pull
+(`Situation.clear_prepull_auras`, before the first summon). priest-shadow-form-prepull uses it for
+Shadowform 15473: the hire is reused, reps 2-3 "passed" only because the form carried over, and the
+per-rep value was a coin flip.
+
+The two second-tank PWS trials (priest-holy-pws-bear-bal-2tank, priest-holy-pws-def-arms-2tank) set
+`expect_today` PASS and their descriptions become regression guards: #1553 is fixed by TortoiseBots
+5f57e84f2 / PR #1557 (PriestActions.h:43-49 -> ShouldShieldTarget, ShieldTargetPolicy.h:23-39: the
+form/stance counts as a tank even when HasOtherTank makes GetPlayerRoles return the talent role).
+Both get `min_reps 3`: def-arms passed the round on one valid rep.
+
+`player_visible` passes for a bot that is not a healer when a bot attacked a mob within 5 yd of the
+player in the first 30 s (positions from `samples.jsonl`; a rep without samples keeps the older
+rules). bench-fix-1111: 5 reps were INVALID with 0 bot casts at the player and 0 mob hits on it while
+the tank's casts and swings landed on mobs 0-3.5 yd from the player; the player was never targeted by
+any bot in those reps, so a target-list rule would not have fired, and the "group" side of the option
+is already proven by the `grouped` setup check and would make the guard vacuous. A hired healer still
+must cast at the player (the live3 hidden-GM finding), and a `bot role` reread stays as strict.
+
 ## 2026-11-11: the marked mob is taunted into combat before the fight counts (P4)
 
 The moon-marked mob never entered combat (the bench keeps it idle on purpose), so TortoiseBots' CC

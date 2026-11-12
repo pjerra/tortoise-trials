@@ -115,8 +115,14 @@ A trial is one JSON file in `trials/<group>/`. Unknown keys are rejected by `val
   `cc_target` and others): which mobs, a health band to hold the target in, a floor, a pull delay.
   `top_up_to_pct` (a number inside the band, not for ooc kinds) drops the governor's top-up to that
   percent instead of the band middle. `reset_hire_cooldowns: true` clears the hire's cooldowns before
-  the first summon (check `hire_cooldowns_reset`). `energy_drain {first_at_s 5-170, every_s >= 20,
-  to 0-19}` (rogue `tank_damage` only) empties the hire's bar on schedule with `energy_drain` marks.
+  the first summon (check `hire_cooldowns_reset`; it does NOT clear an item cooldown such as Thistle
+  Tea's). `energy_drain {first_at_s 5-170, every_s >= 20, to 0-19}` (rogue `tank_damage` only)
+  empties the hire's bar on schedule with `energy_drain` marks, stamped at the `.modify energy` send.
+  `prepull_unaura: [<aura id>, ...]` strips those auras off the hire before the pull: the hire is
+  reused between repeats, so a form an earlier repeat cast (e.g. Shadowform 15473) would otherwise
+  still be up. A missing hire guid, a refused `.unaura`, a fresh sample with no `auras` list or a
+  malformed entry (not "no auras"), or an aura still on the hire makes the repeat INVALID before
+  the summon (a prepull rule must never score a form that is still up).
 - `opportunity` (besides `unit`, `hp_lt`/`hp_gt`, `in_combat`): `has_aura` (a non-empty list of aura
   ids; a sample counts only when its auras intersect the list).
 - `setup_checks`: facts that must hold before a repeat counts (the guards below).
@@ -140,7 +146,7 @@ Shortened example (from `trials/healers/priest-holy-pws-def-arms-2tank.json`):
                 "hp_band": [40, 90], "floor_pct": 12, "victim": "player"},
   "opportunity": {"unit": "$player", "hp_lt": 90, "hp_gt": "$critical", "in_combat": true},
   "rules": [{"id": "PRI-PWS-DEF-ARMS-2TANK", "source": "ai/playerbot/AiFactory.cpp:520-576,597-611",
-             "expect_today": "FAIL",
+             "expect_today": "PASS",
              "check": {"metric": "count", "where": {"kind": "cast", "src": "$bot", "dst": "$player",
                        "spell": "Power Word: Shield", "dst_hp_gt": "$critical", "in_combat": true}},
              "pass_if": "== 0", "min_opportunity_s": 90}]
@@ -238,13 +244,19 @@ itself or a hire (the runner resets the hire's cooldowns before the first summon
   source mob's `trigger_debounce_s` window. `check.debounce_responder_spells` (a list of response
   spell names, each one of the `response` spells; needs `debounce_responder_s`) limits which responses
   start the cooldown: Taunt has a 10 s cooldown, a Mocking Blow does not start it. `trigger_debounce_s` is different: it thins the
-  triggers per source before anything is answered.
-- `check.where.not_within_s_after_mark` (`{"kind": "<mark kind>", "s": N}`, only in `check.where`,
-  any metric, default off): drop the events and samples within N s after each runner mark of that
-  kind (the marks are the ones in `marks.jsonl`; `refill` is written when a refilled mob is
-  summoned). A mob refill brings a fresh mob that the bot has not engaged yet, so a rule about
-  threat or aggro can leave that window out. Excluded-span rows stay; hp, aura and combat
-  lookups still read all samples.
+  triggers per source before anything is answered. `check.debounce_responder_across_reps: true` (needs
+  `debounce_responder_s`) carries that cooldown over the repeat boundary: a trigger less than N s after
+  the bot's last matching response in ANY earlier repeat of the trial is skipped as well. Use it when the
+  runner cannot reset the cooldown (bench-fix-1111: `.cooldown` does not clear Thistle Tea's 5-minute
+  item cooldown, so a rep starting soon after the last tea has no chance at its drains).
+- `check.where.not_within_s_after_mark` (`{"kind": "<mark kind>", "s": N}`, or a list of these;
+  only in `check.where`, any metric, default off): drop the events and samples within N s after
+  each runner mark of that kind (the marks are the ones in `marks.jsonl`; `refill` is written at
+  the `.npc summon` send of a refilled mob, so it precedes the claim). A mob refill brings a fresh
+  mob that the bot has not engaged yet, so a rule about threat or aggro can leave that window out;
+  `fight_start` covers the opening seconds of the fight the same way. The rule's `min_opportunity_s`
+  reads the same set: the dropped windows carry no chance. Excluded-span rows stay; hp, aura and
+  combat lookups still read all samples.
 
 Spell, item and creature ids come from `data/` (built offline from the public core SQL with
 `build_data.py`; it never contacts a server). The `Trl*` character names in `data/characters.json`
@@ -255,7 +267,12 @@ are the generic names the runner creates on a test server.
 A repeat that fails a guard is INVALID or INCONCLUSIVE, never a pass or a fail:
 
 - **Player visible.** The player must be visible to the bots. A GM that logs in hidden is skipped
-  by the bots' party logic, so the runner checks and fails the repeat if the player is hidden.
+  by the bots' party logic, so the runner checks and fails the repeat if the player is hidden. Only
+  direct evidence passes in the first 30 s: a hire (main or extra) casting/healing/buffing at the
+  player, or a sampler row whose API `target` is the player. A mob hit on the player and a bot
+  attack on a mob within 5 yd of the player are diagnostics, never a pass; when that nearby fight is
+  the only evidence the repeat is INVALID with `visibility unproven` (a bot tank holds the mob and
+  never touches a healthy player, but that does not show it saw the player).
 - **Opportunity.** A rule only counts the time the bot had a reason to act (the `opportunity`
   block, and `min_opportunity_s`). Too little opportunity gives INCONCLUSIVE.
 - **Stance and set-up.** The player's stance, talents, forced role, level and shield state, the
@@ -271,6 +288,13 @@ A repeat that fails a guard is INVALID or INCONCLUSIVE, never a pass or a fail:
 - **Controls.** Control trials keep the same set-up but change the one thing the rule is about (a
   player in Battle Stance, a warrior hired as a bot, no combat). They must still behave as
   expected, which shows the rule is not just always passing or always failing.
+
+Each mob is summoned with `.npc summon` and then claimed: by the guid in the reply when the core
+prints one, else by a new unit of that entry that was not there before the summon. A single new
+unit is claimed at any distance inside the 30 yd scan (the reply names no guid on this core, and a
+refill mob walks off before the next poll); with two or more new units only the one within 3 yd is
+claimed, and otherwise the summon stays `summon_unclaimed` and the repeat stops refilling, because
+a mob the ledger does not hold is one no cleanup ever removes.
 
 ## Before and after
 

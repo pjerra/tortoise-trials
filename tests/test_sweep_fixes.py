@@ -276,6 +276,13 @@ class NoFightReasonTest(unittest.TestCase):
         doc = self.rep({"ok": True, "ended": "duration"})
         self.assertIn("player_visible", [c["id"] for c in doc["checks"]])
 
+    def test_a_refused_prepull_keeps_its_reason_and_skips_player_visible(self):
+        # an invalid prepull ends the rep before the summon: the generic visibility row must not replace it
+        doc = self.rep({"ok": False, "ended": "prepull",
+                        "invalid_reason": "prepull unaura 15473 refused: not in view"})
+        self.assertEqual(doc["invalid_reason"], "prepull unaura 15473 refused: not in view")
+        self.assertNotIn("player_visible", [c["id"] for c in doc["checks"]])
+
 
 class UnclaimedSummonTest(unittest.TestCase):
     """Five `.npc summon` in a row (one refill, five entries) all went unclaimed and stood in the arena."""
@@ -297,7 +304,9 @@ class UnclaimedSummonTest(unittest.TestCase):
 
     def test_an_unclaimed_summon_is_recorded_and_stops_further_summons(self):
         with tempfile.TemporaryDirectory() as tmp:
-            far = [{"guid": "0xF130000000000E01", "entry": 767, "dead": False, "distance": 12.0}]
+            # two fresh units: only a lone one is claimed at any distance (bench fix r2)
+            far = [{"guid": "0xF130000000000E01", "entry": 767, "dead": False, "distance": 12.0},
+                   {"guid": "0xF130000000000E02", "entry": 767, "dead": False, "distance": 13.0}]
             agent, led, guard = self.make(tmp, far)
             logs = []
             self.assertIsNone(situations.summon_mob(agent, guard, led, 767, timeout=0.1, poll=0.02, log=logs.append))

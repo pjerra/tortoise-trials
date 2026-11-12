@@ -63,7 +63,7 @@ EXTRA_ITEM_FIELDS = {"name", "count"}
 SIT_FIELDS = {"kind", "mobs", "hp_band", "floor_pct", "victim", "pull_after_s",
               "ooc_wait_s", "debuff", "refill", "roles", "max_rescues_per_min",
               "hurt_every_s", "adaptive", "top_up_to_pct", "reset_hire_cooldowns",
-              "energy_drain"}
+              "energy_drain", "prepull_unaura"}
 TALENTS_FIELDS = {"tree", "spells"}
 OPPORTUNITY_FIELDS = {"unit", "hp_lt", "hp_gt", "in_combat", "has_aura"}
 MOBS_FIELDS = {"role", "count", "level_delta", "refill", "refill_every_s"}
@@ -71,7 +71,8 @@ RULE_FIELDS = {"id", "desc", "source", "expect_today", "why_expect",
                "check", "pass_if", "min_opportunity_s", "min_n", "min_reps"}
 CHECK_FIELDS = {"metric", "where", "num", "den", "trigger", "response",
                 "within_s", "response_dst", "same_dst", "trigger_debounce_s",
-                "debounce_responder_s", "debounce_responder_spells", "per", "min_alive_s", "name", "aura", "unit", "phase", "alive", "triggers", "min_n"}
+                "debounce_responder_s", "debounce_responder_spells", "debounce_responder_across_reps",
+                "per", "min_alive_s", "name", "aura", "unit", "phase", "alive", "triggers", "min_n"}
 TRIGGER_FIELDS = (WHERE_KEYS - {"response_dst", "same_dst", "trigger_debounce_s"}) | {"unit", "below", "mark"}
 RESPONSE_FIELDS = {"kind", "src", "dst", "spell", "spell_id", "in_combat"}
 SPEC_IDS = {
@@ -155,13 +156,15 @@ def _check_filter(doc, label, trial_id, rid, errs, spells_path=None,
                 _err(errs, "%s: unknown %s key %r" % (where, label, key))
     if "not_within_s_after_mark" in doc:
         spec = doc["not_within_s_after_mark"]
+        specs = spec if isinstance(spec, list) else [spec]
         if label != "where":
             _err(errs, "%s: not_within_s_after_mark is only valid in check.where (it filters the whole check)" % where)
-        elif (not isinstance(spec, dict) or set(spec) != {"kind", "s"}
-              or not isinstance(spec["kind"], str) or not spec["kind"]
-              or isinstance(spec["s"], bool) or not isinstance(spec["s"], (int, float)) or spec["s"] <= 0):
-            _err(errs, "%s: bad not_within_s_after_mark %r (want {\"kind\": <mark kind>, \"s\": seconds > 0})"
-                 % (where, spec))
+        elif (not specs or any(not isinstance(one, dict) or set(one) != {"kind", "s"}
+                               or not isinstance(one["kind"], str) or not one["kind"]
+                               or isinstance(one["s"], bool) or not isinstance(one["s"], (int, float))
+                               or one["s"] <= 0 for one in specs)):
+            _err(errs, "%s: bad not_within_s_after_mark %r (want {\"kind\": <mark kind>, \"s\": seconds > 0}, "
+                       "or a list of them)" % (where, spec))
     if need_kind and "kind" not in doc:
         # A filter without a `kind` matches every event kind: reject it.
         _err(errs, "%s: %s needs a kind" % (where, label))
@@ -286,6 +289,12 @@ def _check_rule(rule, trial_id, errs, spells_path=None):
             _err(errs, "%s/%s: min_alive_s needs per: mob_alive" % (trial_id, rid))
         if isinstance(min_alive, bool) or not isinstance(min_alive, (int, float)) or min_alive <= 0:
             _err(errs, "%s/%s: bad min_alive_s %r (seconds > 0)" % (trial_id, rid, min_alive))
+    across = check.get("debounce_responder_across_reps")
+    if across is not None:
+        if across is not True:
+            _err(errs, "%s/%s: debounce_responder_across_reps must be true (or absent)" % (trial_id, rid))
+        if cd is None:
+            _err(errs, "%s/%s: debounce_responder_across_reps needs debounce_responder_s" % (trial_id, rid))
     cds = check.get("debounce_responder_spells")
     if cds is not None:
         if cd is None:
@@ -779,6 +788,12 @@ def validate(trial, spells_path=None):
                         _err(errs, "%s: energy_drain every_s must be an int >= 20" % tid)
                     if (isinstance(to, bool) or not isinstance(to, int) or not 0 <= to <= 19):
                         _err(errs, "%s: energy_drain to must be an int 0-19" % tid)
+            strip = sit.get("prepull_unaura")
+            if strip is not None:
+                if (not isinstance(strip, list) or not strip
+                        or any(isinstance(x, bool) or not isinstance(x, int) or not 1 <= x <= 999999
+                               for x in strip)):
+                    _err(errs, "%s: prepull_unaura must be a non-empty list of aura/spell ids" % tid)
             if sit.get("kind") == "ooc_hurt":
                 # no mobs: the victim is hurt by a GM line, out of combat, inside hp_band
                 if (isinstance(band, list) and len(band) == 2

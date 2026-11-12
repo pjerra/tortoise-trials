@@ -105,7 +105,7 @@
       "desc": "A level 60 Combat rogue that carries Thistle Tea uses it (the tea's spell is Restore Energy) within 5 s of an emptied bar, at least half the time",
       "source": "ai/playerbot/strategy/rogue/RogueStrategy.cpp:88-90 (no energy available -> thistle tea at ACTION_HIGH + 5); ai/playerbot/strategy/triggers/GenericTriggers.h:65-74 (NoEnergyAvailableTrigger: energy under 20); ai/playerbot/strategy/actions/UseItemAction.h:402-412 (the action is useful only for a rogue of level 60 or more); TortoiseBots upstream/dev 0c56cf649",
       "expect_today": "?",
-      "why_expect": "the runner empties the bar on a schedule (the TortoiseBots trigger is energy under 20); the tea's 5-min cooldown is reset each rep; the first answered drain ends the chances for 300 s (the responder cooldown)",
+      "why_expect": "the runner empties the bar on a schedule (the TortoiseBots trigger is energy under 20). `.cooldown` does not reset the tea's item cooldown (bench-fix-1111: the bot answered every drain at least 300 s after its last tea, within about 10 ms, and none inside the 300 s), so the responder debounce is carried across reps: a drain less than 300 s after the hire's last Restore Energy in ANY earlier repeat is no chance, not a miss. The per-rep `.cooldown` line stays (a refusal would still show as energy_drain_refused)",
       "check": {
         "metric": "latency",
         "trigger": {
@@ -121,7 +121,8 @@
         "debounce_responder_s": 300,
         "debounce_responder_spells": [
           "Restore Energy"
-        ]
+        ],
+        "debounce_responder_across_reps": true
       },
       "pass_if": ">= 0.5",
       "min_n": 1,

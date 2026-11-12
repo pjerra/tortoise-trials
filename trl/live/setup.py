@@ -7,6 +7,7 @@ config_read is retried once, then the repeat is INVALID.
 """
 
 import json
+import math
 import os
 import re
 import time
@@ -58,8 +59,15 @@ VISIBLE_REPLY = re.compile(r"\bvisible\b", re.I)
 VISIBLE_FAILED = re.compile(r"\binvisib|no such command|unknown command|incorrect syntax|"
                             r"\bsyntax\b|\busage\b|not allowed|no access|you can.?t", re.I)
 VISIBLE_WINDOW_S = 30.0
+# a bot attack on a mob this close to the player shows the party is fighting at the player's spot;
+# it is a diagnostic only, never proof that a bot saw the player (bench-fix-1111: the bot tank's
+# casts landed on mobs 0-3.5 yd away and the player was never touched)
+NEAR_PLAYER_YD = 5.0
 EQUIPMENT_OFFHAND_SLOT = 16        # EQUIPMENT_SLOT_OFFHAND (1.12): HEAD 0 .. MAINHAND 15, OFFHAND 16, RANGED 17
 REASON_NOT_VISIBLE = "player not visible to bots"
+# the neighbouring fight used to be the only evidence in the bench-fix-1111 reps: it says the party
+# shares the spot, never that a bot saw the player, so those reps are INVALID for lack of proof
+REASON_VISIBILITY_UNPROVEN = "visibility unproven"
 
 
 def row(cid, ok, value=None, evidence=""):
@@ -1421,16 +1429,126 @@ def _events_rows(rep_dir):
     return rows
 
 
+def _samples_rows(rep_dir):
+    """The rep's samples.jsonl (empty when absent: the bench-fix fixtures carry events only)."""
+    path = os.path.join(rep_dir, "samples.jsonl")
+    rows = []
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    rows.append(json.loads(line))
+    except (OSError, ValueError):
+        return []
+    return rows
+
+
+def _unit_track(samples, unit):
+    """[(t, x, y, z)] of one sample `unit`, sorted by t."""
+    out = []
+    for sample in samples or []:
+        if sample.get("unit") != unit:
+            continue
+        try:
+            out.append((float(sample.get("t")), float(sample.get("x")), float(sample.get("y")),
+                        float(sample.get("z"))))
+        except (TypeError, ValueError):
+            continue
+    out.sort()
+    return out
+
+
+def _position_at(track, t):
+    """The last position at or before `t` (within 1 s: the sampler runs at 1 Hz), else None."""
+    best = None
+    for (st, x, y, z) in track:
+        if st <= t and t - st <= 1.0:
+            best = (x, y, z)
+        elif st > t:
+            break
+    return best
+
+
+def _bot_attacks_near_player(window, samples, yards):
+    """Bot attacks on a mob that stood within `yards` of the player at that moment.
+
+    bench-fix-1111: with a bot tank holding the mob nothing touches the player in the first 30 s, and
+    the five INVALID reps had 0 bot casts at the player and 0 mob hits on it, while the tank's casts
+    and swings landed on the mob 0-3.5 yd from the player. That says the party shares the spot, not
+    that any bot saw the player (codex HIGH), so the count is a diagnostic: `check_player_visible`
+    reports it and never passes on it. Samples carry the positions; a rep with no samples.jsonl has
+    no evidence here.
+    """
+    player = None
+    tracks = {}
+    for probed in window:
+        if probed.get("kind") not in ("cast", "cast_start", "damage"):
+            continue
+        if probed.get("src_role") not in ("bot", "extra") or probed.get("dst_role") != "mob":
+            continue
+        try:
+            t = float(probed.get("t") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if player is None:
+            # the player's own track: the sampler labels it "player"
+            player = _unit_track(samples, "player")
+            if not player:
+                return []
+        mob = "mob:%s" % str(probed.get("dst_guid") or "").lower()
+        track = tracks.get(mob)
+        if track is None:
+            track = tracks[mob] = _unit_track(samples, mob)
+        here = _position_at(player, t)
+        there = _position_at(track, t)
+        if here is None or there is None:
+            continue
+        if math.dist(here, there) <= float(yards):
+            yield probed
+
+
+def _bot_targets_player(samples, window_s):
+    """Sample rows in the window where a hired bot's own target is the player.
+
+    The sampler reads each unit's `target` from the server's unit row, so this is the API's own
+    answer that the bot selected the player, not an inference from where the units stood.
+    """
+    player = ""
+    bots = set()
+    for sample in samples or []:
+        unit = sample.get("unit") or ""
+        if unit == "player":
+            player = player or norm_guid(sample.get("guid"))
+        elif unit == "bot" or unit.startswith("extra"):
+            bots.add(unit)
+    if not player or not bots:
+        return []
+    out = []
+    for sample in samples or []:
+        if sample.get("unit") not in bots:
+            continue
+        try:
+            t = float(sample.get("t"))
+        except (TypeError, ValueError):
+            continue
+        if 0.0 <= t <= float(window_s) and norm_guid(sample.get("target")) == player:
+            out.append(sample)
+    return out
+
+
 def check_player_visible(rep_dir, trial, window_s=VISIBLE_WINDOW_S):
     """REQUIRED in-fight check `player_visible`, from the rep's events.jsonl (None for a raid trial).
 
     Visible = within the first `window_s` s of the fight (t = 0 is fight_start) a hired bot (the hire or
-    an extra_bots hire) cast a spell at the player. A hired HEALER must do so: a mob hitting the player proves nothing
-    (live3: the hidden GM was hit by mobs in 6 of 9 reps and healed in none). For a bot that is not
-    a healer, or when the player is not the trial's victim (victim extra1: it is a bystander), a mob
-    attack on the player counts too (nothing obliges the bot to cast at a full-health player). An
-    ooc_buffs / ooc_hurt trial looks at its whole window. Failing = the rep is INVALID with
-    "player not visible to bots".
+    an extra_bots hire) either cast a spell at the player (a heal, a shield, any buff) or was seen by
+    the API with the player as its target. Nothing else passes: a mob hitting the player proves the
+    MOBS see it, not the bots (live3: the hidden GM was hit by mobs in 6 of 9 reps and healed in
+    none), and a bot fighting a mob beside the player only proves the party shares the spot. The
+    nearby fight and the mob hits stay in the row as diagnostics and, when they were the only
+    evidence, the rep is INVALID with "visibility unproven" (bench-fix-1111: the bot tank held the
+    mob and nothing touched the player, so the old rule passed reps it could not prove). An
+    ooc_buffs / ooc_hurt trial looks at its whole window.
     """
     if (trial or {}).get("group") == "raid":
         return None
@@ -1445,19 +1563,33 @@ def check_player_visible(rep_dir, trial, window_s=VISIBLE_WINDOW_S):
     window = [r for r in rows if 0.0 <= float(r.get("t") or 0.0) <= float(window_s)]
     # any hired bot counts: the main hire ("bot") and extra_bots hires ("extra") skip a hidden GM alike (a
     # healer extra casting on the player proves the player is visible; the sweep's kick trial had 32 such casts)
-    casts = [r for r in window if r.get("kind") in ("cast", "cast_start")
+    casts = [r for r in window if r.get("kind") in ("cast", "cast_start", "heal")
              and r.get("src_role") in ("bot", "extra") and r.get("dst_role") == "player"]
     hits = [r for r in window if r.get("kind") == "damage"
             and r.get("src_role") == "mob" and r.get("dst_role") == "player"]
-    # a healer must answer the player only when the player is the one being hurt (victim player);
-    # with an extra_bots victim the player is a bystander and a mob hitting it counts
+    samples = _samples_rows(rep_dir)
+    targets = _bot_targets_player(samples, window_s)
+    near = list(_bot_attacks_near_player(window, samples, NEAR_PLAYER_YD))
+    # a healer is the case live3 proved: only a cast at the player counts, mob hits never do
     healer = (((trial or {}).get("bot") or {}).get("role") == "healer"
               and (sit.get("victim") or "player") == "player")
-    ok = bool(casts) or (not healer and bool(hits))
-    value = {"bot_casts_on_player": len(casts), "mob_hits_on_player": len(hits), "window_s": float(window_s)}
-    evidence = "first %.0f s of the fight: bot casts on the player %d, mob hits on the player %d%s" % (
-        window_s, len(casts), len(hits),
-        "" if ok else " -> %s%s" % (REASON_NOT_VISIBLE,
-                                    " (a healer must cast at the player; mob hits do not prove it)"
-                                    if healer else ""))
-    return row("player_visible", ok, value, evidence)
+    ok = bool(casts) or bool(targets)
+    # the old fallback evidence: only interesting because it used to pass; now it names the reason
+    fallback = not ok and not healer and (bool(hits) or bool(near))
+    reason = REASON_VISIBILITY_UNPROVEN if fallback else REASON_NOT_VISIBLE
+    value = {"bot_casts_on_player": len(casts), "bot_targets_player": len(targets),
+             "mob_hits_on_player": len(hits),
+             "bot_attacks_near_player": len(near), "near_yd": NEAR_PLAYER_YD,
+             "window_s": float(window_s)}
+    evidence = ("first %.0f s of the fight: bot casts at the player %d, bot samples targeting the "
+                "player %d, mob hits on the player %d, bot attacks on a mob within %.0f yd of the "
+                "player %d%s") % (
+        window_s, len(casts), len(targets), len(hits), NEAR_PLAYER_YD, len(near),
+        "" if ok else " -> %s%s" % (
+            reason,
+            " (nothing shows a bot saw the player; nearby combat does not prove it)"
+            if fallback else
+            " (a healer must cast at the player; mob hits do not prove it)" if healer else ""))
+    out = row("player_visible", ok, value, evidence)
+    out["invalid_reason"] = reason
+    return out

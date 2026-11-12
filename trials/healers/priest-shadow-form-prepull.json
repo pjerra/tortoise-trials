@@ -60,6 +60,9 @@
     "victim": "player",
     "pull_after_s": 30,
     "ooc_wait_s": 0,
+    "prepull_unaura": [
+      15473
+    ],
     "debuff": null,
     "max_rescues_per_min": 12
   },
