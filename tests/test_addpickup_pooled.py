@@ -234,6 +234,29 @@ class DrinkUnderAttackTest(unittest.TestCase):
         res = rules_mod.evaluate(self.rule, rows, self.samples, [], self._ctx(victims))
         self.assertEqual((res["k"], res["verdict"]), (0, "PASS"))
 
+    def test_a_healer_attack_packet_counts_when_the_sample_is_stale(self):
+        # t=32: the mob's last sample (29, on the bot) is 3 s old; the packet at 29 has the healer.
+        victims = {MOB.lower(): [(None, 29.0, HEALER)]}
+        rows = [_bot_cast(32.0)]
+        res = rules_mod.evaluate(self.rule, rows, self.samples, [], self._ctx(victims))
+        self.assertEqual((res["k"], res["verdict"]), (1, "FAIL"))
+
+    def test_unknown_attack_state_is_inconclusive_not_a_pass(self):
+        # t=32: the mob was alive but its last sample is 3 s old (no fresh target) and there is no
+        # attack packet at all: missing attack-state evidence must not read as "not under attack".
+        rows = [_bot_cast(32.0)]
+        res = rules_mod.evaluate(self.rule, rows, self.samples, [], self._ctx())
+        self.assertEqual((res["k"], res["verdict"]), (0, "INCONCLUSIVE"))
+        self.assertIn("attack state unknown", " ".join(res["evidence"]))
+
+    def test_a_dead_mob_is_not_unknown(self):
+        # The mob's freshest sample has hp 0: it was not live at the cast, so nothing was on the
+        # party and the Drink is clean (no INCONCLUSIVE from a corpse).
+        samples = [_sample(29.0, MOB, "mob:" + MOB.lower(), BOT, hp=0),
+                   _sample(29.0, PLAYER, "player")]
+        res = rules_mod.evaluate(self.rule, [_bot_cast(32.0)], samples, [], self._ctx())
+        self.assertEqual((res["k"], res["verdict"]), (0, "PASS"))
+
 
 if __name__ == "__main__":
     unittest.main()

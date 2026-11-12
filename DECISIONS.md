@@ -31,7 +31,11 @@ These are WHY.md's table counts exactly. t1106u-before reads INCONCLUSIVE rather
 healer (`check.where.party_under_attack: ["$player", "$extras"]`). The attacker's victim comes from
 its last `attack_start` packet (the `src_target_of` rule) with the mob's sample `target` as the
 fallback; only `mob:` units are attackers, and the bot itself is deliberately not in the list, so a
-tank may drink while holding the mob. It is pooled too, so one repeat with a cast fails the trial.
+tank may drink while holding the mob. The state is tri-state: a mob that was live at the cast (a
+sample inside the last 5 s with hp left, or an attack packet) but has neither a deciding packet nor
+a fresh sample (1 s) saying who it is on leaves the state unknown, and the rule is INCONCLUSIVE for
+that repeat rather than passing it — missing attack evidence is not "not under attack". It is pooled
+too, so one repeat with a cast fails the trial.
 On the six images it rescores 0/n PASS in every one: `DrinkAction::isUseful` already requires
 `!GroupIsFighting`, so a start while a party member is under attack is only a stale-value race. The
 meal-gap misses (12 of 15) happen when a refill mob opens on the party DURING the 15 s meal, which

@@ -273,7 +273,11 @@ itself or a hire (the runner resets the hire's cooldowns before the first summon
   packet (the `src_target_of` rule: a packet at the event's own t is the echo, not the cause), and
   from the mob's own sample `target` when no packet is fresh. Only `mob:` units count as attackers;
   the bot itself is never implied, so `["$player", "$extras"]` still lets a tank drink while it
-  holds the mob. Used by `TNK-PAL-NO-DRINK-UNDER-ATTACK` as the meal's cast-time regression guard:
+  holds the mob. A mob that was live at the event (a sample inside the last 5 s with hp left, or an
+  attack packet) but has neither a deciding packet nor a fresh sample (1 s) saying who it is on
+  leaves the state unknown: missing attack evidence is not "not under attack", so a `count` metric
+  reports the rule INCONCLUSIVE for that repeat, never a pass. Used by
+  `TNK-PAL-NO-DRINK-UNDER-ATTACK` as the meal's cast-time regression guard:
   `DrinkAction::isUseful` already needs `!GroupIsFighting`, so a start while a party member is
   already under attack is a stale-value race. It is not the meal-gap grader: the add-pickup misses
   come from a refill mob that opens on a party member DURING the 15 s meal
