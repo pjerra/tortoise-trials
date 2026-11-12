@@ -32,6 +32,7 @@ DROP_WINDOW_S = 20.0        # only falls this recent drive an early rescue
 # ooc_hurt: the victim is set to a percent inside hp_band every this many seconds (scenario: 8-120)
 HURT_EVERY_S = 20.0
 STANCE_RECAST_GAP_S = 5.0
+PREPULL_AURA_WAIT_S = 3.0  # the hire's aura row drops a tick or two after `.unaura`; then it must be gone
 # -- arena lock (one exclusive file lock per arena, held for the whole repeat) --
 ARENA_WAIT_S = 15.0        # wait between passes when every arena is locked or not quiet
 ARENA_GIVE_UP_S = 600.0    # give up after 10 min with the existing "no quiet arena" outcome
@@ -874,7 +875,9 @@ class Situation:
         count = int(mobs.get("count") or 1)
         self.drain_next = None
         if self.prepull_unaura:
-            self.clear_prepull_auras()
+            failed = self.clear_prepull_auras()
+            if failed:
+                return {"ok": False, "ended": "prepull", "invalid_reason": failed}
         if self.sit.get("reset_hire_cooldowns"):
             self.reset_hire_cooldowns()
         made = self.summon(role, count)
@@ -1041,17 +1044,54 @@ class Situation:
         The hire is reused across repeats, so a form it cast in an earlier repeat is still up when
         the next one starts (bench-fix-1111: reps 2-3 of priest-shadow-form-prepull had Shadowform
         from the rep before, and the per-rep value was a coin flip). `.unaura <id>` on the hire makes
-        every repeat test the out-of-combat cast. A refused line is logged, never fatal.
+        every repeat test the out-of-combat cast. A refused line, a missing hire identity or an aura
+        still up after a fresh read must not score the rep: it returns the reason and the caller ends
+        the repeat INVALID before the summon (the old code logged the refusal and carried on, so the
+        prepull rule scored a form the hire never lost).
         """
         if not self.ctx.hire_guid:
-            return
+            why = "prepull unaura: no hire identity"
+            self.marks.add({"kind": "prepull_unaura_failed", "reason": why})
+            return why
         for spell in self.prepull_unaura:
             try:
                 self.guard.send("unaura", self.ctx.hire_guid, int(spell))
-            except Exception as exc:  # noqa: BLE001 - the prepull rule still scores the rep
+            except Exception as exc:  # noqa: BLE001 - a refused line makes the rep INVALID
                 self.log("prepull unaura %s refused: %s" % (spell, exc))
-                continue
+                why = "prepull unaura %s refused: %s" % (spell, str(exc)[:120])
+                self.marks.add({"kind": "prepull_unaura_failed", "reason": why})
+                return why
             self.marks.add({"kind": "prepull_unaura", "spell": int(spell)})
+        wanted = {int(spell) for spell in self.prepull_unaura}
+
+        def gone():
+            have = self.hire_aura_ids()
+            return have is not None and not (wanted & have)
+
+        if not wait_until(gone, timeout=PREPULL_AURA_WAIT_S, poll=0.3):
+            have = self.hire_aura_ids()
+            if have is None:
+                why = "prepull unaura: no fresh aura sample of the hire"
+            else:
+                why = "prepull unaura left aura(s) %s on the hire" % ", ".join(
+                    str(s) for s in sorted(wanted & have))
+            self.log(why)
+            self.marks.add({"kind": "prepull_unaura_failed", "reason": why})
+            return why
+        return ""
+
+    def hire_aura_ids(self):
+        """The hire's aura ids from a fresh unit read (None when the agent cannot answer)."""
+        unit = self.agent.unit(guid=self.ctx.hire_guid)
+        if not isinstance(unit, dict):
+            return None
+        out = set()
+        for aura in unit.get("auras") or []:
+            try:
+                out.add(int((aura or {}).get("spell_id", 0)))
+            except (TypeError, ValueError, AttributeError):
+                continue
+        return out
 
     def add_refill_mark(self, guid, **extra):
         """The `refill` marker, stamped with the `.npc summon` SEND wall (bench-fix-1111).

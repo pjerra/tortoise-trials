@@ -9,6 +9,7 @@ import os
 import sys
 import tempfile
 import unittest
+import unittest.mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -389,14 +390,18 @@ def load_shadow():
 
 
 class PrepullUnauraTest(unittest.TestCase):
-    def situation(self, sit, guard=None, log=None):
-        agent = tl.FakeAgent()
+    def situation(self, sit, guard=None, log=None, unit_rows=None, hire_guid=BOT):
+        agent = tl.FakeAgent(unit_rows=unit_rows)
         return situations.Situation(agent, {"id": "t", "player": {"level": 40}, "situation": sit},
                                     guard or SpendGuard(Clock()), tl.new_ledger(tempfile.mkdtemp()),
                                     tl.FakeMarks(), tl.StubCollector(),
                                     situations.SitContext(player_guid=PLAYER, bot_name="Helper",
-                                                          hire_guid=BOT),
+                                                          hire_guid=hire_guid),
                                     arenas=[], mobs={}, log=log)
+
+    def stripped(self):
+        return {"kind": "tank_damage", "prepull_unaura": [15473],
+                "mobs": {"role": "melee", "count": 1}}
 
     def test_the_hire_is_stripped_before_the_summon(self):
         # reps 2-3 of priest-shadow-form-prepull "passed" only because the form carried over
@@ -409,24 +414,57 @@ class PrepullUnauraTest(unittest.TestCase):
                     return ".cooldown"
                 return ".unaura %s" % args[0]
 
-        sit = self.situation({"kind": "tank_damage", "prepull_unaura": [15473],
-                              "mobs": {"role": "melee", "count": 1}}, guard=Guard())
+        sit = self.situation(self.stripped(), guard=Guard(),
+                             unit_rows={BOT: {"guid": BOT, "auras": []}})
         sit.acquire_arena = lambda: {"id": "a1"}
         sit.summon = lambda role, count, near_player=True: order.append(("summon", role, count)) or []
         sit.world_pull = lambda: None
         sit.run()
         self.assertEqual(order, [("unaura", BOT, 15473), ("summon", "melee", 1)])
 
-    def test_a_refused_prepull_line_is_logged_and_not_fatal(self):
+    def test_a_refused_prepull_line_gives_an_invalid_rep_before_the_summon(self):
+        # codex HIGH: the refusal was logged and the run went on, so the prepull rule scored the form
         class Refusing:
             def send(self, kind, target=None, *args):
                 raise RuntimeError("not in view")
 
+        summoned = []
         logs = []
-        sit = self.situation({"kind": "tank_damage", "prepull_unaura": [15473]},
-                             guard=Refusing(), log=logs.append)
-        sit.clear_prepull_auras()
+        sit = self.situation(self.stripped(), guard=Refusing(), log=logs.append,
+                             unit_rows={BOT: {"guid": BOT, "auras": [{"spell_id": 15473}]}})
+        sit.acquire_arena = lambda: {"id": "a1"}
+        sit.summon = lambda role, count, near_player=True: summoned.append((role, count)) or []
+        out = sit.run()
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["ended"], "prepull")
+        self.assertIn("prepull unaura 15473 refused", out["invalid_reason"])
+        self.assertEqual(summoned, [])
         self.assertTrue(any("refused" in line for line in logs))
+        self.assertTrue([r for r in sit.marks.rows if r.get("kind") == "prepull_unaura_failed"])
+
+    def test_an_aura_still_up_after_the_unaura_gives_an_invalid_rep(self):
+        # `.unaura` can be a no-op (a protected aura): a fresh read must show it gone
+        summoned = []
+        with unittest.mock.patch.object(situations, "PREPULL_AURA_WAIT_S", 0.01):
+            sit = self.situation(self.stripped(),
+                                 unit_rows={BOT: {"guid": BOT, "auras": [{"spell_id": 15473}]}})
+            sit.acquire_arena = lambda: {"id": "a1"}
+            sit.summon = lambda role, count, near_player=True: summoned.append((role, count)) or []
+            out = sit.run()
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["ended"], "prepull")
+        self.assertIn("left aura(s) 15473", out["invalid_reason"])
+        self.assertEqual(summoned, [])
+
+    def test_a_missing_hire_identity_gives_an_invalid_rep(self):
+        summoned = []
+        sit = self.situation(self.stripped(), hire_guid="")
+        sit.acquire_arena = lambda: {"id": "a1"}
+        sit.summon = lambda role, count, near_player=True: summoned.append((role, count)) or []
+        out = sit.run()
+        self.assertFalse(out["ok"])
+        self.assertIn("no hire identity", out["invalid_reason"])
+        self.assertEqual(summoned, [])
 
     def test_the_trial_strips_shadowform_and_validates(self):
         trial = load_shadow()

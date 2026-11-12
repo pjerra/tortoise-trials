@@ -276,6 +276,13 @@ class NoFightReasonTest(unittest.TestCase):
         doc = self.rep({"ok": True, "ended": "duration"})
         self.assertIn("player_visible", [c["id"] for c in doc["checks"]])
 
+    def test_a_refused_prepull_keeps_its_reason_and_skips_player_visible(self):
+        # an invalid prepull ends the rep before the summon: the generic visibility row must not replace it
+        doc = self.rep({"ok": False, "ended": "prepull",
+                        "invalid_reason": "prepull unaura 15473 refused: not in view"})
+        self.assertEqual(doc["invalid_reason"], "prepull unaura 15473 refused: not in view")
+        self.assertNotIn("player_visible", [c["id"] for c in doc["checks"]])
+
 
 class UnclaimedSummonTest(unittest.TestCase):
     """Five `.npc summon` in a row (one refill, five entries) all went unclaimed and stood in the arena."""
