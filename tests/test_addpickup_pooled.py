@@ -60,13 +60,13 @@ def _sample(t, guid, unit, target="", hp=1000):
             "x": 0.0, "y": 0.0, "z": 0.0}
 
 
-def _rep(root, name, verdict, k, n):
+def _rep(root, name, verdict, k, n, reason=""):
     rep = os.path.join(root, name)
     os.makedirs(rep)
     with open(os.path.join(rep, "verdicts.json"), "w") as f:
         json.dump({"trial": "t", "rep": name, "ok_setup": True, "scored_s": 180.0,
                    "rules": [{"id": "POOLED", "verdict": verdict, "value": (k / n) if n else None,
-                              "k": k, "n": n, "evidence": [], "guard": "",
+                              "k": k, "n": n, "evidence": [], "guard": "", "reason": reason,
                               "invalid_reason": ""}]}, f)
     return rep
 
@@ -89,6 +89,27 @@ class PooledTrialTest(unittest.TestCase):
         out = score_mod.score_trial(tmp, self._trial())
         row = out["verdicts"][0]
         self.assertEqual((row["verdict"], row["k"], row["n"]), ("PASS", 5, 5))
+
+    def test_an_unknown_attack_state_makes_the_pooled_verdict_inconclusive(self):
+        # round 2: the unknown repeat is INCONCLUSIVE with reason "attack state unknown"; it must not
+        # be erased from the pool, so the clean PASS repeat cannot decide the trial.
+        tmp = tempfile.mkdtemp()
+        _rep(tmp, "rep1", "INCONCLUSIVE", 0, 1, reason="attack state unknown")
+        _rep(tmp, "rep2", "PASS", 3, 3)
+        out = score_mod.score_trial(tmp, self._trial())
+        row = out["verdicts"][0]
+        self.assertEqual(row["verdict"], "INCONCLUSIVE")
+        self.assertIn("attack state unknown", row["reason"])
+        self.assertIn("rep1", row["reason"])
+
+    def test_a_no_trigger_repeat_is_still_erased_from_the_pool(self):
+        # benign INCONCLUSIVE reasons (no opportunity, no trigger) keep the old behaviour: they add
+        # nothing, and the PASS repeat still decides the pooled verdict.
+        tmp = tempfile.mkdtemp()
+        _rep(tmp, "rep1", "INCONCLUSIVE", 0, 0, reason="n 0 < min_n 3")
+        _rep(tmp, "rep2", "PASS", 3, 3)
+        out = score_mod.score_trial(tmp, self._trial())
+        self.assertEqual(out["verdicts"][0]["verdict"], "PASS")
 
     def test_pooled_min_n_reads_the_pooled_total(self):
         # each repeat has n=2, under min_n 3 on its own; the pooled n is 4.
@@ -248,6 +269,8 @@ class DrinkUnderAttackTest(unittest.TestCase):
         res = rules_mod.evaluate(self.rule, rows, self.samples, [], self._ctx())
         self.assertEqual((res["k"], res["verdict"]), (0, "INCONCLUSIVE"))
         self.assertIn("attack state unknown", " ".join(res["evidence"]))
+        # score.py's pooled guard keys on this exact reason.
+        self.assertEqual(res["reason"], "attack state unknown")
 
     def test_a_dead_mob_is_not_unknown(self):
         # The mob's freshest sample has hp 0: it was not live at the cast, so nothing was on the

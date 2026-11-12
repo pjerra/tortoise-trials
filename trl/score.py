@@ -412,6 +412,11 @@ def score_trial(trial_dir, trial):
         rid = rule.get("id")
         votes = rules.get(rid, [])
         valid = [(rep, row) for (rep, row) in votes if row.get("verdict") in ("PASS", "FAIL")]
+        # Missing attack-state evidence (round 2: rules.py reports "attack state unknown") is not a
+        # benign no-opportunity / no-trigger repeat: a pooled verdict must not erase it from the pool.
+        attack_unknown = [(rep, row) for (rep, row) in votes
+                          if row.get("verdict") == "INCONCLUSIVE"
+                          and str(row.get("reason") or "") == "attack state unknown"]
         if not valid:
             # Zero valid repeats: INCONCLUSIVE unless a repeat was INVALID
             # and none scored (all-invalid -> INVALID).
@@ -439,7 +444,13 @@ def score_trial(trial_dir, trial):
                     min_n = int(min_n)
                 except (TypeError, ValueError):
                     min_n = 0
-                if value is None:
+                if attack_unknown:
+                    # An unreadable attack state in any repeat is missing evidence, so the pooled
+                    # rule cannot pass on the strength of the repeats that did read cleanly.
+                    verdict = "INCONCLUSIVE"
+                    reason = "attack state unknown (%s)" % ", ".join(
+                        str(rep) for (rep, _row) in attack_unknown)
+                elif value is None:
                     verdict = "INCONCLUSIVE"
                     reason = "pooled n 0"
                 elif min_n and n_sum < min_n:

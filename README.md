@@ -265,7 +265,9 @@ itself or a hire (the runner resets the hire's cooldowns before the first summon
   `score_rep` skips the per-repeat `min_n` guard for the rule. A repeat with no triggers is
   INCONCLUSIVE on its own and adds nothing; the 5-trigger repeat still supplies the denominator
   (paladin-addpickup WHY.md: with 0-5 triggers per repeat one repeat decided the verdict, and the
-  card that PASSed did so because `min_n 3` had dropped its two missing repeats). `min_reps` is
+  card that PASSed did so because `min_n 3` had dropped its two missing repeats). The one exception
+  is an INCONCLUSIVE with reason `attack state unknown`: missing attack evidence is not a benign
+  no-trigger repeat, so any such repeat makes the pooled verdict INCONCLUSIVE. `min_reps` is
   unchanged.
 - `check.where.party_under_attack` (a non-empty list of party unit aliases, e.g.
   `["$player", "$extras"]`; any metric, default off): the event counts only while one of those

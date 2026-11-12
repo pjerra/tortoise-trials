@@ -35,7 +35,9 @@ tank may drink while holding the mob. The state is tri-state: a mob that was liv
 sample inside the last 5 s with hp left, or an attack packet) but has neither a deciding packet nor
 a fresh sample (1 s) saying who it is on leaves the state unknown, and the rule is INCONCLUSIVE for
 that repeat rather than passing it — missing attack evidence is not "not under attack". It is pooled
-too, so one repeat with a cast fails the trial.
+too, so one repeat with a cast fails the trial; and an INCONCLUSIVE repeat with reason
+`attack state unknown` is not a benign no-trigger repeat, so it makes the pooled verdict
+INCONCLUSIVE rather than being dropped from the pool.
 On the six images it rescores 0/n PASS in every one: `DrinkAction::isUseful` already requires
 `!GroupIsFighting`, so a start while a party member is under attack is only a stale-value race. The
 meal-gap misses (12 of 15) happen when a refill mob opens on the party DURING the 15 s meal, which
