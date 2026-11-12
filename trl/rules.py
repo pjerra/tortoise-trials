@@ -212,6 +212,45 @@ def _packet_victim(victims_by_guid, guid, t, seq=None, samples_by_guid=None):
     return victim, True
 
 
+def _is_mob_guid(guid, samples_by_guid, mob_guids):
+    """A hostile attacker: a `mob:` sample unit, or a guid the setup already named as a mob."""
+    guid = str(guid or "").lower()
+    if not guid:
+        return False
+    if guid in mob_guids:
+        return True
+    for (_t, sample) in samples_by_guid.get(guid) or []:
+        if str(sample.get("unit") or "").startswith("mob:"):
+            return True
+    return False
+
+
+def _party_under_attack(victims_by_guid, samples_by_guid, party_guids, t, seq=None, guids=None):
+    """True when a hostile mob's victim at `t` is one of `party_guids`.
+
+    Packets first (src_target_of's rule: a packet at the cast's own t is the cast's echo, not its
+    cause), the mob's own sample target as the fallback. Only mobs count as attackers; a party
+    member's own target says nothing about who is hitting it.
+    """
+    want = {str(g or "").lower() for g in party_guids or [] if g}
+    if not want:
+        return False
+    mobs = {str(g or "").lower() for g in ((guids or {}).get("mobs") or [])}
+    candidates = set(samples_by_guid or {})
+    candidates |= {str(g or "").lower() for g in (victims_by_guid or {})}
+    candidates |= mobs
+    for guid in candidates:
+        if guid in want or not _is_mob_guid(guid, samples_by_guid, mobs):
+            continue
+        victim, decided = _packet_victim(victims_by_guid, guid, t, seq, samples_by_guid)
+        if not decided:
+            sample = _at(samples_by_guid, guid, t)
+            victim = (str(sample.get("target") or "").lower() or None) if sample else None
+        if victim and str(victim).lower() in want:
+            return True
+    return False
+
+
 def _unit_hp(samples_by_guid, guid, t):
     sample = _at(samples_by_guid, guid, t)
     if not sample:
@@ -242,6 +281,7 @@ def _matches(row, where, samples_by_guid, ctx, trial):
                        "trigger_debounce_s", "src_target_of", "dst_target_of",
                        "src_within_of_marked", "marked_has_cc",
                        "spell_interruptible", "src_hp_le", "not_within_s_after_mark",
+                       "party_under_attack",
                        "num", "den", "trigger", "response", "within_s",
                        "aura", "unit", "phase", "name", "alive", "min_n",
                        "triggers"):
@@ -352,6 +392,18 @@ def _matches(row, where, samples_by_guid, ctx, trial):
             alias = _alias_map(guids).get(want, want)
             if str(victim or "").lower() != str(alias or "").lower():
                 return False
+    if "party_under_attack" in where and where["party_under_attack"] is not None:
+        # A party member has a hostile mob on it at the event's time (paladin add-pickup's
+        # TNK-PAL-NO-DRINK-UNDER-ATTACK: the meal must not start in a stale-value race).
+        # Mobs only: a party member's own target is not an attacker.
+        party = []
+        for unit in (where["party_under_attack"] if isinstance(where["party_under_attack"], list)
+                     else [where["party_under_attack"]]):
+            party.extend(g for g in _unit_ids(unit, ctx) if g and g != "$mob")
+        if not _party_under_attack(ctx.get("victims_by_guid"), samples_by_guid, party,
+                                   row.get("t", 0.0), row.get("seq"),
+                                   ctx.get("guids") if isinstance(ctx, dict) else None):
+            return False
     if "src_within_of_marked" in where and where["src_within_of_marked"] is not None:
         try:
             limit = float(where["src_within_of_marked"])

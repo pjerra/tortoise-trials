@@ -35,7 +35,7 @@ WHERE_KEYS = {
     "dst_lacks_aura", "src_power_lt", "response_dst", "same_dst",
     "trigger_debounce_s", "src_target_of", "dst_target_of",
     "src_within_of_marked", "marked_has_cc", "spell_interruptible",
-    "src_hp_le", "not_within_s_after_mark",
+    "src_hp_le", "not_within_s_after_mark", "party_under_attack",
 }
 # Closed enums (no prefix escape anywhere).
 EVENT_TRIGGER_KINDS = {"damage", "aura_on", "aura_off", "cast", "cast_start"}
@@ -68,7 +68,7 @@ TALENTS_FIELDS = {"tree", "spells"}
 OPPORTUNITY_FIELDS = {"unit", "hp_lt", "hp_gt", "in_combat", "has_aura"}
 MOBS_FIELDS = {"role", "count", "level_delta", "refill", "refill_every_s"}
 RULE_FIELDS = {"id", "desc", "source", "expect_today", "why_expect",
-               "check", "pass_if", "min_opportunity_s", "min_n", "min_reps"}
+               "check", "pass_if", "min_opportunity_s", "min_n", "min_reps", "pool"}
 CHECK_FIELDS = {"metric", "where", "num", "den", "trigger", "response",
                 "within_s", "response_dst", "same_dst", "trigger_debounce_s",
                 "debounce_responder_s", "debounce_responder_spells", "debounce_responder_across_reps",
@@ -188,6 +188,20 @@ def _check_filter(doc, label, trial_id, rid, errs, spells_path=None,
         mode = doc.get(key)
         if mode is not None and mode not in RESPONSE_DST_MODES:
             _err(errs, "%s: bad %s %r" % (where, key, mode))
+    if "party_under_attack" in doc:
+        units = doc.get("party_under_attack")
+        if not isinstance(units, list) or not units:
+            _err(errs, "%s: bad party_under_attack %r (a non-empty list of unit aliases)" % (where, units))
+        else:
+            for unit in units:
+                if not isinstance(unit, str) or not unit:
+                    _err(errs, "%s: bad party_under_attack unit %r" % (where, unit))
+                elif unit == "$mob":
+                    _err(errs, "%s: party_under_attack wants party units, not $mob" % where)
+                elif unit.startswith("$") and unit not in UNIT_ALIASES:
+                    _err(errs, "%s: bad party_under_attack unit %r" % (where, unit))
+                elif unit.startswith("mob:") and not unit[4:]:
+                    _err(errs, "%s: bad party_under_attack unit %r" % (where, unit))
     spell = doc.get("spell")
     if spell is not None:
         names = spell if isinstance(spell, list) else [spell]
@@ -323,6 +337,12 @@ def _check_rule(rule, trial_id, errs, spells_path=None):
         mr = rule.get("min_reps")
         if isinstance(mr, bool) or not isinstance(mr, int) or mr < 1:
             _err(errs, "%s/%s: bad min_reps %r (an int >= 1)" % (trial_id, rid, mr))
+    if "pool" in rule:
+        pool = rule.get("pool")
+        if pool is not True:
+            _err(errs, "%s/%s: bad pool %r (true, or absent)" % (trial_id, rid, pool))
+        if metric not in ("count", "ratio", "latency"):
+            _err(errs, "%s/%s: pool applies only to a count, ratio or latency rule" % (trial_id, rid))
 
 
 def _check_trigger(trig, trial_id, rid, errs, spells_path=None):

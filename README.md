@@ -130,7 +130,9 @@ A trial is one JSON file in `trials/<group>/`. Unknown keys are rejected by `val
 - `rules`: each has `id`, `source` (the bot code), `expect_today`, `why_expect`, a `check`
   (metric `count`, `ratio`, `latency`, `uptime`, `first`, `rate`, `walk_metric`), `pass_if`
   (such as `== 0`), `min_opportunity_s` and `min_reps` (a trial verdict needs at least that many
-  PASS/FAIL reps, else INCONCLUSIVE with `valid reps <k> < min_reps <m>`).
+  PASS/FAIL reps, else INCONCLUSIVE with `valid reps <k> < min_reps <m>`). `pool: true` takes the
+  verdict from the k/n summed over the repeats and applies `min_n` to that pooled n (see the rule
+  options below).
 
 Shortened example (from `trials/healers/priest-holy-pws-def-arms-2tank.json`):
 
@@ -257,6 +259,25 @@ itself or a hire (the runner resets the hire's cooldowns before the first summon
   `fight_start` covers the opening seconds of the fight the same way. The rule's `min_opportunity_s`
   reads the same set: the dropped windows carry no chance. Excluded-span rows stay; hp, aura and
   combat lookups still read all samples.
+- `pool: true` (rule level, a count, ratio or latency rule; default off): ONE trial verdict from the
+  k/n summed over every valid repeat (`sum k / sum n`, the value the card already displays), instead
+  of a majority of per-repeat verdicts. `min_n` then applies to the pooled n, not to each repeat, and
+  `score_rep` skips the per-repeat `min_n` guard for the rule. A repeat with no triggers is
+  INCONCLUSIVE on its own and adds nothing; the 5-trigger repeat still supplies the denominator
+  (paladin-addpickup WHY.md: with 0-5 triggers per repeat one repeat decided the verdict, and the
+  card that PASSed did so because `min_n 3` had dropped its two missing repeats). `min_reps` is
+  unchanged.
+- `check.where.party_under_attack` (a non-empty list of party unit aliases, e.g.
+  `["$player", "$extras"]`; any metric, default off): the event counts only while one of those
+  party members has a hostile mob on it. The attacker's victim comes from its last `attack_start`
+  packet (the `src_target_of` rule: a packet at the event's own t is the echo, not the cause), and
+  from the mob's own sample `target` when no packet is fresh. Only `mob:` units count as attackers;
+  the bot itself is never implied, so `["$player", "$extras"]` still lets a tank drink while it
+  holds the mob. Used by `TNK-PAL-NO-DRINK-UNDER-ATTACK` as the meal's cast-time regression guard:
+  `DrinkAction::isUseful` already needs `!GroupIsFighting`, so a start while a party member is
+  already under attack is a stale-value race. It is not the meal-gap grader: the add-pickup misses
+  come from a refill mob that opens on a party member DURING the 15 s meal
+  (`UseItemAction.h` `SetDuration(SitFor())`), and this rule stays at 0 there.
 
 Spell, item and creature ids come from `data/` (built offline from the public core SQL with
 `build_data.py`; it never contacts a server). The `Trl*` character names in `data/characters.json`

@@ -124,7 +124,29 @@
         "debounce_responder_s": 10
       },
       "pass_if": ">= 0.7",
-      "min_n": 3
+      "min_n": 3,
+      "pool": true
+    },
+    {
+      "id": "TNK-PAL-NO-DRINK-UNDER-ATTACK",
+      "desc": "No Drink cast by the bot starts while a mob is on the player or the healer (extra1): the meal's cast-time race. DrinkAction::isUseful already requires !GroupIsFighting, so this is a precondition/regression guard, not the meal-gap grader: a refill mob that opens on a party member DURING the meal is what the add-pickup misses show, and this rule stays 0 there. Counted per repeat and pooled over the repeats: pass only when no repeat has a single such cast.",
+      "source": "precondition/regression guard for the meal cast; ai/playerbot/strategy/actions/UseItemAction.h:692-772 (DrinkAction: isUseful requires !GroupIsFighting, SetDuration(drinkDuration) puts the AI to sleep for the meal); paladin-addpickup WHY.md 2026-11-12 (12 of 15 add-pickup misses come 1.6-15 s after a Drink started, the mobs arriving during the meal)",
+      "expect_today": "PASS",
+      "why_expect": "DrinkAction::isUseful() needs !GroupIsFighting(ai) and isPossible() needs the bot out of combat (UseItemAction.h:761-772 at upstream/dev abb91ff62), so a cast while a mob is on the player or the healer is a stale-value race. Expected PASS on TortoiseBots upstream/dev f7368050d; the six images in paladin-addpickup WHY.md (2026-11-12) all rescore 0.",
+      "check": {
+        "metric": "count",
+        "where": {
+          "kind": "cast",
+          "src": "$bot",
+          "spell": "Drink",
+          "party_under_attack": [
+            "$player",
+            "$extras"
+          ]
+        }
+      },
+      "pass_if": "== 0",
+      "pool": true
     },
     {
       "id": "TNK-PAL-ADD-STANCE",
