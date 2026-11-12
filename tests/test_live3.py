@@ -202,22 +202,26 @@ class PlayerVisibleCheckTest(unittest.TestCase):
                                              trial("priest-holy-pws-def-arms"))
             self.assertFalse(row["ok"])
 
-    def test_a_bot_that_is_not_a_healer_may_prove_it_by_a_mob_attack(self):
+    def test_mob_hits_alone_do_not_prove_any_bot_visible(self):
+        # mob hits prove the MOBS see the player; the bot's own sight is what the check asks about
         shadow = trial("priest-shadow-form-prepull")
         self.assertEqual(shadow["bot"]["role"], "dps")
         with tempfile.TemporaryDirectory() as tmp:
             hit = setup.check_player_visible(rep_dir_with(tmp, "ev_045710_def_arms_rep1.jsonl"), shadow)
             none = setup.check_player_visible(rep_dir_with(tmp, "ev_044040_2tank_rep1.jsonl"), shadow)
-        self.assertTrue(hit["ok"])
+        self.assertFalse(hit["ok"])
+        self.assertEqual(hit["invalid_reason"], "visibility unproven")
         self.assertFalse(none["ok"])
+        self.assertIn(REASON, none["evidence"])
 
-    def test_with_an_extra_bots_victim_the_player_is_a_bystander_and_a_mob_hit_counts(self):
+    def test_with_an_extra_bots_victim_a_mob_hit_on_the_bystander_still_proves_nothing(self):
         control = trial("priest-holy-pws-bot-warrior-control")
         self.assertEqual(control["bot"]["role"], "healer")
         with tempfile.TemporaryDirectory() as tmp:
             hit = setup.check_player_visible(rep_dir_with(tmp, "ev_045710_def_arms_rep1.jsonl"), control)
             none = setup.check_player_visible(rep_dir_with(tmp, "ev_044040_2tank_rep1.jsonl"), control)
-        self.assertTrue(hit["ok"])
+        self.assertFalse(hit["ok"])
+        self.assertEqual(hit["invalid_reason"], "visibility unproven")
         self.assertFalse(none["ok"])
 
     def test_an_ooc_trial_looks_at_its_whole_window(self):

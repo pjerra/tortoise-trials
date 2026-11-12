@@ -265,11 +265,12 @@ are the generic names the runner creates on a test server.
 A repeat that fails a guard is INVALID or INCONCLUSIVE, never a pass or a fail:
 
 - **Player visible.** The player must be visible to the bots. A GM that logs in hidden is skipped
-  by the bots' party logic, so the runner checks and fails the repeat if the player is hidden. A
-  hired healer must cast at the player; for a bot that is not a healer a mob hit on the player
-  counts too, and so does a bot attack on a mob within 5 yd of the player in those first 30 s
-  (`samples.jsonl` carries the positions; a rep without samples keeps the older rules). A bot tank
-  holds the mob and never touches a healthy player, which is the case this last rule covers.
+  by the bots' party logic, so the runner checks and fails the repeat if the player is hidden. Only
+  direct evidence passes in the first 30 s: a hire (main or extra) casting/healing/buffing at the
+  player, or a sampler row whose API `target` is the player. A mob hit on the player and a bot
+  attack on a mob within 5 yd of the player are diagnostics, never a pass; when that nearby fight is
+  the only evidence the repeat is INVALID with `visibility unproven` (a bot tank holds the mob and
+  never touches a healthy player, but that does not show it saw the player).
 - **Opportunity.** A rule only counts the time the bot had a reason to act (the `opportunity`
   block, and `min_opportunity_s`). Too little opportunity gives INCONCLUSIVE.
 - **Stance and set-up.** The player's stance, talents, forced role, level and shield state, the

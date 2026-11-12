@@ -1216,7 +1216,7 @@ class Run:
         self.log("  %s %s: %s" % (visible["id"], "ok" if visible["ok"] else "FAIL", visible["evidence"][:160]))
         if not visible["ok"]:
             setup_doc["ok"] = False
-            setup_doc["invalid_reason"] = REASON_NOT_VISIBLE
+            setup_doc["invalid_reason"] = visible.get("invalid_reason") or REASON_NOT_VISIBLE
         self.write_setup(rep_dir, setup_doc)
         return visible
 
