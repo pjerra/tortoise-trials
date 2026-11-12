@@ -2,6 +2,36 @@
 
 Short, dated notes on choices that are not obvious from the code.
 
+## 2026-11-12: fix round 1 (trials/bench-fix-r2): direct visibility proof, prepull failure, suite delta
+
+Codex HIGH: `player_visible` passed on a bot attacking a mob within 5 yd of the player. That proves
+the party shares the spot, not that a bot ever saw the player, so the check now passes only on direct
+evidence: a hired bot (main or extra) casting/healing/buffing at the player in the window, or a
+sampler row where a bot's own API `target` is the player (`_bot_targets_player`). The nearby fight
+and mob hits on the player stay in the row's value and evidence as diagnostics; nothing else passes.
+When one of the old fallbacks was the only evidence the rep is INVALID with `visibility unproven`
+(`REASON_VISIBILITY_UNPROVEN`, carried by `apply_player_visible`) instead of the generic
+`player not visible to bots`. Group membership is not used as proof: every non-raid trial already
+requires the `grouped` setup check, and live3's hidden GM was grouped while the bots skipped it, so
+the branch would be vacuous; no rep file records group membership anyway. Mob hits on the player no
+longer pass for a non-healer either (test_live3's two mob-hit tests now assert INVALID): a mob seeing
+the player says nothing about the bots.
+
+Codex HIGH: a refused `.unaura` was logged and the run continued, and a missing hire guid returned
+silently. `clear_prepull_auras` now returns a reason for a missing hire identity, a refused line, an
+unreadable fresh aura read, or an aura still on the hire after the unaura; `run()` ends the repeat
+INVALID (`ended: "prepull"`, the reason is kept because "prepull" counts as no fight) before the
+summon. The fresh read is a `unit` RPC sample polled for `PREPULL_AURA_WAIT_S` 3 s: the aura must be
+absent, not merely the line accepted.
+
+Suite delta against main 4180cde in a scratch copy (both `python3 -m unittest discover -s tests -v`,
+under `nice` and `flock /tmp/trials-tests.lock`): branch `Ran 836 tests ... FAILED (failures=9,
+errors=5, skipped=5)`, main `Ran 806 tests ... FAILED (failures=9, errors=5, skipped=5)` (the 30
+extra tests are this branch's own). The two lists are identical, 14 names in cc_gap (1), cc_target
+(1), live (2), ooc_hurt (9) and orphans (2), so this round added no failing test. Every one ends on
+the pre-existing test bug that stubs `sit.arena` while `run()` calls `acquire_arena`, so the repeat
+ends "no quiet arena" after the 10-minute give-up. The lists are quoted in the round report.
+
 ## 2026-11-11: bench fix round 2 (bench-fix-1111): summon claim, marker timing, tea, forms
 
 The FAIL reviews of run bench-fix-1111 (TRIAGE in the audit folder) named a bench problem behind most
