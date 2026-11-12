@@ -2,6 +2,23 @@
 
 Short, dated notes on choices that are not obvious from the code.
 
+## 2026-11-12: fix round 2 (trials/bench-fix-r2): an unreadable aura list is no sample
+
+Codex HIGH: `hire_aura_ids()` built an empty set when the unit row had no `auras`, a null `auras`
+or only malformed entries. `clear_prepull_auras`'s `gone()` reads an empty set as every aura
+absent, so the prepull rule scored a form the hire never lost. The sample now counts only when
+`auras` is a list and every entry has an integer `spell_id`; otherwise it returns `None`, the same
+as an unreadable unit row, and the repeat ends INVALID `prepull unaura: no fresh aura sample of
+the hire` before the summon. Three tests (missing, null, malformed entry) assert that path and no
+summon; README names the unreadable sample next to the refused line.
+
+Suite delta against main 4180cde in a scratch copy (both `python3 -m unittest discover -s tests -v`,
+under `nice` and `flock /tmp/trials-tests.lock`): branch `Ran 839 tests ... FAILED (failures=12,
+errors=5, skipped=5)`, main `Ran 806 tests ... FAILED (failures=12, errors=5, skipped=5)` (the 33
+extra tests are this branch's own). The `FAIL:`/`ERROR:` name lists are identical, 17 names in
+cc_gap (1), cc_target (1), hire_talents (1), live (4), ooc_hurt (8) and orphans (2). The lists are
+quoted in the round report.
+
 ## 2026-11-12: fix round 1 (trials/bench-fix-r2): direct visibility proof, prepull failure, suite delta
 
 Codex HIGH: `player_visible` passed on a bot attacking a mob within 5 yd of the player. That proves
