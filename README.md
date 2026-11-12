@@ -120,9 +120,9 @@ A trial is one JSON file in `trials/<group>/`. Unknown keys are rejected by `val
   empties the hire's bar on schedule with `energy_drain` marks, stamped at the `.modify energy` send.
   `prepull_unaura: [<aura id>, ...]` strips those auras off the hire before the pull: the hire is
   reused between repeats, so a form an earlier repeat cast (e.g. Shadowform 15473) would otherwise
-  still be up. A missing hire guid, a refused `.unaura` or an aura still on the hire in a fresh
-  sample makes the repeat INVALID before the summon (a prepull rule must never score a form that
-  is still up).
+  still be up. A missing hire guid, a refused `.unaura`, a fresh sample with no `auras` list or a
+  malformed entry (not "no auras"), or an aura still on the hire makes the repeat INVALID before
+  the summon (a prepull rule must never score a form that is still up).
 - `opportunity` (besides `unit`, `hp_lt`/`hp_gt`, `in_combat`): `has_aura` (a non-empty list of aura
   ids; a sample counts only when its auras intersect the list).
 - `setup_checks`: facts that must hold before a repeat counts (the guards below).

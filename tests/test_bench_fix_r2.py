@@ -456,6 +456,29 @@ class PrepullUnauraTest(unittest.TestCase):
         self.assertIn("left aura(s) 15473", out["invalid_reason"])
         self.assertEqual(summoned, [])
 
+    def test_a_missing_auras_row_gives_an_invalid_rep(self):
+        # codex HIGH: `auras` absent read as an empty list, so `gone()` saw every aura dead
+        self._invalid_without_a_sample({"guid": BOT})
+
+    def test_a_null_auras_row_gives_an_invalid_rep(self):
+        self._invalid_without_a_sample({"guid": BOT, "auras": None})
+
+    def test_a_malformed_aura_entry_gives_an_invalid_rep(self):
+        self._invalid_without_a_sample({"guid": BOT, "auras": [{"spell_id": "not-a-number"}]})
+
+    def _invalid_without_a_sample(self, row):
+        summoned = []
+        with unittest.mock.patch.object(situations, "PREPULL_AURA_WAIT_S", 0.01):
+            sit = self.situation(self.stripped(), unit_rows={BOT: row})
+            sit.acquire_arena = lambda: {"id": "a1"}
+            sit.summon = lambda role, count, near_player=True: summoned.append((role, count)) or []
+            out = sit.run()
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["ended"], "prepull")
+        self.assertIn("no fresh aura sample", out["invalid_reason"])
+        self.assertEqual(summoned, [])
+        self.assertTrue([r for r in sit.marks.rows if r.get("kind") == "prepull_unaura_failed"])
+
     def test_a_missing_hire_identity_gives_an_invalid_rep(self):
         summoned = []
         sit = self.situation(self.stripped(), hire_guid="")

@@ -1081,16 +1081,24 @@ class Situation:
         return ""
 
     def hire_aura_ids(self):
-        """The hire's aura ids from a fresh unit read (None when the agent cannot answer)."""
+        """The hire's aura ids from a fresh unit read (None when the agent cannot answer).
+
+        A missing, null or partly malformed `auras` list is not an empty list: `gone()` reads an
+        empty set as every aura absent, so the prepull rule scored a form the hire never lost.
+        Only a list in which every entry parses counts as a sample.
+        """
         unit = self.agent.unit(guid=self.ctx.hire_guid)
         if not isinstance(unit, dict):
             return None
+        auras = unit.get("auras")
+        if not isinstance(auras, list):
+            return None
         out = set()
-        for aura in unit.get("auras") or []:
+        for aura in auras:
             try:
-                out.add(int((aura or {}).get("spell_id", 0)))
-            except (TypeError, ValueError, AttributeError):
-                continue
+                out.add(int(aura["spell_id"]))
+            except (TypeError, ValueError, KeyError):
+                return None
         return out
 
     def add_refill_mark(self, guid, **extra):
