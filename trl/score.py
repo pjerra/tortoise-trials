@@ -337,7 +337,9 @@ def score_rep(rep_dir, trial, prior_events=None):
             n_have = int(res.get("n", 0) or 0)
         except (TypeError, ValueError):
             n_have = 0
-        if min_n and res.get("verdict") in ("PASS", "FAIL") and n_have < int(min_n):
+        # A pooled rule's trigger minimum is applied to the pooled total in score_trial, not per repeat:
+        # one repeat with 0 triggers must not throw away the repeat that had 5 (paladin-addpickup WHY.md).
+        if min_n and rule.get("pool") is not True and res.get("verdict") in ("PASS", "FAIL") and n_have < int(min_n):
             guard_hold = False
             guard_why = "n %d < min_n %d" % (n_have, int(min_n))
         entry = {"id": rule.get("id"), "verdict": res.get("verdict"),
@@ -410,6 +412,11 @@ def score_trial(trial_dir, trial):
         rid = rule.get("id")
         votes = rules.get(rid, [])
         valid = [(rep, row) for (rep, row) in votes if row.get("verdict") in ("PASS", "FAIL")]
+        # Missing attack-state evidence (round 2: rules.py reports "attack state unknown") is not a
+        # benign no-opportunity / no-trigger repeat: a pooled verdict must not erase it from the pool.
+        attack_unknown = [(rep, row) for (rep, row) in votes
+                          if row.get("verdict") == "INCONCLUSIVE"
+                          and str(row.get("reason") or "") == "attack state unknown"]
         if not valid:
             # Zero valid repeats: INCONCLUSIVE unless a repeat was INVALID
             # and none scored (all-invalid -> INVALID).
@@ -426,12 +433,36 @@ def score_trial(trial_dir, trial):
             # Compare aggregates k/n summed over valid repeats (not rep1 only).
             k_sum = sum(int(row.get("k", 0) or 0) for (_, row) in valid)
             n_sum = sum(int(row.get("n", 0) or 0) for (_, row) in valid)
+            reason = ""
+            if rule.get("pool") is True:
+                # POOLED: one verdict from the summed k/n over every valid repeat, so the repeats with
+                # the 0-trigger / 5-trigger mix decide together (paladin-addpickup WHY.md). min_n reads the
+                # pooled n; the per-rep guard was skipped in score_rep for the same rule.
+                value = (float(k_sum) / n_sum) if n_sum else None
+                min_n = (rule.get("min_n") or (rule.get("check") or {}).get("min_n", 0) or 0)
+                try:
+                    min_n = int(min_n)
+                except (TypeError, ValueError):
+                    min_n = 0
+                if attack_unknown:
+                    # An unreadable attack state in any repeat is missing evidence, so the pooled
+                    # rule cannot pass on the strength of the repeats that did read cleanly.
+                    verdict = "INCONCLUSIVE"
+                    reason = "attack state unknown (%s)" % ", ".join(
+                        str(rep) for (rep, _row) in attack_unknown)
+                elif value is None:
+                    verdict = "INCONCLUSIVE"
+                    reason = "pooled n 0"
+                elif min_n and n_sum < min_n:
+                    verdict = "INCONCLUSIVE"
+                    reason = "pooled n %d < min_n %d" % (n_sum, min_n)
+                else:
+                    verdict = "PASS" if _rules._pass(rule.get("pass_if"), value) else "FAIL"
             min_reps = rule.get("min_reps") or 0
             try:
                 min_reps = int(min_reps)
             except (TypeError, ValueError):
                 min_reps = 0
-            reason = ""
             if min_reps > 1 and len(valid) < min_reps:
                 verdict = "INCONCLUSIVE"
                 reason = "valid reps %d < min_reps %d" % (len(valid), min_reps)

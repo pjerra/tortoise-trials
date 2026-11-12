@@ -6,6 +6,11 @@
 - `test_ooc_hurt` — fails on main.
 - `test_orphans` — hangs on main.
 
+## From the 2026-11-12 paladin add-pickup round
+- a rule that grades the meal gap itself: count add-pickup triggers while the bot is in the Drink meal (the
+  1.5-15 s `aiInternalUpdateDelay`), not Drink starts. The event stream has no AI-sleep field today; the
+  `Drink` aura's start/end and the trigger times are enough to approximate it, but the bot's wake state is not.
+
 ## From the 2026-11-11 bench round (P3, not in this round)
 - apply the taunt chance fix (mobs count 3, 240 s, min_reps 3) to `tank-paladin-taunt-off-healer` after this round's live check.
 - add: a druid tank kit for the bear-bal pair.

@@ -2,6 +2,55 @@
 
 Short, dated notes on choices that are not obvious from the code.
 
+## 2026-11-12: paladin add-pickup scores pooled; a drink-under-attack guard
+
+`TNK-PAL-ADD-PICKUP` now carries `pool: true`. WHY.md's artefact part: 0-5 triggers per repeat with
+`min_n 3` applied per repeat meant one repeat decided the verdict, and the card that PASSed (t1106r,
+3/3) did so because the guard dropped the two repeats with the misses (rep1 1/3 raw, 2 misses). A
+pooled rule takes ONE verdict from `sum k / sum n` over the valid repeats, applies `min_n` to the
+pooled n, and `score_rep` skips the per-repeat guard for it. The bench already displayed that pooled
+k/n on the card (`report.POOLED_METRICS`), so `pool` reuses the same number instead of adding a
+second aggregation: no new metric, no change to `report._agg_value`. A repetition with no triggers
+stays INCONCLUSIVE on its own and adds nothing to the pooled n; the repeats with triggers still
+supply the denominator. Re-scored against the run dirs (copies, originals untouched; each
+`trial.effective.json` got `pool: true` and the new rule):
+
+| image | pooled answered | verdict |
+|---|---|---|
+| t1106u-before | 2/2 | INCONCLUSIVE (pooled n 2 < min_n 3) |
+| t1106r | 3/5 | FAIL |
+| t1106u-taunt | 6/6 | PASS |
+| t1106u-taunt2 guards4 | 4/8 | FAIL |
+| t1106u-taunt2 8rep | 10/14 | PASS |
+| t1112-priest | 4/9 | FAIL |
+
+These are WHY.md's table counts exactly. t1106u-before reads INCONCLUSIVE rather than the old pass:
+2 triggers is under the pooled 3-trigger minimum, which is the brief's rule, not a regression.
+
+`TNK-PAL-NO-DRINK-UNDER-ATTACK` counts `Drink` casts by the bot while a mob is on the player or the
+healer (`check.where.party_under_attack: ["$player", "$extras"]`). The attacker's victim comes from
+its last `attack_start` packet (the `src_target_of` rule) with the mob's sample `target` as the
+fallback; only `mob:` units are attackers, and the bot itself is deliberately not in the list, so a
+tank may drink while holding the mob. The state is tri-state: a mob that was live at the cast (a
+sample inside the last 5 s with hp left, or an attack packet) but has neither a deciding packet nor
+a fresh sample (1 s) saying who it is on leaves the state unknown, and the rule is INCONCLUSIVE for
+that repeat rather than passing it — missing attack evidence is not "not under attack". It is pooled
+too, so one repeat with a cast fails the trial; and an INCONCLUSIVE repeat with reason
+`attack state unknown` is not a benign no-trigger repeat, so it makes the pooled verdict
+INCONCLUSIVE rather than being dropped from the pool.
+On the six images it rescores 0/n PASS in every one: `DrinkAction::isUseful` already requires
+`!GroupIsFighting`, so a start while a party member is under attack is only a stale-value race. The
+meal-gap misses (12 of 15) happen when a refill mob opens on the party DURING the 15 s meal, which
+this rule does not grade; a rule for that needs the meal state in the stream (FOLLOWUPS.md). The
+suite delta: run per module, because `test_cc_target` and `test_orphans` hang and `test_live` never
+ends (all three behave the same on main). Branch and main, same runner under `nice` and
+`flock /tmp/trials-tests.lock`: the non-clean modules are identical on both sides — `test_cc_gap`
+1 failure, `test_live3` 1 (the new `priest-shadow-inform-heal-solo-healer` has floor 12), `test_ooc_hurt`
+4 failures + 4 errors, `test_rules_healers` 1 (the same new trial is missing from its IDS list),
+`test_cc_target`/`test_orphans` killed at 90 s, `test_live` killed at 425 s. The branch adds
+`tests/test_addpickup_pooled.py` (12 tests OK) and updates `EXPECT` in `test_rules_tanks_dps.py`;
+no new failing test name.
+
 ## 2026-11-12: fix round 2 (trials/bench-fix-r2): an unreadable aura list is no sample
 
 Codex HIGH: `hire_aura_ids()` built an empty set when the unit row had no `auras`, a null `auras`
