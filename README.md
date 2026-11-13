@@ -123,6 +123,17 @@ A trial is one JSON file in `trials/<group>/`. Unknown keys are rejected by `val
   still be up. A missing hire guid, a refused `.unaura`, a fresh sample with no `auras` list or a
   malformed entry (not "no auras"), or an aura still on the hire makes the repeat INVALID before
   the summon (a prepull rule must never score a form that is still up).
+  An `ooc_buffs` window starts with `.unaura all` on the player, and on the hire only when no
+  Drink/Food aura is up: a meal aura is waited out (bounded, 30 s) with the hire's auras left
+  untouched, and when the meal ends and the trial sets `bot.mana_pct`, that mana is put back
+  (`.modify mana`) so the window still starts at the trial's level; a reset that cannot land (an
+  unreadable max mana, or a refused line) makes the repeat INVALID (`mana reset failed`) instead of
+  scoring a hire a meal left above the trial's level. A meal still up after the wait
+  makes the repeat INVALID (`meal still active`) and no window opens: the hire's Drink would keep
+  restoring mana through the scored seconds. An unreadable aura list is unknown, not "no meal": it
+  is retried inside the same 30 s wait with the hire's auras left alone, and a list that never reads
+  makes the repeat INVALID too (`meal state unknown`): a strip over a meal can cut it and leave the
+  AI asleep in it, and a guess is no proof the hire is between meals.
 - `opportunity` (besides `unit`, `hp_lt`/`hp_gt`, `in_combat`): `has_aura` (a non-empty list of aura
   ids; a sample counts only when its auras intersect the list).
 - `setup_checks`: facts that must hold before a repeat counts (the guards below).
@@ -287,14 +298,21 @@ itself or a hire (the runner resets the hire's cooldowns before the first summon
   unchanged.
 - `check.where.party_under_attack` (a non-empty list of party unit aliases, e.g.
   `["$player", "$extras"]`; any metric, default off): the event counts only while one of those
-  party members has a hostile mob on it. The attacker's victim comes from its last `attack_start`
-  packet (the `src_target_of` rule: a packet at the event's own t is the echo, not the cause), and
-  from the mob's own sample `target` when no packet is fresh. Only `mob:` units count as attackers;
-  the bot itself is never implied, so `["$player", "$extras"]` still lets a tank drink while it
-  holds the mob. A mob that was live at the event (a sample inside the last 5 s with hp left, or an
-  attack packet) but has neither a deciding packet nor a fresh sample (1 s) saying who it is on
-  leaves the state unknown: missing attack evidence is not "not under attack", so a `count` metric
-  reports the rule INCONCLUSIVE for that repeat, never a pass. Used by
+  party members has a hostile mob on it. The attacker's victim comes from its last attack packet
+  (the `src_target_of` rule: a packet at the event's own t is the echo, not the cause), and from
+  the mob's own sample `target` when no packet is fresh. The newest event wins: an `attack_stop`
+  after the last sample decides "not attacking" (the mob dropped its target), while a stop older
+  than the sample loses to it like any older packet. A sample older than 1 s still decides
+  while it is inside the 5 s liveness window: every target switch emits an `attack_start` packet, so
+  with no newer packet the last read target is the current one (bench-1113: a Drink at 155.9 with
+  the mob last sampled 1.7 s earlier was INCONCLUSIVE under the old 1 s rule). Only `mob:` units
+  count as attackers; the bot itself is never implied, so `["$player", "$extras"]` still lets a
+  tank drink while it holds the mob. A mob that was live at the event (an attack packet inside the
+  last 5 s) with no sample at all saying who it is on leaves the state unknown: missing attack
+  evidence is not "not under attack", so a `count` metric reports the rule INCONCLUSIVE for that
+  repeat, never a pass. Every cast the rule watches also carries its recorded attack state in the
+  verdict evidence (one line per live mob with who it was on, packet or sample, and the sample's t).
+  Used by
   `TNK-PAL-NO-DRINK-UNDER-ATTACK` as the meal's cast-time regression guard:
   `DrinkAction::isUseful` already needs `!GroupIsFighting`, so a start while a party member is
   already under attack is a stale-value race. It is not the meal-gap grader: the add-pickup misses

@@ -2,6 +2,66 @@
 
 Short, dated notes on choices that are not obvious from the code.
 
+## 2026-11-13: pooled stun interrupts, meal-safe ooc window, recorded attack state, no add direction
+
+Bench round 1113, from `after-t1113/OPEN-3.md`.
+
+**`TNK-DRU-BASH` and `TNK-PAL-HOJ` carry `pool: true`.** Both stuns have a 60 s cooldown and the
+rules a 60 s responder debounce, so a 180 s repeat offers 2-5 triggers; per-repeat `min_n 3` threw
+every repeat away (the cards read 0/0 INCONCLUSIVE while the per-repeat verdicts were Bash 2/2, 2/2,
+1/1, 1/1 and HoJ 1/2, 1/1, 0/1, 0/1). Rescored from the frozen snapshots (copies in
+`after-t1113/rescore-1113/`, the originals are untouched): **Bash PASS 6/6 = 1.0**, **HoJ FAIL 2/5 =
+0.4**. HoJ's misses are the first cast right after a cooldown expiry, hidden from the card by the 10 s
+debounce; 0.4 is the honest number and the bot side (`InterruptCastingPolicy.h` `stunImmunity`,
+`PlayerbotAISpells.cpp`) has not been looked at yet.
+
+**The ooc window never `.unaura all` over a Drink/Food aura.** `.unaura all` over a live meal is what
+left the low-mana priest asleep in it (33-35 s of nothing after the setup drink was stripped in
+reps 1 and 4). The window now waits (bounded, `MEAL_WAIT_S` 30 s) for the meal aura to end with the
+hire's auras untouched. A meal still up after the wait does not open the window at all: its Drink
+keeps restoring mana, so the repeat is INVALID (`meal still active`, no `fight_start`). Because a
+meal ending refills mana, a trial that sets `bot.mana_pct` gets that level put back (`.modify mana`,
+`ooc_mana_reset`) so the window still tests a low-mana bot. That reset must land: an unreadable max
+mana or a refused line makes the repeat INVALID (`mana reset failed`, no `fight_start`), because the
+hire may still sit far above the trial's level and the window would score the wrong bot. An
+unreadable aura list is UNKNOWN, not "no meal": it is retried inside the same wait with the hire's
+auras untouched, and a list that never becomes readable makes the repeat INVALID too (`meal state
+unknown`, no `fight_start`, no mana reset). A strip on a guess is the bug this removes, and so is
+opening the window on a meal nobody saw. The old strip-and-wait-for-a-re-drink flow
+(`ooc_drink_settled`, `DRINK_SETTLE_S`) is gone.
+
+**The attack state at every Drink is recorded, and the newest event decides.** `TNK-PAL-NO-DRINK-
+UNDER-ATTACK` was INCONCLUSIVE for one repeat (paladin add-pickup rep3, Drink at 155.9) because no
+sample fell inside 1 s and the mob's last packet was an `attack_stop`. A sample up to 5 s old now
+decides when no newer event exists — every target switch emits an `attack_start` packet, so with
+none the last read target is current — and an `attack_stop` newer than the last sample decides
+"not attacking" instead of handing the decision back to that older sample (round 1: the stop used to
+be discarded). Each Drink's state goes into the verdict evidence
+(`0xf130…d6c -> $bot (sample t=154.2)`). Rescored 0/4 PASS at `== 0`.
+
+**The add-pickup refill add cannot be made to open on the player or the healer, and was left alone.**
+The bench has no facility for it: the GM guard is a closed template set with no threat/aggro line
+(`docs/next-trials.md` F2 `aggro_on` is still an unbuilt feature), the sample `target` is read-only,
+the player attacking the add (`Situation.attack`, already sent for every refill) does not decide the
+mob's target, and the one existing lever — the player's stance threat cast (`THREAT_CAST`, taunted
+on the shared selection by `threat()` every 6 s, the same line `engage_marked` uses for Taunt) — is
+no control at all here: it is a Battle Stance player, so the learned spell is Mocking Blow, which in
+the AFTER run failed 18/29 times on `unit_not_infront` and once on `no_power`, and the adds still
+took the tank (160 of 165 mob hits). A real fix needs a bench feature (a GM threat line, or a
+spawn-time forced target), not a trial edit; the trigger count stays ~0.5 per repeat.
+
+Suite delta against main 8bc775f, run per module (`test_cc_target`, `test_live1` and `test_orphans`
+never end and are killed at the 120 s cap), same runner under `nice` and
+`flock /tmp/trials-tests.lock`: branch
+`Ran 847 tests` over the modules that finish, main `Ran 846`; the one extra test is
+`tests/test_addpickup_pooled.py` (18 vs 17, the replaced 1 s-unknown case became two). The
+`FAIL:`/`ERROR:` name lists are identical on both sides — `test_cc_gap` 1, `test_live3` 1,
+`test_ooc_hurt` 4 failures + 4 errors, `test_rules_healers` 1, `test_live`
+`Ran 81 tests ... FAILED (failures=1, errors=1, skipped=1)` (`test_refill_uses_the_trials_mob_kind`
+errors, `test_an_rpc_error_skips_the_refill_tick` fails; both are an arena stub these tests no
+longer provide, and both spend the 600 s arena give-up first), and `test_cc_target`,
+`test_live1`, `test_orphans` killed at the 120 s cap on both sides. No new failing test name.
+
 ## 2026-11-12: no `dps-rogue-kick-caster@ignore-threat` variant (bench round 1112, brief item 5)
 
 Skipped with the reason written down, as the brief allows. The bench has no per-trial server-key
@@ -48,7 +108,9 @@ a fresh sample (1 s) saying who it is on leaves the state unknown, and the rule 
 that repeat rather than passing it — missing attack evidence is not "not under attack". It is pooled
 too, so one repeat with a cast fails the trial; and an INCONCLUSIVE repeat with reason
 `attack state unknown` is not a benign no-trigger repeat, so it makes the pooled verdict
-INCONCLUSIVE rather than being dropped from the pool.
+INCONCLUSIVE rather than being dropped from the pool. (2026-11-13: a sample up to 5 s old now
+decides when no newer packet exists, and every Drink cast records its state in the evidence; see the
+entry above.)
 On the six images it rescores 0/n PASS in every one: `DrinkAction::isUseful` already requires
 `!GroupIsFighting`, so a start while a party member is under attack is only a stale-value race. The
 meal-gap misses (12 of 15) happen when a refill mob opens on the party DURING the 15 s meal, which
