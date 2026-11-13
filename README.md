@@ -238,19 +238,35 @@ itself or a hire (the runner resets the hire's cooldowns before the first summon
 - `check.trigger` may be `{"kind": "mark", "mark": "<mark kind>"}` (latency rules only): the
   triggers are the runner marks of that kind (e.g. `energy_drain`), on the events' time base and
   inside the scored window. The debounce and response logic is unchanged.
-- `check.debounce_responder_s` (latency rules only, a number of seconds > 0, default off): the
-  responder's own cooldown. A trigger that arrives less than N s after the bot's last matching
+- `check.debounce_responder_s` (a number of seconds > 0, default off): the responder's own
+  cooldown. On a latency rule a trigger that arrives less than N s after the bot's last matching
   response (same `response` filter, any target) is skipped: it is not counted and not a miss. Use it
   with the cooldown of the answering ability (for example 10 for Taunt, 30 for Counterspell), so one
   answer is not scored against two triggers. A trigger skipped for the cooldown does not start its
-  source mob's `trigger_debounce_s` window. `check.debounce_responder_spells` (a list of response
-  spell names, each one of the `response` spells; needs `debounce_responder_s`) limits which responses
-  start the cooldown: Taunt has a 10 s cooldown, a Mocking Blow does not start it. `trigger_debounce_s` is different: it thins the
+  source mob's `trigger_debounce_s` window. On a `first` rule (no trigger to skip) it only pairs
+  with `debounce_responder_across_reps` below. `check.debounce_responder_spells` (a list of spell
+  names, each one of the answered spells — the `response` spells, or the `where` spells on a
+  `first` rule; needs `debounce_responder_s`) limits which responses start the cooldown: Taunt has a
+  10 s cooldown, a Mocking Blow does not start it. `trigger_debounce_s` is different: it thins the
   triggers per source before anything is answered. `check.debounce_responder_across_reps: true` (needs
-  `debounce_responder_s`) carries that cooldown over the repeat boundary: a trigger less than N s after
-  the bot's last matching response in ANY earlier repeat of the trial is skipped as well. Use it when the
-  runner cannot reset the cooldown (bench-fix-1111: `.cooldown` does not clear Thistle Tea's 5-minute
-  item cooldown, so a rep starting soon after the last tea has no chance at its drains).
+  `debounce_responder_s`) carries that cooldown over the repeat boundary: a latency trigger less
+  than N s after the bot's last matching response in ANY earlier repeat of the trial is skipped as
+  well. On a `first` rule a match stamped inside an earlier repeat's cooldown is dropped (a cast
+  there is impossible, or a proc row), and the remaining hits score. With no hit left, only
+  cooldowns that cover the rule's whole response window are no opportunity (INCONCLUSIVE); a
+  partial overlap still leaves a chance, so the repeat is scored (a `< 30` miss FAILs).
+  Use it when the runner cannot reset the cooldown (bench-fix-1111: `.cooldown` does not clear
+  Thistle Tea's 5-minute item cooldown, so a rep starting soon after the last tea has no chance at
+  its drains; bench-fix-1112: the 120 s Greater Mana Potion cooldown works the same way, and the
+  bench also accepts the potion from t −2, since a ready bot answers during the pull).
+- `check.skip_trigger_while` (`{"unit": <alias>, "power_below_pct": N, "skip_when_dead": true}`;
+  latency rules with a cross trigger only): triggers while the answering unit reads under N percent
+  power or dead (the sample's `dead` flag, or the Spirit of Redemption aura) carry no chance and are
+  skipped (not counted, not misses). The heal-latency trials skip crossings while the healer is
+  under 10 percent mana or dead.
+- `situation.damage_interval_s` (tank_damage only, a number from 4 to 60, default 4): the governor
+  re-damages the victim at most this often (today's fixed 4 s). The heal-latency trials space wounds
+  15 s apart so mana lasts the rep.
 - `check.where.not_within_s_after_mark` (`{"kind": "<mark kind>", "s": N}`, or a list of these;
   only in `check.where`, any metric, default off): drop the events and samples within N s after
   each runner mark of that kind (the marks are the ones in `marks.jsonl`; `refill` is written at

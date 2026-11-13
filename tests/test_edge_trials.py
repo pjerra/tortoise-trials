@@ -325,11 +325,128 @@ class LowManaPotionTest(RepMixin, unittest.TestCase):
         self.assertEqual(self.verdict(self.TID, "PRI-LOWMANA-POTION",
                                       [event(12, "cast", BOT, BOT, "Renew")], samples), "FAIL")
 
+    def test_a_potion_from_2_s_before_the_window_counts(self):
+        # bench-fix-1112: a ready bot answers during the pull (rep1's potion 0.24 s before
+        # fight_start was not counted). A potion at t -2 is inside the window now.
+        samples = series(200)
+        got = self.rules(self.TID, [event(-0.24, "cast", BOT, BOT, "Restore Mana")], samples)
+        self.assertEqual((got["PRI-LOWMANA-POTION"]["verdict"],
+                          got["PRI-LOWMANA-POTION"]["value"]), ("PASS", -0.24))
+        far = self.rules(self.TID, [event(-2.5, "cast", BOT, BOT, "Restore Mana")], samples)
+        self.assertEqual(far["PRI-LOWMANA-POTION"]["verdict"], "FAIL")
+
+    def test_the_trial_carries_the_item_cooldown_across_reps(self):
+        rule = [r for r in load(self.TID)["rules"] if r["id"] == "PRI-LOWMANA-POTION"][0]
+        self.assertEqual(rule["check"]["where"]["t_from"], -2)
+        self.assertTrue(rule["check"]["debounce_responder_across_reps"])
+        self.assertEqual(rule["check"]["debounce_responder_s"], 120)
+        self.assertEqual(rule["check"]["debounce_responder_spells"], ["Restore Mana"])
+        self.assertIn("120 s", rule["why_expect"])
+        self.assertEqual(scenario_mod.validate(load(self.TID)), [])
+
+    def test_bad_cooldown_shapes_on_a_first_rule_are_rejected(self):
+        import copy
+        trial = load(self.TID)
+        orig = copy.deepcopy(trial["rules"][0]["check"])
+        trial["rules"][0]["check"]["debounce_responder_spells"] = ["Renew"]
+        self.assertTrue(any("debounce_responder_spells" in e
+                            for e in scenario_mod.validate(trial)))
+        trial["rules"][0]["check"] = copy.deepcopy(orig)
+        trial["rules"][0]["check"]["debounce_responder_across_reps"] = False
+        self.assertTrue(any("debounce_responder_across_reps" in e
+                            for e in scenario_mod.validate(trial)))
+
     def test_heals_after_the_potion(self):
         heals = [event(20 + 10 * i, "cast", BOT, PLAYER, "Flash Heal") for i in range(3)]
         self.assertEqual(self.verdict(self.TID, "PRI-LOWMANA-POTION-HEALS", heals, series(200)), "PASS")
         self.assertEqual(self.verdict(self.TID, "PRI-LOWMANA-POTION-HEALS", heals[:1], series(200)), "FAIL")
 
+
+class PotionCrossRepCooldownTest(unittest.TestCase):
+    """Rep2 of the nightly run opened ~2 min after rep1's potion: the 120 s item cooldown the
+    per-rep `.cooldown` cannot clear. bench-fix-1112 carries it across reps (the tea precedent):
+    a rep whose only potion falls inside an earlier rep's 120 s is INCONCLUSIVE, not a miss."""
+
+    TID = "priest-holy-low-mana-potion"
+
+    def wall(self, base, offset):
+        import datetime
+        return datetime.datetime.fromtimestamp(base + offset,
+                                               datetime.timezone.utc).isoformat(timespec="milliseconds")
+
+    def write_rep(self, trial_dir, name, base, potion_at):
+        rep = os.path.join(trial_dir, name)
+        os.makedirs(rep)
+        setup = {"ok": True, "guids": {"player": PLAYER, "bot": BOT, "mobs": [MOB]}, "config": {}}
+        with open(os.path.join(rep, "setup.json"), "w") as f:
+            json.dump(setup, f)
+        marks = [{"kind": "fight_start", "wall": self.wall(base, 0)},
+                 {"kind": "fight_end", "wall": self.wall(base, 200), "ended": "duration"}]
+        events = []
+        if potion_at is not None:
+            events.append(event(potion_at, "cast", BOT, BOT, "Restore Mana"))
+        for fname, rows in (("marks.jsonl", marks), ("events.jsonl", events), ("samples.jsonl", [])):
+            with open(os.path.join(rep, fname), "w") as f:
+                for row in rows:
+                    f.write(json.dumps(row) + "\n")
+        return rep
+
+    def score(self, potions, spacing=122.0):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            tdir = os.path.join(tmp, "run", self.TID)
+            base = 1_800_000_000.0
+            for i, at in enumerate(potions):
+                # reps start `spacing` apart (122 s is the nightly spacing: rep2 opens inside rep1's cooldown)
+                self.write_rep(tdir, "rep%d" % (i + 1), base + i * spacing, at)
+            trial = load(self.TID)
+            return score_mod.score_trial(tdir, trial)["verdicts"][0]
+
+    def test_a_potion_inside_a_partially_covering_cooldown_is_a_miss(self):
+        # bench-fix-1112 round 4: at the nightly 122 s spacing rep 2's cooldown is -112..8, so the
+        # t=5 potion stamped inside it is impossible (or a proc row) and is dropped; rep 2 had 8..30
+        # left to drink, so the empty hit list is a miss, not no-opportunity.
+        got = self.score([10, 5])
+        self.assertEqual((got["verdict"], got["k"], got["n"]), ("FAIL", 1, 2), got)
+        rep2 = [d for d in got["detail"] if d["rep"] == "rep2"][0]
+        self.assertEqual(rep2["verdict"], "FAIL")
+        self.assertEqual(rep2["reason"], "")
+
+    def test_a_potion_inside_a_fully_covered_window_is_no_chance(self):
+        # 80 s spacing leaves rep 2's cooldown at -70..50, which covers its whole -2..30 window:
+        # the potion at t=5 sits in it, so the rep is no-opportunity, never a miss.
+        got = self.score([10, 5], spacing=80.0)
+        self.assertEqual((got["verdict"], got["k"], got["n"]), ("PASS", 1, 1), got)
+        rep2 = [d for d in got["detail"] if d["rep"] == "rep2"][0]
+        self.assertEqual(rep2["verdict"], "INCONCLUSIVE")
+        self.assertEqual(rep2["reason"], "no opportunity (item on cooldown from an earlier rep)")
+
+    def test_a_potion_after_the_cooldown_counts(self):
+        got = self.score([10, None, 5])
+        rep3 = [d for d in got["detail"] if d["rep"] == "rep3"][0]
+        self.assertEqual((rep3["verdict"], rep3["value"]), ("PASS", 5.0))
+
+    def test_no_potion_at_all_is_still_a_miss(self):
+        got = self.score([None])
+        rep1 = [d for d in got["detail"] if d["rep"] == "rep1"][0]
+        self.assertEqual(rep1["verdict"], "FAIL")
+
+    def test_no_potion_in_a_fully_covered_window_is_no_chance(self):
+        # codex HIGH (round 1, tightened in round 3): rep 2 opens inside rep 1's 120 s item cooldown
+        # with NO potion cast. Only a cooldown that covers the WHOLE response window (here -2..30 on
+        # rep2's base) is no opportunity; 80 s spacing leaves the cooldown at -70..50.
+        got = self.score([10, None], spacing=80.0)
+        rep2 = [d for d in got["detail"] if d["rep"] == "rep2"][0]
+        self.assertEqual(rep2["verdict"], "INCONCLUSIVE", rep2)
+        self.assertEqual(rep2["reason"], "no opportunity (item on cooldown from an earlier rep)")
+
+    def test_no_potion_in_a_partially_covered_window_is_a_miss(self):
+        # round 3: at the nightly 122 s spacing the cooldown is -112..8, so rep2 still had 8..30 to
+        # drink: the no-match scoring applies ("<= 30" FAILs), it is not no-opportunity.
+        got = self.score([10, None])
+        rep2 = [d for d in got["detail"] if d["rep"] == "rep2"][0]
+        self.assertEqual(rep2["verdict"], "FAIL", rep2)
+        self.assertEqual(rep2["reason"], "")
 
 class ZeroRageTest(RepMixin, unittest.TestCase):
     TID = "tank-warrior-zero-rage-opening"

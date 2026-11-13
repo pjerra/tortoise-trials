@@ -2,6 +2,17 @@
 
 Short, dated notes on choices that are not obvious from the code.
 
+## 2026-11-12: no `dps-rogue-kick-caster@ignore-threat` variant (bench round 1112, brief item 5)
+
+Skipped with the reason written down, as the brief allows. The bench has no per-trial server-key
+path: the GM guard (`trl/live/gm_guard.py` TEMPLATES) is a closed template set with no config line,
+`config_read` only reads the three health thresholds, and a variant override (`trl/scenario.py`
+OVERRIDE_FIELDS) can only touch level/player/bot/extra_bots/situation/rules — the `@` variants set
+trial fields (gear, mana, extra bots), never server keys. `InterruptIgnoresThreat` is a
+server-global key needing a `.reload` after the change, so a per-trial variant cannot flip it for
+one trial without moving every other trial in the run. Until the bench grows a server-keys knob,
+the Kick row keeps measuring the shipped default (FAIL by design) and the AFTER stays manual.
+
 ## 2026-11-12: paladin add-pickup scores pooled; a drink-under-attack guard
 
 `TNK-PAL-ADD-PICKUP` now carries `pool: true`. WHY.md's artefact part: 0-5 triggers per repeat with

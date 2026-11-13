@@ -79,17 +79,23 @@
   "rules": [
     {
       "id": "PRI-LOWMANA-POTION",
-      "desc": "A Holy priest at low mana that carries mana potions uses one (the potion's spell is Restore Mana) within 30 s of the fight starting",
+      "desc": "A Holy priest at low mana that carries mana potions uses one (the potion's spell is Restore Mana) from 2 s before the fight starts to 30 s in",
       "source": "ai/playerbot/strategy/generic/UsePotionsStrategy.cpp:49-67 (medium mana and high mana -> mana potion at ACTION_EMERGENCY; the action is possible only with a potion in the bags and off cooldown); ai/playerbot/strategy/actions/UseItemAction.h:173-176 (UseManaPotionAction); TortoiseBots upstream/dev 0c56cf649",
       "expect_today": "PASS",
-      "why_expect": "15 percent is under both mana lines (medium and high) and the row sits at ACTION_EMERGENCY, above every heal; the hire carries 3 potions. Expected PASS on TortoiseBots upstream/dev 0c56cf649; a FAIL points at the potion row or at the item not reaching the bags",
+      "why_expect": "15 percent is under both mana lines (medium and high) and the row sits at ACTION_EMERGENCY, above every heal; the hire carries 3 potions. The bench accepts a potion from t -2 (a ready bot answers during the pull): rep1's wall-clock potion 0.24 s before fight_start counts. The 120 s item cooldown survives the per-rep `.cooldown` reset: a potion stamped inside an earlier rep's cooldown is dropped (a cast there is impossible or a proc row), and only a cooldown that covers the rep's whole response window is no opportunity (INCONCLUSIVE); a partial overlap with no other potion is a miss. Expected PASS on TortoiseBots upstream/dev 0c56cf649; a FAIL points at the potion row or at the item not reaching the bags",
       "check": {
         "metric": "first",
         "where": {
           "kind": "cast",
           "src": "$bot",
-          "spell": "Restore Mana"
-        }
+          "spell": "Restore Mana",
+          "t_from": -2
+        },
+        "debounce_responder_s": 120,
+        "debounce_responder_spells": [
+          "Restore Mana"
+        ],
+        "debounce_responder_across_reps": true
       },
       "pass_if": "<= 30"
     },

@@ -90,16 +90,17 @@
   "rules": [
     {
       "id": "PRI-SHADOWFORM-PREPULL",
-      "desc": "Shadow priest casts no Shadowform in the first 8 s of the fight (it was already up before the pull)",
+      "desc": "Shadow priest casts no Shadowform from 3 s before the pull through the first 8 s of the fight (it was already up before the pull)",
       "source": "ai/playerbot/strategy/priest/ShadowPriestStrategy.cpp:231-247 (the shadowform row exists only in ShadowPriestBuffStrategy::InitCombatTriggers; the non-combat init at :244 adds nothing)",
       "expect_today": "FAIL",
-      "why_expect": "Shadowform is only queued by a combat trigger, so the bot casts it after the pull starts (low impact: one global cooldown)",
+      "why_expect": "Shadowform is only queued by a combat trigger, so the bot casts it at the pull (within half a second either side of fight_start); the bench counts from t -3 so a cast at the pull always counts instead of coin-flipping on the mark (low impact: one global cooldown)",
       "check": {
         "metric": "count",
         "where": {
           "kind": "cast",
           "src": "$bot",
           "spell": "Shadowform",
+          "t_from": -3,
           "t_to": 8
         }
       },
