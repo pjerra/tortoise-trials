@@ -33,13 +33,14 @@ DROP_WINDOW_S = 20.0        # only falls this recent drive an early rescue
 HURT_EVERY_S = 20.0
 STANCE_RECAST_GAP_S = 5.0
 PREPULL_AURA_WAIT_S = 3.0  # the hire's aura row drops a tick or two after `.unaura`; then it must be gone
-# ooc drink settle (bench-fix-1112): a low-mana hire starts drinking during setup, and the window's
-# `.unaura all` strips that setup drink. A stripped drink can leave the AI asleep in the meal, so the
-# window must not open on a stripped drink: when a Drink aura was on the hire, wait (bounded) for the
-# healthy immediate re-drink and open the window on it. Each rep then tests "starts a drink".
+# ooc window start (bench-1113): a low-mana hire can be mid-meal when the window opens. `.unaura all`
+# over an active Drink/Food cuts the meal, and a cut meal can leave the AI asleep in it (priest-holy-
+# low-mana-drinks AFTER t1113: 33-35 s of nothing after a stripped setup drink). The window never
+# strips a meal: it waits out the aura (bounded) and only then clears the hire, or leaves the hire's
+# auras alone when the meal outlasts the wait.
 DRINK_AURA_IDS = frozenset({430, 431, 432, 1133, 1135, 1137, 10250, 22734, 24355, 25696, 26261, 26402,
                             26473, 26475, 29007})  # keep in sync with PRI-LOWMANA-DRINK-UPTIME's aura list
-DRINK_SETTLE_S = 10.0  # a healthy re-drink lands within ~2 s (rep2/4 shape); then open the window anyway
+MEAL_WAIT_S = 30.0  # bound on waiting for a Drink/Food aura to end before the window opens
 # -- arena lock (one exclusive file lock per arena, held for the whole repeat) --
 ARENA_WAIT_S = 15.0        # wait between passes when every arena is locked or not quiet
 ARENA_GIVE_UP_S = 600.0    # give up after 10 min with the existing "no quiet arena" outcome
@@ -1170,47 +1171,93 @@ class Situation:
             return
         self.marks.add({"kind": "energy_drain", "to": int(cfg.get("to") or 0), "wall": wall})
 
-    def ooc_drink_settled(self):
-        """Wait (bounded) for the re-drink after `.unaura all` stripped a setup drink.
+    def wait_out_meal(self):
+        """Never `.unaura all` over an active Drink/Food: wait (bounded) for the meal to end.
 
-        bench-fix-1112: `.unaura all` at fight_start strips a drink the hire started during setup,
-        and the strip can leave the AI asleep in the meal (nightly rep1/rep3: first drink at 49.8).
-        The caller saw a Drink aura on the hire before the strip. The window opens on the healthy
-        immediate re-drink (rep2/rep4: back within ~2 s), or after DRINK_SETTLE_S with a log line
-        and an `ooc_drink_settle_timeout` mark (the asleep bot then scores its FAIL, which the
-        bot-side meal-sleep fix addresses).
+        bench-1113 (priest-holy-low-mana-drinks AFTER t1113): the old flow stripped the setup drink
+        with `.unaura all` and then waited for a re-drink; a stripped meal can leave the AI asleep in
+        it (rep1/rep4 drank at -1.5/-1.4, were stripped, and the first action came 33-35 s in). The
+        meal aura is now left alone: the window opens after the meal ends on its own (MEAL_WAIT_S at
+        most), or with the hire's auras untouched (`ooc_meal_unaura_skipped`) when it outlasts the
+        wait. Returns "ended" (waited it out) or "skipped" (the wait ran out or the repeat aborted).
         """
-        self.log("ooc drink settle: stripped a setup drink, waiting for the re-drink")
-        deadline = time.time() + DRINK_SETTLE_S
+        deadline = time.time() + MEAL_WAIT_S
+        seen = set()
         while time.time() < deadline:
             if self.abort_reason():
-                return
+                return "skipped"
             have = self.hire_aura_ids()
-            if have is not None and (have & DRINK_AURA_IDS):
-                self.log("ooc drink settle: the hire re-drank, opening the window")
-                return
-            time.sleep(0.5)
-        self.log("ooc drink settle: no re-drink in %.0f s, opening the window anyway" % DRINK_SETTLE_S)
-        self.marks.add({"kind": "ooc_drink_settle_timeout"})
+            if have is not None:
+                seen = have & DRINK_AURA_IDS
+                if not seen:
+                    self.log("ooc meal: the setup meal ended, opening the window on a clean hire")
+                    return "ended"
+            time.sleep(1.0)
+        self.log("ooc meal: still up after %.0f s (aura(s) %s), leaving the hire's auras alone"
+                 % (MEAL_WAIT_S, ", ".join(str(a) for a in sorted(seen)) or "unread"))
+        self.marks.add({"kind": "ooc_meal_unaura_skipped",
+                        "auras": sorted(int(a) for a in seen)})
+        return "skipped"
+
+    def restore_window_mana(self):
+        """Put the hire back on the trial's `bot.mana_pct` after a meal restored it.
+
+        A trial that starts the window at a mana level (priest-holy-low-mana-drinks) is meaningless
+        once the setup meal has refilled the hire: the window would test a bot that has no reason to
+        drink. `bot.mana_pct` is re-applied through the same `.modify mana` line the setup check
+        uses (`check_mana`). No `mana_pct` -> nothing to do.
+        """
+        pct = (self.trial.get("bot") or {}).get("mana_pct")
+        if pct is None or not self.ctx.hire_guid:
+            return
+        try:
+            unit = self.agent.unit(guid=self.ctx.hire_guid) or {}
+            maxp = int(unit.get("max_power") or unit.get("max_mana") or 0)
+        except Exception as exc:  # noqa: BLE001 - the window still opens
+            self.log("ooc mana reset skipped: %s" % str(exc)[:120])
+            return
+        if maxp <= 0:
+            self.log("ooc mana reset skipped: the hire's max mana is unknown")
+            return
+        try:
+            self.guard.send("modify_mana", self.ctx.hire_guid, int(maxp * float(pct) / 100), maxp)
+        except Exception as exc:  # noqa: BLE001 - the window still opens
+            self.log("ooc mana reset refused: %s" % str(exc)[:120])
+            return
+        self.marks.add({"kind": "ooc_mana_reset", "pct": float(pct)})
 
     def run_ooc(self):
         wait = float(self.sit.get("ooc_wait_s") or 60)
+        if self.ctx.player_guid:
+            try:
+                self.guard.send("unaura", self.ctx.player_guid, "all")
+            except Exception:  # noqa: BLE001 - a refused cleanup must not stop the window
+                pass
         have = self.hire_aura_ids() if self.ctx.hire_guid else set()
         if have is None and self.ctx.hire_guid:
-            # one retry: a transient unit-read failure must not read as "no drink"
+            # one retry: a transient unit-read failure must not read as "no meal"
             have = self.hire_aura_ids()
-        stripped = bool(have is not None and (have & DRINK_AURA_IDS))
-        unknown = bool(self.ctx.hire_guid and have is None)
-        for target in (self.ctx.player_guid, self.ctx.hire_guid):
-            if target:
+        if self.ctx.hire_guid and have is None:
+            # An unread aura list cannot prove the hire is between meals: stripping it could cut a
+            # drink mid-meal, so the hire keeps its auras and the window opens as it is.
+            self.log("ooc meal: hire aura read unknown, leaving the hire's auras alone")
+            self.marks.add({"kind": "ooc_meal_unaura_skipped", "auras": []})
+            meal = "skipped"
+        elif have & DRINK_AURA_IDS:
+            self.log("ooc meal: a Drink/Food aura is up on the hire (%s), waiting it out"
+                     % ", ".join(str(a) for a in sorted(have & DRINK_AURA_IDS)))
+            # The hire's auras stay: `.unaura all` is what cut the meal in the first place, and a
+            # low-mana hire starts the next one within a second of the last ending.
+            meal = self.wait_out_meal()
+        else:
+            if self.ctx.hire_guid:
                 try:
-                    self.guard.send("unaura", target, "all")
-                except Exception:  # noqa: BLE001 - a refused cleanup must not stop the window
-                    pass
-        if unknown:
-            self.log("ooc drink settle: hire aura read unknown, waiting out a possible drink")
-        if stripped or unknown:
-            self.ooc_drink_settled()
+                    self.guard.send("unaura", self.ctx.hire_guid, "all")
+                except Exception as exc:  # noqa: BLE001 - the window still opens
+                    self.log("ooc cleanup unaura refused: %s" % str(exc)[:120])
+            meal = "none"
+        if meal != "none":
+            self.restore_window_mana()
         self.marks.add({"kind": "fight_start", "mobs": [], "ooc": True})
         deadline = time.time() + wait
         invalid = ""

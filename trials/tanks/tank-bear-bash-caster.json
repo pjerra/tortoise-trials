@@ -88,10 +88,10 @@
   "rules": [
     {
       "id": "TNK-DRU-BASH",
-      "desc": "The bear casts Bash on the mob within 3 s of an interruptible cast start, at least 60 percent of the time (one trigger per mob per 10 s, one counted answer per 60 s: Bash has a 60 s cooldown)",
+      "desc": "The bear casts Bash on the mob within 3 s of an interruptible cast start, at least 60 percent of the time, pooled over the repeats (one trigger per mob per 10 s, one counted answer per 60 s: Bash has a 60 s cooldown, so each repeat can answer only one or two casts and the trigger minimum is read on the pooled total)",
       "source": "ai/playerbot/strategy/druid/TankFeralDruidStrategy.cpp:388-395 (tank cc: bash and bash on enemy healer at ACTION_INTERRUPT); ai/playerbot/strategy/druid/DruidTriggers.h:149-153 (BashInterruptSpellTrigger); TortoiseBots upstream/dev abb91ff62",
       "expect_today": "?",
-      "why_expect": "the stun answers the cast but its 60 s cooldown means the bear can only catch about one cast a minute; whether most triggers get an answer is the question. Expected UNKNOWN on TortoiseBots upstream/dev abb91ff62",
+      "why_expect": "the stun answers the cast but its 60 s cooldown means the bear can only catch about one cast a minute, and the 60 s responder debounce leaves 1-2 triggers per repeat: those triggers pool over the repeats (TNK-DRU-BASH AFTER t1113: 6/6 answered per repeat, INCONCLUSIVE per rep at min_n 3). Expected PASS when pooled at abb91ff62",
       "check": {
         "metric": "latency",
         "trigger": {
@@ -110,7 +110,8 @@
         "debounce_responder_s": 60
       },
       "pass_if": ">= 0.6",
-      "min_n": 3
+      "min_n": 3,
+      "pool": true
     },
     {
       "id": "TNK-DRU-BASH-FORM",

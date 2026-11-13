@@ -1,10 +1,11 @@
-"""Bench-fix-1112 item 3: the ooc window must not open on a stripped setup drink.
+"""Bench-1113 item 3: the ooc window never `.unaura all` over an active Drink/Food.
 
-A low-mana hire starts drinking during setup; the window's `.unaura all` strips that drink and the
-strip can leave the AI asleep in the meal. When a Drink aura was on the hire, the runner waits
-(bounded) for the healthy immediate re-drink and opens the window on it; with no setup drink the
-window opens at once. Offline: a scripted agent, a recording guard and a fake clock drive
-Situation.run_ooc on the real drinks trial. No server is touched.
+A low-mana hire can be mid-meal when the window opens; `.unaura all` cuts the meal and a cut meal can
+leave the AI asleep in it. When a Drink aura is up the hire keeps its auras: the runner waits (bounded,
+MEAL_WAIT_S) for the meal to end and opens the window on it, or opens with the auras untouched when
+the meal outlasts the wait. A trial that starts the window at a mana level gets that level back after
+the meal. Offline: a scripted agent, a recording guard and a fake clock drive Situation.run_ooc on the
+real drinks trial. No server is touched.
 
 Run from the tool directory: python3 -I -m unittest discover -s tests
 """
@@ -27,6 +28,7 @@ TRIAL_PATH = os.path.join(ROOT, "trials", "edge", "priest-holy-low-mana-drinks.j
 PLAYER = "0x0000000000000001"
 HIRE = "0x0000000000000002"
 DRINK = 24355
+MAX_MANA = 2000
 
 
 def trial():
@@ -45,37 +47,32 @@ class FakeClock:
 
 
 class ScriptedAgent:
-    """The hire's aura read: a setup drink until the guard strips it, then a re-drink at `redrink_at`.
+    """The hire's aura read: a Drink aura until `meal_ends_at` (never when it is None)."""
 
-    `stripped` flips when the test guard sends the unaura, modelling the server removing the aura.
-    """
-
-    def __init__(self, clock, setup_drink=False, redrink_at=None):
+    def __init__(self, clock, meal_ends_at=None):
         self.clock = clock
-        self.setup_drink = setup_drink
-        self.redrink_at = redrink_at
-        self.stripped = False
+        self.meal_ends_at = meal_ends_at
         self.reads = 0
 
     def unit(self, guid=None, **kw):
         self.reads += 1
         ids = []
-        if self.setup_drink and not self.stripped:
+        if self.meal_ends_at is None or self.clock.t < self.meal_ends_at:
             ids = [DRINK]
-        elif self.redrink_at is not None and self.clock.t >= self.redrink_at:
-            ids = [DRINK]
-        return {"guid": guid, "auras": [{"spell_id": i} for i in ids]}
+        return {"guid": guid, "max_power": MAX_MANA,
+                "auras": [{"spell_id": i} for i in ids]}
 
 
 class RecordingGuard:
     def __init__(self, agent):
         self.agent = agent
         self.sent = []
+        self.refuse = set()
 
     def send(self, kind, target=None, *args):
+        if kind in self.refuse:
+            raise RuntimeError("refused %s" % kind)
         self.sent.append((kind, target) + tuple(args))
-        if kind == "unaura":
-            self.agent.stripped = True
 
 
 class FakeMarks:
@@ -96,19 +93,19 @@ class FakeCollector:
         self.lost = ""
 
 
-def make(setup_drink=False, redrink_at=None, sit_over=None):
+def make(meal_ends_at=None, sit_over=None, agent=None):
     t = copy.deepcopy(trial())
     t["situation"].update(sit_over or {})
     clock = FakeClock()
-    agent = ScriptedAgent(clock, setup_drink=setup_drink, redrink_at=redrink_at)
+    agent = agent or ScriptedAgent(clock, meal_ends_at=meal_ends_at)
     guard = RecordingGuard(agent)
     marks = FakeMarks()
     logs = []
     sit = situations_mod.Situation(agent, t, guard, None, marks, FakeCollector(),
-                                  situations_mod.SitContext(player_guid=PLAYER, bot_name="Helper",
-                                                            hire_guid=HIRE),
-                                  arenas=[], mobs={}, log=logs.append,
-                                  abort=lambda: "")
+                                   situations_mod.SitContext(player_guid=PLAYER, bot_name="Helper",
+                                                             hire_guid=HIRE),
+                                   arenas=[], mobs={}, log=logs.append,
+                                   abort=lambda: "")
     return sit, clock, guard, marks, logs
 
 
@@ -118,106 +115,80 @@ def run(sit, clock):
         return sit.run_ooc()
 
 
-class DrinkSettleTest(unittest.TestCase):
-    def test_no_setup_drink_opens_the_window_at_once(self):
-        sit, clock, guard, marks, _logs = make(sit_over={"ooc_wait_s": 20})
+class OocWindowMealTest(unittest.TestCase):
+    def test_no_meal_clears_both_and_opens_at_once(self):
+        sit, clock, guard, marks, _logs = make(meal_ends_at=0.0, sit_over={"ooc_wait_s": 20})
         out = run(sit, clock)
         self.assertTrue(out["ok"])
-        # the unaura went out, the window opened with no settle delay
         self.assertIn(("unaura", PLAYER, "all"), guard.sent)
         self.assertIn(("unaura", HIRE, "all"), guard.sent)
+        self.assertEqual(marks.kinds("ooc_meal_unaura_skipped"), [])
+        self.assertEqual(marks.kinds("ooc_mana_reset"), [])
         self.assertEqual(len(marks.kinds("fight_start")), 1)
-        self.assertEqual(marks.kinds("ooc_drink_settle_timeout"), [])
         self.assertGreaterEqual(clock.t, 20.0)
-        self.assertLess(clock.t, 25.0)
+        self.assertLess(clock.t, 21.0)
 
-    def test_a_stripped_drink_waits_for_the_redrink(self):
-        # Drink during setup, stripped at t=0, back 1.5 s later (the healthy rep2/rep4 shape):
-        # the window opens on the re-drink, with no timeout mark.
-        sit, clock, guard, marks, logs = make(setup_drink=True, redrink_at=1.5,
-                                              sit_over={"ooc_wait_s": 20})
+    def test_a_meal_is_waited_out_and_the_hire_is_never_cleared(self):
+        # The meal ends at 8 s: the window opens then, the hire never sees `.unaura all`, and the
+        # trial's bot.mana_pct is re-applied so the window still starts at the trial's mana.
+        sit, clock, guard, marks, logs = make(meal_ends_at=8.0, sit_over={"ooc_wait_s": 20})
         out = run(sit, clock)
         self.assertTrue(out["ok"])
-        self.assertTrue(any("re-drank" in line for line in logs), logs)
-        self.assertEqual(marks.kinds("ooc_drink_settle_timeout"), [])
-        # opened on the re-drink (~1.5 s), not after the full grace
-        self.assertLess(clock.t, situations_mod.DRINK_SETTLE_S + 20.0)
-        self.assertGreaterEqual(clock.t, 21.5)
+        self.assertNotIn(("unaura", HIRE, "all"), guard.sent)
+        self.assertIn(("unaura", PLAYER, "all"), guard.sent)
+        self.assertTrue(any("meal ended" in line for line in logs), logs)
+        reset = marks.kinds("ooc_mana_reset")
+        self.assertEqual(len(reset), 1)
+        self.assertEqual(reset[0]["pct"], float(trial()["bot"]["mana_pct"]))
+        self.assertIn(("modify_mana", HIRE, int(MAX_MANA * trial()["bot"]["mana_pct"] / 100),
+                       MAX_MANA), guard.sent)
+        # opened on the meal's end, not after the whole grace
+        self.assertGreaterEqual(clock.t, 8.0 + 20.0)
+        self.assertLess(clock.t, situations_mod.MEAL_WAIT_S + 20.0)
 
-    def test_no_redrink_opens_after_the_grace_with_a_mark(self):
-        # the stripped-drink sleep shape: nothing comes back, the window still opens, marked
-        sit, clock, guard, marks, logs = make(setup_drink=True, sit_over={"ooc_wait_s": 20})
+    def test_a_meal_that_outlasts_the_wait_is_left_alone(self):
+        sit, clock, guard, marks, logs = make(meal_ends_at=None, sit_over={"ooc_wait_s": 20})
         out = run(sit, clock)
         self.assertTrue(out["ok"])
-        timeouts = marks.kinds("ooc_drink_settle_timeout")
-        self.assertEqual(len(timeouts), 1)
-        self.assertGreaterEqual(clock.t, situations_mod.DRINK_SETTLE_S + 20.0)
-        starts = marks.kinds("fight_start")
-        ends = marks.kinds("fight_end")
-        self.assertEqual((len(starts), len(ends)), (1, 1))
+        self.assertNotIn(("unaura", HIRE, "all"), guard.sent)
+        skipped = marks.kinds("ooc_meal_unaura_skipped")
+        self.assertEqual(len(skipped), 1)
+        self.assertIn(DRINK, skipped[0]["auras"])
+        self.assertEqual(len(marks.kinds("ooc_mana_reset")), 1)
+        self.assertGreaterEqual(clock.t, situations_mod.MEAL_WAIT_S + 20.0)
+        self.assertTrue(any("leaving the hire" in line for line in logs), logs)
+
+    def test_an_unreadable_aura_list_leaves_the_hire_alone(self):
+        # `hire_aura_ids()` returning None (a missing/malformed unit read) is not "no meal": the hire
+        # is not cleared (a strip could cut a drink) and the window still opens.
+        for broken in ({"guid": HIRE}, {"guid": HIRE, "auras": None},
+                       {"guid": HIRE, "auras": [{"nope": DRINK}]}):
+            clock = FakeClock()
+
+            class Broken(ScriptedAgent):
+                def unit(self, guid=None, **kw):
+                    self.reads += 1
+                    return dict(broken)
+
+            agent = Broken(clock)
+            sit, clock, guard, marks, logs = make(agent=agent, sit_over={"ooc_wait_s": 5})
+            out = run(sit, clock)
+            self.assertTrue(out["ok"], broken)
+            self.assertNotIn(("unaura", HIRE, "all"), guard.sent, broken)
+            self.assertEqual(len(marks.kinds("ooc_meal_unaura_skipped")), 1, broken)
+            self.assertGreaterEqual(agent.reads, 2, broken)  # pre-cleanup read + retry
+            self.assertTrue(any("read unknown" in line for line in logs), logs)
+
+    def test_a_refused_cleanup_line_does_not_stop_the_window(self):
+        sit, clock, guard, marks, _logs = make(meal_ends_at=0.0, sit_over={"ooc_wait_s": 5})
+        guard.refuse = {"unaura"}
+        out = run(sit, clock)
+        self.assertTrue(out["ok"])
+        self.assertEqual(len(marks.kinds("fight_start")), 1)
 
     def test_the_drink_ids_match_the_trials_uptime_list(self):
         rule = [r for r in trial()["rules"] if r["id"] == "PRI-LOWMANA-DRINK-UPTIME"][0]
         self.assertEqual(set(rule["check"]["aura"]), set(situations_mod.DRINK_AURA_IDS))
-
-    def test_unknown_aura_reads_settle_like_a_drink(self):
-        # codex MEDIUM (round 1): `hire_aura_ids()` returning None (a missing/malformed
-        # unit read) is unknown, not "no drink". The runner settles (bounded) anyway
-        # instead of opening the window at once; the unknown pre-cleanup state retries
-        # the read once.
-        for broken in ({"guid": HIRE}, {"guid": HIRE, "auras": None},
-                       {"guid": HIRE, "auras": [{"nope": DRINK}]},
-                       {"guid": HIRE, "auras": [{"spell_id": DRINK}, {"nope": 1}]}):
-            clock = FakeClock()
-            agent = ScriptedAgent(clock)
-            orig = lambda guid=None, _b=dict(broken), **kw: dict(_b)
-            calls = {"n": 0}
-            def counting(guid=None, **kw):
-                calls["n"] += 1
-                return orig(guid, **kw)
-            agent.unit = counting
-            guard = RecordingGuard(agent)
-            marks = FakeMarks()
-            logs = []
-            t = copy.deepcopy(trial())
-            t["situation"].update({"ooc_wait_s": 20})
-            sit = situations_mod.Situation(agent, t, guard, None, marks, FakeCollector(),
-                                         situations_mod.SitContext(player_guid=PLAYER,
-                                                                   bot_name="Helper",
-                                                                   hire_guid=HIRE),
-                                         arenas=[], mobs={}, log=logs.append,
-                                         abort=lambda: "")
-            out = run(sit, clock)
-            self.assertTrue(out["ok"], broken)
-            self.assertEqual(len(marks.kinds("ooc_drink_settle_timeout")), 1, broken)
-            self.assertGreaterEqual(calls["n"], 2, broken)  # pre-cleanup read + retry
-            self.assertGreaterEqual(clock.t, situations_mod.DRINK_SETTLE_S + 20.0, broken)
-
-    def test_a_failing_aura_read_settles_instead_of_opening_at_once(self):
-        # an `agent.unit()` RPC exception is unknown too (the runner logs nothing fatal
-        # here); the window still opens after the bounded settle, marked.
-        clock = FakeClock()
-        agent = ScriptedAgent(clock)
-        calls = {"n": 0}
-        def exploding(guid=None, **kw):
-            calls["n"] += 1
-            raise RuntimeError("boom")
-        agent.unit = exploding
-        guard = RecordingGuard(agent)
-        marks = FakeMarks()
-        logs = []
-        t = copy.deepcopy(trial())
-        t["situation"].update({"ooc_wait_s": 20})
-        sit = situations_mod.Situation(agent, t, guard, None, marks, FakeCollector(),
-                                       situations_mod.SitContext(player_guid=PLAYER,
-                                                                 bot_name="Helper",
-                                                                 hire_guid=HIRE),
-                                       arenas=[], mobs={}, log=logs.append,
-                                       abort=lambda: "")
-        out = run(sit, clock)
-        self.assertTrue(out["ok"])
-        self.assertEqual(len(marks.kinds("ooc_drink_settle_timeout")), 1)
-        self.assertGreaterEqual(calls["n"], 2)
 
 
 if __name__ == "__main__":

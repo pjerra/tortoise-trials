@@ -262,11 +262,23 @@ class DrinkUnderAttackTest(unittest.TestCase):
         res = rules_mod.evaluate(self.rule, rows, self.samples, [], self._ctx(victims))
         self.assertEqual((res["k"], res["verdict"]), (1, "FAIL"))
 
-    def test_unknown_attack_state_is_inconclusive_not_a_pass(self):
-        # t=32: the mob was alive but its last sample is 3 s old (no fresh target) and there is no
-        # attack packet at all: missing attack-state evidence must not read as "not under attack".
+    def test_a_stale_sample_with_no_newer_packet_still_decides(self):
+        # bench-1113: t=32, the mob's last sample (29, on the tank) is 3 s old and there is no attack
+        # packet. Every target switch emits an attack_start packet, so with none the last read target
+        # is still current: the Drink is clean, and the verdict records the state it was decided on.
         rows = [_bot_cast(32.0)]
         res = rules_mod.evaluate(self.rule, rows, self.samples, [], self._ctx())
+        self.assertEqual((res["k"], res["verdict"]), (0, "PASS"))
+        self.assertIn("not under attack", " ".join(res["evidence"]))
+        self.assertIn("-> $bot (sample t=29.0)", " ".join(res["evidence"]))
+
+    def test_unknown_attack_state_is_inconclusive_not_a_pass(self):
+        # A mob that was live (an attack packet inside the window) with no sample at all saying who it
+        # is on at the cast is still unknown: missing attack-state evidence is not "not under attack".
+        samples = [_sample(float(t), PLAYER, "player") for t in range(0, 60)]
+        victims = {MOB.lower(): [(None, 29.0, None)]}
+        rows = [_bot_cast(32.0)]
+        res = rules_mod.evaluate(self.rule, rows, samples, [], self._ctx(victims))
         self.assertEqual((res["k"], res["verdict"]), (0, "INCONCLUSIVE"))
         self.assertIn("attack state unknown", " ".join(res["evidence"]))
         # score.py's pooled guard keys on this exact reason.

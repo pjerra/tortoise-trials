@@ -264,42 +264,96 @@ def _mob_live_at(victims_by_guid, samples_by_guid, guid, t, window=5.0):
     return False
 
 
-def _party_under_attack(victims_by_guid, samples_by_guid, party_guids, t, seq=None, guids=None):
-    """True / False / None: is a hostile mob's victim at `t` one of `party_guids`?
+ATTACK_STATE_WINDOW_S = 5.0   # the liveness window: a sample or packet older than this is no evidence
+
+
+def _latest_sample(samples_by_guid, guid, t, window=ATTACK_STATE_WINDOW_S):
+    """The freshest sample of `guid` at or before `t` inside `window` (None when there is none)."""
+    best = None
+    for (st, sample) in (samples_by_guid or {}).get(str(guid or "").lower()) or []:
+        try:
+            st = float(st)
+        except (TypeError, ValueError):
+            continue
+        if st <= t and t - st <= window:
+            best = sample
+        elif st > t:
+            break
+    return best
+
+
+def _party_attack_state(victims_by_guid, samples_by_guid, party_guids, t, seq=None, guids=None,
+                        names=None):
+    """(state, detail): state True / False / None, and one line per live mob saying who it was on.
 
     Packets first (src_target_of's rule: a packet at the cast's own t is the cast's echo, not its
     cause), the mob's own sample target as the fallback. Only mobs count as attackers; a party
     member's own target says nothing about who is hitting it.
 
-    None (unknown) when a mob that was live at `t` has neither a deciding attack packet nor a fresh
-    sample (1 s) saying who it was on. Missing attack-state evidence is not "not under attack": the
-    caller must not turn that into a pass (TNK-PAL-NO-DRINK-UNDER-ATTACK reads it as INCONCLUSIVE).
+    A sample older than 1 s still decides while it is inside the liveness window: every target
+    switch emits an attack_start packet, so with no newer packet the last read target is the current
+    one (bench-1113: rep3 of the paladin add-pickup drank at 155.9 with the mob last sampled at
+    154.2 on the tank, and the 1 s rule left the state unknown). None (unknown) stays for a mob that
+    was live at `t` with no sample and no deciding packet at all: missing evidence is not "not under
+    attack", and the caller must not turn that into a pass (TNK-PAL-NO-DRINK-UNDER-ATTACK reads it
+    as INCONCLUSIVE).
     """
     want = {str(g or "").lower() for g in party_guids or [] if g}
+    detail = []
     if not want:
-        return False
+        return False, detail
+    names = names or {}
     mobs = {str(g or "").lower() for g in ((guids or {}).get("mobs") or [])}
     candidates = set(samples_by_guid or {})
     candidates |= {str(g or "").lower() for g in (victims_by_guid or {})}
     candidates |= mobs
     unknown = False
-    for guid in candidates:
+    under = False
+    for guid in sorted(candidates):
         if guid in want or not _is_mob_guid(guid, samples_by_guid, mobs):
             continue
         victim, decided = _packet_victim(victims_by_guid, guid, t, seq, samples_by_guid)
-        if decided:
-            if victim and str(victim).lower() in want:
-                return True
+        seen = " (packet)" if decided else ""
+        if not decided:
+            sample = _at(samples_by_guid, guid, t)
+            if sample is None:
+                sample = _latest_sample(samples_by_guid, guid, t)
+            if sample is not None:
+                victim = str(sample.get("target") or "").lower() or None
+                try:
+                    seen = " (sample t=%.1f)" % float(sample.get("t"))
+                except (TypeError, ValueError):
+                    seen = ""
+            elif _mob_live_at(victims_by_guid, samples_by_guid, guid, t, window=ATTACK_STATE_WINDOW_S):
+                unknown = True
+                detail.append("%s -> unknown (live, no sample or packet)" % guid)
+                continue
+            else:
+                continue
+        if not victim:
             continue
-        sample = _at(samples_by_guid, guid, t)
-        if sample is not None:
-            victim = str(sample.get("target") or "").lower() or None
-            if victim and victim in want:
-                return True
-            continue
-        if _mob_live_at(victims_by_guid, samples_by_guid, guid, t):
-            unknown = True
-    return None if unknown else False
+        on = names.get(str(victim).lower(), str(victim))
+        detail.append("%s -> %s%s" % (guid, on, seen))
+        if str(victim).lower() in want:
+            under = True
+    if under:
+        return True, detail
+    return (None if unknown else False), detail
+
+
+def _party_under_attack(victims_by_guid, samples_by_guid, party_guids, t, seq=None, guids=None):
+    """True / False / None: is a hostile mob's victim at `t` one of `party_guids`? (see above)"""
+    return _party_attack_state(victims_by_guid, samples_by_guid, party_guids, t, seq, guids)[0]
+
+
+def _unit_names(guids):
+    """guid -> `$alias` for the evidence lines (the trial's own unit names)."""
+    out = {}
+    guids = guids or {}
+    for alias, guid in _alias_map(guids).items():
+        if guid:
+            out[str(guid).lower()] = alias
+    return out
 
 
 def _unit_hp(samples_by_guid, guid, t):
@@ -890,12 +944,36 @@ def evaluate(rule, rows, samples, marks, ctx):
         hits = scored([r for r in rows
                        if _matches(r, where, samples_by_guid, ctx, trial, unknown)])
         unknown = scored(unknown)
+        # Record the attack state at every cast the rule watches (paladin add-pickup's
+        # TNK-PAL-NO-DRINK-UNDER-ATTACK): one line per live mob and who it was on at that cast, so the
+        # verdict carries the evidence it was decided from even when nothing matched.
+        attack_ev = []
+        if where.get("party_under_attack") is not None:
+            party = []
+            want_party = where["party_under_attack"]
+            for unit in (want_party if isinstance(want_party, list) else [want_party]):
+                party.extend(g for g in _unit_ids(unit, ctx) if g and g != "$mob")
+            base = {k: v for k, v in where.items() if k != "party_under_attack"}
+            names = _unit_names(ctx.get("guids") if isinstance(ctx, dict) else None)
+            for r in scored([r for r in rows if _matches(r, base, samples_by_guid, ctx, trial)])[:5]:
+                state, detail = _party_attack_state(
+                    ctx.get("victims_by_guid"), samples_by_guid, party, r.get("t", 0.0), r.get("seq"),
+                    ctx.get("guids") if isinstance(ctx, dict) else None, names)
+                if state is None:
+                    said = "unknown"
+                elif state:
+                    said = "UNDER ATTACK"
+                else:
+                    said = "not under attack"
+                attack_ev.append("%s: %s (%s)" % (
+                    evidence_line(r), said,
+                    ", ".join(detail) if detail else "no live mob on record"))
         if unknown:
             # The attack state at this event could not be read (no deciding packet, no sample):
             # missing evidence is not "not under attack", so the repeat is not a pass.
             return {"value": None, "k": len(hits), "n": 1, "verdict": "INCONCLUSIVE",
                     "evidence": ["attack state unknown at %d event(s)" % len(unknown)]
-                                + [evidence_line(r) for r in unknown[:5]],
+                                + [evidence_line(r) for r in unknown[:5]] + attack_ev,
                     "reason": "attack state unknown", "guard": guard_note}
         if not hits:
             nowhere = {k: v for k, v in where.items() if k != "dst"}
@@ -909,6 +987,7 @@ def evaluate(rule, rows, samples, marks, ctx):
             ev += [evidence_line(r) for r in same[:3]]
         else:
             ev = [evidence_line(r) for r in hits[:5]]
+        ev += attack_ev
         return {"value": len(hits), "k": len(hits), "n": 1,
                 "verdict": "PASS" if _pass(rule.get("pass_if"), len(hits)) else "FAIL",
                 "evidence": ev, "guard": guard_note}
