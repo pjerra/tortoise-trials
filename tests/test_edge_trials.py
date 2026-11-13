@@ -419,6 +419,14 @@ class PotionCrossRepCooldownTest(unittest.TestCase):
         rep1 = [d for d in got["detail"] if d["rep"] == "rep1"][0]
         self.assertEqual(rep1["verdict"], "FAIL")
 
+    def test_no_potion_in_a_covered_window_is_no_chance(self):
+        # codex HIGH (round 1): rep 2 opens inside rep 1's 120 s item cooldown with NO
+        # potion cast — a real server emits no Restore Mana there. The covered response
+        # window is no opportunity (INCONCLUSIVE), never a miss.
+        got = self.score([10, None])
+        rep2 = [d for d in got["detail"] if d["rep"] == "rep2"][0]
+        self.assertEqual(rep2["verdict"], "INCONCLUSIVE", rep2)
+        self.assertEqual(rep2["reason"], "no opportunity (item on cooldown from an earlier rep)")
 
 class ZeroRageTest(RepMixin, unittest.TestCase):
     TID = "tank-warrior-zero-rage-opening"

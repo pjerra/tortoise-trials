@@ -1093,8 +1093,9 @@ def evaluate(rule, rows, samples, marks, ctx):
                       key=lambda r: r.get("t", 0.0))
         if not hits:
             # A responder cooldown carried across reps (bench-fix-1112: the 120 s potion item cooldown
-            # survives `.cooldown`): a match only inside such a span had no chance, so the repeat is
-            # INCONCLUSIVE (no opportunity), never a miss. No match at all keeps the +inf path below.
+            # survives `.cooldown`): a rep left with no chance is INCONCLUSIVE (no opportunity), never a
+            # miss — a match only inside such a span, or no match at all while a span overlaps the
+            # rule's response window. The +inf path below stays for a clean window with no match.
             if check.get("debounce_responder_across_reps"):
                 cool = []
                 for r in rows:
@@ -1112,6 +1113,12 @@ def evaluate(rule, rows, samples, marks, ctx):
                     return {"value": None, "no_match": True, "k": 0, "n": 0,
                             "verdict": "INCONCLUSIVE",
                             "evidence": ["only match inside an earlier rep's responder cooldown"],
+                            "reason": "no opportunity (item on cooldown from an earlier rep)",
+                            "guard": guard_note}
+                if _window_overlaps_cooldown(rule, window, cool):
+                    return {"value": None, "no_match": True, "k": 0, "n": 0,
+                            "verdict": "INCONCLUSIVE",
+                            "evidence": ["response window overlaps an earlier rep's responder cooldown"],
                             "reason": "no opportunity (item on cooldown from an earlier rep)",
                             "guard": guard_note}
             # No match: pass_if still decides, as +inf (e.g. "< 30" FAILs, "> 30"
@@ -1187,6 +1194,43 @@ def rule_window(window, rule):
         return window
     lo, hi = window
     return (min(lo, pre), hi)
+
+
+def _first_response_window(rule, window):
+    """[lo, hi] a first-match response must land in to pass, on the rep's base.
+
+    The rule's row window (`rule_window`: the fight window widened below fight_start
+    by the rule's own `t_from`) clipped to the passing side of `pass_if`: with an
+    upper bound ("<= 30") a cast past the bound cannot pass, so the response window
+    ends there; a lower bound starts it at the bound. An unparseable `pass_if`
+    gives None (no window read: the old match-only shape applies).
+    """
+    if not window:
+        return None
+    rw = rule_window(window, rule)
+    try:
+        rlo, rhi = float(rw[0]), float(rw[1])
+    except (TypeError, ValueError):
+        return None
+    import re
+    m = re.match(r"^(<=|>=|<|>)\s*(-?\d+(?:\.\d+)?)$", str((rule or {}).get("pass_if") or "").strip())
+    if not m:
+        return None
+    op, num = m.group(1), float(m.group(2))
+    if op in ("<=", "<"):
+        return (rlo, min(rhi, num))
+    return (max(rlo, num), rhi)
+
+
+def _window_overlaps_cooldown(rule, window, cool):
+    """True when a cooldown span touches the rule's response window (any overlap)."""
+    span = _first_response_window(rule, window)
+    if span is None or not cool:
+        return False
+    lo, hi = span
+    if hi < lo:
+        return False
+    return any(a <= hi and lo <= b for (a, b) in cool)
 
 
 def window_samples(samples, window):

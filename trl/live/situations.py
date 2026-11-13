@@ -1097,7 +1097,10 @@ class Situation:
         empty set as every aura absent, so the prepull rule scored a form the hire never lost.
         Only a list in which every entry parses counts as a sample.
         """
-        unit = self.agent.unit(guid=self.ctx.hire_guid)
+        try:
+            unit = self.agent.unit(guid=self.ctx.hire_guid)
+        except Exception:  # noqa: BLE001 - an unreadable unit is unknown, not absent
+            return None
         if not isinstance(unit, dict):
             return None
         auras = unit.get("auras")
@@ -1192,14 +1195,21 @@ class Situation:
 
     def run_ooc(self):
         wait = float(self.sit.get("ooc_wait_s") or 60)
-        stripped = bool(self.ctx.hire_guid and (self.hire_aura_ids() or set()) & DRINK_AURA_IDS)
+        have = self.hire_aura_ids() if self.ctx.hire_guid else set()
+        if have is None and self.ctx.hire_guid:
+            # one retry: a transient unit-read failure must not read as "no drink"
+            have = self.hire_aura_ids()
+        stripped = bool(have is not None and (have & DRINK_AURA_IDS))
+        unknown = bool(self.ctx.hire_guid and have is None)
         for target in (self.ctx.player_guid, self.ctx.hire_guid):
             if target:
                 try:
                     self.guard.send("unaura", target, "all")
                 except Exception:  # noqa: BLE001 - a refused cleanup must not stop the window
                     pass
-        if stripped:
+        if unknown:
+            self.log("ooc drink settle: hire aura read unknown, waiting out a possible drink")
+        if stripped or unknown:
             self.ooc_drink_settled()
         self.marks.add({"kind": "fight_start", "mobs": [], "ooc": True})
         deadline = time.time() + wait

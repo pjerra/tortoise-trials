@@ -160,6 +160,65 @@ class DrinkSettleTest(unittest.TestCase):
         rule = [r for r in trial()["rules"] if r["id"] == "PRI-LOWMANA-DRINK-UPTIME"][0]
         self.assertEqual(set(rule["check"]["aura"]), set(situations_mod.DRINK_AURA_IDS))
 
+    def test_unknown_aura_reads_settle_like_a_drink(self):
+        # codex MEDIUM (round 1): `hire_aura_ids()` returning None (a missing/malformed
+        # unit read) is unknown, not "no drink". The runner settles (bounded) anyway
+        # instead of opening the window at once; the unknown pre-cleanup state retries
+        # the read once.
+        for broken in ({"guid": HIRE}, {"guid": HIRE, "auras": None},
+                       {"guid": HIRE, "auras": [{"nope": DRINK}]},
+                       {"guid": HIRE, "auras": [{"spell_id": DRINK}, {"nope": 1}]}):
+            clock = FakeClock()
+            agent = ScriptedAgent(clock)
+            orig = lambda guid=None, _b=dict(broken), **kw: dict(_b)
+            calls = {"n": 0}
+            def counting(guid=None, **kw):
+                calls["n"] += 1
+                return orig(guid, **kw)
+            agent.unit = counting
+            guard = RecordingGuard(agent)
+            marks = FakeMarks()
+            logs = []
+            t = copy.deepcopy(trial())
+            t["situation"].update({"ooc_wait_s": 20})
+            sit = situations_mod.Situation(agent, t, guard, None, marks, FakeCollector(),
+                                         situations_mod.SitContext(player_guid=PLAYER,
+                                                                   bot_name="Helper",
+                                                                   hire_guid=HIRE),
+                                         arenas=[], mobs={}, log=logs.append,
+                                         abort=lambda: "")
+            out = run(sit, clock)
+            self.assertTrue(out["ok"], broken)
+            self.assertEqual(len(marks.kinds("ooc_drink_settle_timeout")), 1, broken)
+            self.assertGreaterEqual(calls["n"], 2, broken)  # pre-cleanup read + retry
+            self.assertGreaterEqual(clock.t, situations_mod.DRINK_SETTLE_S + 20.0, broken)
+
+    def test_a_failing_aura_read_settles_instead_of_opening_at_once(self):
+        # an `agent.unit()` RPC exception is unknown too (the runner logs nothing fatal
+        # here); the window still opens after the bounded settle, marked.
+        clock = FakeClock()
+        agent = ScriptedAgent(clock)
+        calls = {"n": 0}
+        def exploding(guid=None, **kw):
+            calls["n"] += 1
+            raise RuntimeError("boom")
+        agent.unit = exploding
+        guard = RecordingGuard(agent)
+        marks = FakeMarks()
+        logs = []
+        t = copy.deepcopy(trial())
+        t["situation"].update({"ooc_wait_s": 20})
+        sit = situations_mod.Situation(agent, t, guard, None, marks, FakeCollector(),
+                                       situations_mod.SitContext(player_guid=PLAYER,
+                                                                 bot_name="Helper",
+                                                                 hire_guid=HIRE),
+                                       arenas=[], mobs={}, log=logs.append,
+                                       abort=lambda: "")
+        out = run(sit, clock)
+        self.assertTrue(out["ok"])
+        self.assertEqual(len(marks.kinds("ooc_drink_settle_timeout")), 1)
+        self.assertGreaterEqual(calls["n"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()
