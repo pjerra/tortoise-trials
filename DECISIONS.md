@@ -42,6 +42,18 @@ the AFTER run failed 18/29 times on `unit_not_infront` and once on `no_power`, a
 took the tank (160 of 165 mob hits). A real fix needs a bench feature (a GM threat line, or a
 spawn-time forced target), not a trial edit; the trigger count stays ~0.5 per repeat.
 
+Suite delta against main 8bc775f, run per module (`test_cc_target`, `test_live1` and `test_orphans`
+never end and are killed at the 120 s cap), same runner under `nice` and
+`flock /tmp/trials-tests.lock`: branch
+`Ran 847 tests` over the modules that finish, main `Ran 846`; the one extra test is
+`tests/test_addpickup_pooled.py` (18 vs 17, the replaced 1 s-unknown case became two). The
+`FAIL:`/`ERROR:` name lists are identical on both sides — `test_cc_gap` 1, `test_live3` 1,
+`test_ooc_hurt` 4 failures + 4 errors, `test_rules_healers` 1, `test_live`
+`Ran 81 tests ... FAILED (failures=1, errors=1, skipped=1)` (`test_refill_uses_the_trials_mob_kind`
+errors, `test_an_rpc_error_skips_the_refill_tick` fails; both are an arena stub these tests no
+longer provide, and both spend the 600 s arena give-up first), and `test_cc_target`,
+`test_live1`, `test_orphans` killed at the 120 s cap on both sides. No new failing test name.
+
 ## 2026-11-12: no `dps-rogue-kick-caster@ignore-threat` variant (bench round 1112, brief item 5)
 
 Skipped with the reason written down, as the brief allows. The bench has no per-trial server-key
