@@ -1171,19 +1171,23 @@ class Situation:
             return
         self.marks.add({"kind": "energy_drain", "to": int(cfg.get("to") or 0), "wall": wall})
 
-    def wait_out_meal(self):
-        """Never `.unaura all` over an active Drink/Food: wait (bounded) for the meal to end.
+    def wait_out_meal(self, have=None):
+        """Never `.unaura all` over an active Drink/Food: wait (bounded) for a clean read.
 
         bench-1113 (priest-holy-low-mana-drinks AFTER t1113): the old flow stripped the setup drink
         with `.unaura all` and then waited for a re-drink; a stripped meal can leave the AI asleep in
         it (rep1/rep4 drank at -1.5/-1.4, were stripped, and the first action came 33-35 s in). The
         meal aura is now left alone: the window opens after the meal ends on its own (MEAL_WAIT_S at
-        most). A meal still up after the wait invalidates the repeat ("timeout"): the window would
-        score a Drink that is still restoring mana. Returns "ended" (waited it out), "timeout"
-        (still up after MEAL_WAIT_S: no window), or "aborted" (the repeat lost its session).
+        most). An unreadable list (`hire_aura_ids()` None) is not a clean hire either, so the same
+        wait retries it: the window opens only on a read that proves there is no meal.
+
+        `have` is the read that got us here (None when it was unreadable). Returns "ended" (a
+        readable list with no Drink/Food aura), "timeout" (a Drink/Food aura was still up at the
+        deadline), "unknown" (no readable list at the deadline: the meal state was never seen) or
+        "aborted" (the repeat lost its session). The last two open no window.
         """
         deadline = time.time() + MEAL_WAIT_S
-        seen = set()
+        seen = (have & DRINK_AURA_IDS) if have is not None else set()
         while time.time() < deadline:
             if self.abort_reason():
                 return "aborted"
@@ -1194,9 +1198,13 @@ class Situation:
                     self.log("ooc meal: the setup meal ended, opening the window on a clean hire")
                     return "ended"
             time.sleep(1.0)
-        self.log("ooc meal: still up after %.0f s (aura(s) %s), the repeat is invalid: no scoring window"
-                 % (MEAL_WAIT_S, ", ".join(str(a) for a in sorted(seen)) or "unread"))
-        return "timeout"
+        if seen:
+            self.log("ooc meal: still up after %.0f s (aura(s) %s), the repeat is invalid: no scoring window"
+                     % (MEAL_WAIT_S, ", ".join(str(a) for a in sorted(seen))))
+            return "timeout"
+        self.log("ooc meal: no readable aura list after %.0f s, the repeat is invalid: no scoring window"
+                 % MEAL_WAIT_S)
+        return "unknown"
 
     def restore_window_mana(self):
         """Put the hire back on the trial's `bot.mana_pct` after a meal restored it.
@@ -1237,17 +1245,18 @@ class Situation:
             # one retry: a transient unit-read failure must not read as "no meal"
             have = self.hire_aura_ids()
         if self.ctx.hire_guid and have is None:
-            # An unread aura list cannot prove the hire is between meals: stripping it could cut a
-            # drink mid-meal, so the hire keeps its auras and the window opens as it is.
-            self.log("ooc meal: hire aura read unknown, leaving the hire's auras alone")
-            self.marks.add({"kind": "ooc_meal_unaura_skipped", "auras": []})
-            meal = "skipped"
+            # An unread aura list is UNKNOWN, not "no meal": stripping the hire could cut a drink
+            # mid-meal, and opening the window on the guess could score a meal. The list is retried
+            # inside the same bounded wait; one that never comes back invalidates the repeat.
+            self.log("ooc meal: hire aura read unknown, retrying within the %.0f s meal wait"
+                     % MEAL_WAIT_S)
+            meal = self.wait_out_meal(have)
         elif have & DRINK_AURA_IDS:
             self.log("ooc meal: a Drink/Food aura is up on the hire (%s), waiting it out"
                      % ", ".join(str(a) for a in sorted(have & DRINK_AURA_IDS)))
             # The hire's auras stay: `.unaura all` is what cut the meal in the first place, and a
             # low-mana hire starts the next one within a second of the last ending.
-            meal = self.wait_out_meal()
+            meal = self.wait_out_meal(have)
         else:
             if self.ctx.hire_guid:
                 try:
@@ -1255,10 +1264,12 @@ class Situation:
                 except Exception as exc:  # noqa: BLE001 - the window still opens
                     self.log("ooc cleanup unaura refused: %s" % str(exc)[:120])
             meal = "none"
-        if meal == "timeout":
-            # A meal still up after MEAL_WAIT_S must not open the window: the hire's Drink would keep
-            # restoring mana through the scored seconds. No fight_start: there is no window.
-            return {"ok": False, "ended": "meal", "invalid_reason": "meal still active"}
+        if meal in ("timeout", "unknown"):
+            # Neither a meal still up after MEAL_WAIT_S nor a meal state that was never readable may
+            # open the window: the hire's Drink would keep restoring mana through the scored seconds,
+            # and a guess is not evidence. No fight_start, no mana reset: there is no window.
+            return {"ok": False, "ended": "meal",
+                    "invalid_reason": "meal still active" if meal == "timeout" else "meal state unknown"}
         if meal != "none":
             self.restore_window_mana()
         self.marks.add({"kind": "fight_start", "mobs": [], "ooc": True})

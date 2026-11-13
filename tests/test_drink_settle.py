@@ -4,9 +4,11 @@ A low-mana hire can be mid-meal when the window opens; `.unaura all` cuts the me
 leave the AI asleep in it. When a Drink aura is up the hire keeps its auras: the runner waits (bounded,
 MEAL_WAIT_S) for the meal to end and opens the window on it. A meal still up after the wait makes the
 repeat INVALID (`meal still active`) and no window is opened: its Drink would still be restoring mana
-through the scored seconds. A trial that starts the window at a mana level gets that level back after
-the meal. Offline: a scripted agent, a recording guard and a fake clock drive Situation.run_ooc on the
-real drinks trial. No server is touched.
+through the scored seconds. An unreadable aura list is UNKNOWN, not "no meal": it is retried inside the
+same wait, and a list that never reads makes the repeat INVALID too (`meal state unknown`). A trial
+that starts the window at a mana level gets that level back after the meal. Offline: a scripted agent,
+a recording guard and a fake clock drive Situation.run_ooc on the real drinks trial. No server is
+touched.
 
 Run from the tool directory: python3 -I -m unittest discover -s tests
 """
@@ -123,7 +125,6 @@ class OocWindowMealTest(unittest.TestCase):
         self.assertTrue(out["ok"])
         self.assertIn(("unaura", PLAYER, "all"), guard.sent)
         self.assertIn(("unaura", HIRE, "all"), guard.sent)
-        self.assertEqual(marks.kinds("ooc_meal_unaura_skipped"), [])
         self.assertEqual(marks.kinds("ooc_mana_reset"), [])
         self.assertEqual(len(marks.kinds("fight_start")), 1)
         self.assertGreaterEqual(clock.t, 20.0)
@@ -166,9 +167,10 @@ class OocWindowMealTest(unittest.TestCase):
         self.assertLess(clock.t, situations_mod.MEAL_WAIT_S + 20.0)
         self.assertTrue(any("no scoring window" in line for line in logs), logs)
 
-    def test_an_unreadable_aura_list_leaves_the_hire_alone(self):
-        # `hire_aura_ids()` returning None (a missing/malformed unit read) is not "no meal": the hire
-        # is not cleared (a strip could cut a drink) and the window still opens.
+    def test_an_aura_list_that_never_reads_makes_the_repeat_invalid(self):
+        # Round-2 HIGH: `hire_aura_ids()` returning None (a missing/malformed unit read) is not
+        # "no meal". The hire is not cleared (a strip could cut a drink) and, with no clean read
+        # inside the meal wait, no window opens: the meal state was never seen.
         for broken in ({"guid": HIRE}, {"guid": HIRE, "auras": None},
                        {"guid": HIRE, "auras": [{"nope": DRINK}]}):
             clock = FakeClock()
@@ -181,11 +183,47 @@ class OocWindowMealTest(unittest.TestCase):
             agent = Broken(clock)
             sit, clock, guard, marks, logs = make(agent=agent, sit_over={"ooc_wait_s": 5})
             out = run(sit, clock)
-            self.assertTrue(out["ok"], broken)
+            self.assertFalse(out["ok"], broken)
+            self.assertEqual(out["invalid_reason"], "meal state unknown", broken)
+            self.assertEqual(out["ended"], "meal", broken)
             self.assertNotIn(("unaura", HIRE, "all"), guard.sent, broken)
-            self.assertEqual(len(marks.kinds("ooc_meal_unaura_skipped")), 1, broken)
-            self.assertGreaterEqual(agent.reads, 2, broken)  # pre-cleanup read + retry
+            self.assertEqual(marks.kinds("fight_start"), [], broken)
+            self.assertEqual(marks.kinds("fight_end"), [], broken)
+            self.assertEqual(marks.kinds("ooc_mana_reset"), [], broken)
+            self.assertFalse([row for row in guard.sent if row[0] == "modify_mana"], broken)
+            # pre-cleanup read + retry, then the meal wait keeps polling for the whole bound
+            self.assertGreaterEqual(agent.reads, 3, broken)
+            self.assertGreaterEqual(clock.t, situations_mod.MEAL_WAIT_S, broken)
+            self.assertLess(clock.t, situations_mod.MEAL_WAIT_S + 5.0, broken)
             self.assertTrue(any("read unknown" in line for line in logs), logs)
+            self.assertTrue(any("no readable aura list" in line for line in logs), logs)
+
+    def test_reads_that_fail_and_then_show_no_meal_open_the_window(self):
+        # The retry inside the meal wait is what saves the repeat: as soon as a read proves there is
+        # no meal, the window opens as usual with the hire's auras left alone.
+        clock = FakeClock()
+
+        class Flaky(ScriptedAgent):
+            def unit(self, guid=None, **kw):
+                self.reads += 1
+                if self.reads <= 3:
+                    return {"guid": guid, "max_power": MAX_MANA, "auras": None}
+                return {"guid": guid, "max_power": MAX_MANA, "auras": []}
+
+        agent = Flaky(clock)
+        sit, clock, guard, marks, logs = make(agent=agent, sit_over={"ooc_wait_s": 5})
+        out = run(sit, clock)
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["ended"], "ooc")
+        self.assertEqual(len(marks.kinds("fight_start")), 1)
+        self.assertEqual(len(marks.kinds("fight_end")), 1)
+        self.assertNotIn(("unaura", HIRE, "all"), guard.sent)
+        self.assertGreaterEqual(agent.reads, 4)
+        # the window still starts at the trial's mana level
+        self.assertEqual(len(marks.kinds("ooc_mana_reset")), 1)
+        self.assertIn(("modify_mana", HIRE, int(MAX_MANA * trial()["bot"]["mana_pct"] / 100),
+                       MAX_MANA), guard.sent)
+        self.assertTrue(any("read unknown" in line for line in logs), logs)
 
     def test_a_refused_cleanup_line_does_not_stop_the_window(self):
         sit, clock, guard, marks, _logs = make(meal_ends_at=0.0, sit_over={"ooc_wait_s": 5})

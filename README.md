@@ -128,8 +128,10 @@ A trial is one JSON file in `trials/<group>/`. Unknown keys are rejected by `val
   untouched, and when the meal ends and the trial sets `bot.mana_pct`, that mana is put back
   (`.modify mana`) so the window still starts at the trial's level. A meal still up after the wait
   makes the repeat INVALID (`meal still active`) and no window opens: the hire's Drink would keep
-  restoring mana through the scored seconds. A hire whose aura list cannot be read keeps its auras
-  too (`ooc_meal_unaura_skipped`): a strip over a meal can cut it and leave the AI asleep in it.
+  restoring mana through the scored seconds. An unreadable aura list is unknown, not "no meal": it
+  is retried inside the same 30 s wait with the hire's auras left alone, and a list that never reads
+  makes the repeat INVALID too (`meal state unknown`): a strip over a meal can cut it and leave the
+  AI asleep in it, and a guess is no proof the hire is between meals.
 - `opportunity` (besides `unit`, `hp_lt`/`hp_gt`, `in_combat`): `has_aura` (a non-empty list of aura
   ids; a sample counts only when its auras intersect the list).
 - `setup_checks`: facts that must hold before a repeat counts (the guards below).

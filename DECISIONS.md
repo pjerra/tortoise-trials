@@ -21,9 +21,11 @@ reps 1 and 4). The window now waits (bounded, `MEAL_WAIT_S` 30 s) for the meal a
 hire's auras untouched. A meal still up after the wait does not open the window at all: its Drink
 keeps restoring mana, so the repeat is INVALID (`meal still active`, no `fight_start`). Because a
 meal ending refills mana, a trial that sets `bot.mana_pct` gets that level put back (`.modify mana`,
-`ooc_mana_reset`) so the window still tests a low-mana bot. An unreadable aura list keeps the hire's
-auras too (`ooc_meal_unaura_skipped`): a strip on a guess is the bug this removes. The old
-strip-and-wait-for-a-re-drink flow (`ooc_drink_settled`, `DRINK_SETTLE_S`) is gone.
+`ooc_mana_reset`) so the window still tests a low-mana bot. An unreadable aura list is UNKNOWN, not
+"no meal": it is retried inside the same wait with the hire's auras untouched, and a list that never
+becomes readable makes the repeat INVALID too (`meal state unknown`, no `fight_start`, no mana
+reset). A strip on a guess is the bug this removes, and so is opening the window on a meal nobody
+saw. The old strip-and-wait-for-a-re-drink flow (`ooc_drink_settled`, `DRINK_SETTLE_S`) is gone.
 
 **The attack state at every Drink is recorded, and the newest event decides.** `TNK-PAL-NO-DRINK-
 UNDER-ATTACK` was INCONCLUSIVE for one repeat (paladin add-pickup rep3, Drink at 155.9) because no
