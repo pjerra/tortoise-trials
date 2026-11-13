@@ -391,14 +391,14 @@ class PotionCrossRepCooldownTest(unittest.TestCase):
                     f.write(json.dumps(row) + "\n")
         return rep
 
-    def score(self, potions):
+    def score(self, potions, spacing=122.0):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             tdir = os.path.join(tmp, "run", self.TID)
             base = 1_800_000_000.0
             for i, at in enumerate(potions):
-                # reps start 122 s apart (the nightly spacing: rep2 opens inside rep1's cooldown)
-                self.write_rep(tdir, "rep%d" % (i + 1), base + i * 122.0, at)
+                # reps start `spacing` apart (122 s is the nightly spacing: rep2 opens inside rep1's cooldown)
+                self.write_rep(tdir, "rep%d" % (i + 1), base + i * spacing, at)
             trial = load(self.TID)
             return score_mod.score_trial(tdir, trial)["verdicts"][0]
 
@@ -419,14 +419,22 @@ class PotionCrossRepCooldownTest(unittest.TestCase):
         rep1 = [d for d in got["detail"] if d["rep"] == "rep1"][0]
         self.assertEqual(rep1["verdict"], "FAIL")
 
-    def test_no_potion_in_a_covered_window_is_no_chance(self):
-        # codex HIGH (round 1): rep 2 opens inside rep 1's 120 s item cooldown with NO
-        # potion cast — a real server emits no Restore Mana there. The covered response
-        # window is no opportunity (INCONCLUSIVE), never a miss.
-        got = self.score([10, None])
+    def test_no_potion_in_a_fully_covered_window_is_no_chance(self):
+        # codex HIGH (round 1, tightened in round 3): rep 2 opens inside rep 1's 120 s item cooldown
+        # with NO potion cast. Only a cooldown that covers the WHOLE response window (here -2..30 on
+        # rep2's base) is no opportunity; 80 s spacing leaves the cooldown at -70..50.
+        got = self.score([10, None], spacing=80.0)
         rep2 = [d for d in got["detail"] if d["rep"] == "rep2"][0]
         self.assertEqual(rep2["verdict"], "INCONCLUSIVE", rep2)
         self.assertEqual(rep2["reason"], "no opportunity (item on cooldown from an earlier rep)")
+
+    def test_no_potion_in_a_partially_covered_window_is_a_miss(self):
+        # round 3: at the nightly 122 s spacing the cooldown is -112..8, so rep2 still had 8..30 to
+        # drink: the no-match scoring applies ("<= 30" FAILs), it is not no-opportunity.
+        got = self.score([10, None])
+        rep2 = [d for d in got["detail"] if d["rep"] == "rep2"][0]
+        self.assertEqual(rep2["verdict"], "FAIL", rep2)
+        self.assertEqual(rep2["reason"], "")
 
 class ZeroRageTest(RepMixin, unittest.TestCase):
     TID = "tank-warrior-zero-rage-opening"

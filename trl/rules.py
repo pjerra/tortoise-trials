@@ -1094,8 +1094,9 @@ def evaluate(rule, rows, samples, marks, ctx):
         if not hits:
             # A responder cooldown carried across reps (bench-fix-1112: the 120 s potion item cooldown
             # survives `.cooldown`): a rep left with no chance is INCONCLUSIVE (no opportunity), never a
-            # miss — a match only inside such a span, or no match at all while a span overlaps the
-            # rule's response window. The +inf path below stays for a clean window with no match.
+            # miss — a match only inside such a span, or no match at all while the spans cover the
+            # rule's whole response window. A partial overlap still leaves a chance, so it is scored.
+            # The +inf path below stays for a clean window with no match.
             if check.get("debounce_responder_across_reps"):
                 cool = []
                 for r in rows:
@@ -1115,10 +1116,10 @@ def evaluate(rule, rows, samples, marks, ctx):
                             "evidence": ["only match inside an earlier rep's responder cooldown"],
                             "reason": "no opportunity (item on cooldown from an earlier rep)",
                             "guard": guard_note}
-                if _window_overlaps_cooldown(rule, window, cool):
+                if _window_covered_by_cooldown(rule, window, cool):
                     return {"value": None, "no_match": True, "k": 0, "n": 0,
                             "verdict": "INCONCLUSIVE",
-                            "evidence": ["response window overlaps an earlier rep's responder cooldown"],
+                            "evidence": ["response window fully covered by an earlier rep's responder cooldown"],
                             "reason": "no opportunity (item on cooldown from an earlier rep)",
                             "guard": guard_note}
             # No match: pass_if still decides, as +inf (e.g. "< 30" FAILs, "> 30"
@@ -1222,15 +1223,30 @@ def _first_response_window(rule, window):
     return (max(rlo, num), rhi)
 
 
-def _window_overlaps_cooldown(rule, window, cool):
-    """True when a cooldown span touches the rule's response window (any overlap)."""
+def _window_covered_by_cooldown(rule, window, cool):
+    """True only when the merged cooldown spans cover the WHOLE response window.
+
+    Any overlap is not enough: a span that ends mid-window leaves the bot the rest of
+    the window to answer, so that rep is scored normally (a partial overlap on a rule
+    with no match still FAILs, e.g. "< 30"). Merged spans must reach `hi` from `lo`
+    with no uncovered second.
+    """
     span = _first_response_window(rule, window)
     if span is None or not cool:
         return False
     lo, hi = span
     if hi < lo:
         return False
-    return any(a <= hi and lo <= b for (a, b) in cool)
+    cur = lo
+    for a, b in sorted(cool):
+        if b < cur:
+            continue
+        if a > cur:
+            return False
+        cur = max(cur, b)
+        if cur >= hi:
+            return True
+    return False
 
 
 def window_samples(samples, window):
