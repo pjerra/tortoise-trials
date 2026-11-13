@@ -1178,14 +1178,15 @@ class Situation:
         with `.unaura all` and then waited for a re-drink; a stripped meal can leave the AI asleep in
         it (rep1/rep4 drank at -1.5/-1.4, were stripped, and the first action came 33-35 s in). The
         meal aura is now left alone: the window opens after the meal ends on its own (MEAL_WAIT_S at
-        most), or with the hire's auras untouched (`ooc_meal_unaura_skipped`) when it outlasts the
-        wait. Returns "ended" (waited it out) or "skipped" (the wait ran out or the repeat aborted).
+        most). A meal still up after the wait invalidates the repeat ("timeout"): the window would
+        score a Drink that is still restoring mana. Returns "ended" (waited it out), "timeout"
+        (still up after MEAL_WAIT_S: no window), or "aborted" (the repeat lost its session).
         """
         deadline = time.time() + MEAL_WAIT_S
         seen = set()
         while time.time() < deadline:
             if self.abort_reason():
-                return "skipped"
+                return "aborted"
             have = self.hire_aura_ids()
             if have is not None:
                 seen = have & DRINK_AURA_IDS
@@ -1193,11 +1194,9 @@ class Situation:
                     self.log("ooc meal: the setup meal ended, opening the window on a clean hire")
                     return "ended"
             time.sleep(1.0)
-        self.log("ooc meal: still up after %.0f s (aura(s) %s), leaving the hire's auras alone"
+        self.log("ooc meal: still up after %.0f s (aura(s) %s), the repeat is invalid: no scoring window"
                  % (MEAL_WAIT_S, ", ".join(str(a) for a in sorted(seen)) or "unread"))
-        self.marks.add({"kind": "ooc_meal_unaura_skipped",
-                        "auras": sorted(int(a) for a in seen)})
-        return "skipped"
+        return "timeout"
 
     def restore_window_mana(self):
         """Put the hire back on the trial's `bot.mana_pct` after a meal restored it.
@@ -1256,6 +1255,10 @@ class Situation:
                 except Exception as exc:  # noqa: BLE001 - the window still opens
                     self.log("ooc cleanup unaura refused: %s" % str(exc)[:120])
             meal = "none"
+        if meal == "timeout":
+            # A meal still up after MEAL_WAIT_S must not open the window: the hire's Drink would keep
+            # restoring mana through the scored seconds. No fight_start: there is no window.
+            return {"ok": False, "ended": "meal", "invalid_reason": "meal still active"}
         if meal != "none":
             self.restore_window_mana()
         self.marks.add({"kind": "fight_start", "mobs": [], "ooc": True})

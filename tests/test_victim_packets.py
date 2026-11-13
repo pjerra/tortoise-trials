@@ -127,27 +127,40 @@ class PacketVictimTest(unittest.TestCase):
         c = dict(ctx(), victims_by_guid=victims)
         self.assertTrue(rules_mod._matches(row, where("$player"), by_guid, c, {}))
 
-    def test_lone_attack_stop_falls_back_to_sample_seq_path(self):
-        # Round 2: a standalone attack_stop decides nothing. A stop 0.2 s
-        # before the cast (inside the old 1.5 s rule) with a sample saying
-        # the player must still count the cast as off the player.
+    def test_attack_stop_newer_than_the_sample_decides_not_attacking_seq_path(self):
+        # Round-1 MEDIUM: the newest event wins. A stop 0.2 s after the last
+        # sample (13.0, on the player) says the mob dropped its target, so the
+        # older sample must not be read as "on the player" at the cast.
         samples = [sample(t, MOB, PLAYER) for t in (12.0, 13.0)]
         victims = {MOB.lower(): [(40, 13.2, None)]}
         row = cast(13.38, 42)
         by_guid = rules_mod._sample_rows(samples)
         c = dict(ctx(), victims_by_guid=victims)
-        self.assertTrue(rules_mod._matches(row, where("$player"), by_guid, c, {}))
+        self.assertEqual(rules_mod._packet_victim(victims, MOB, 13.38, 42, by_guid), (None, True))
+        self.assertFalse(rules_mod._matches(row, where("$player"), by_guid, c, {}))
         self.assertFalse(rules_mod._matches(row, where("$extra1"), by_guid, c, {}))
 
-    def test_lone_attack_stop_falls_back_to_sample_time_path(self):
-        # Same case on the time path (no seq anywhere): the stop decides
-        # nothing, so the latest eligible sample decides.
+    def test_attack_stop_newer_than_the_sample_decides_not_attacking_time_path(self):
+        # Same case on the time path (no seq anywhere).
         samples = [sample(t, MOB, PLAYER) for t in (12.0, 13.0)]
         victims = {MOB.lower(): [(None, 13.2, None)]}
         row = dict(cast(13.38, None))
         row.pop("seq")
         by_guid = rules_mod._sample_rows(samples)
         c = dict(ctx(), victims_by_guid=victims)
+        self.assertEqual(rules_mod._packet_victim(victims, MOB, 13.38, None, by_guid), (None, True))
+        self.assertFalse(rules_mod._matches(row, where("$player"), by_guid, c, {}))
+        self.assertFalse(rules_mod._matches(row, where("$extra1"), by_guid, c, {}))
+
+    def test_a_stale_attack_stop_loses_to_a_newer_sample(self):
+        # The other side of newest-wins: a stop from before the last sample is
+        # the older observation; the sample's target still decides.
+        samples = [sample(t, MOB, PLAYER) for t in (12.0, 13.2)]
+        victims = {MOB.lower(): [(40, 12.5, None)]}
+        row = cast(13.38, 42)
+        by_guid = rules_mod._sample_rows(samples)
+        c = dict(ctx(), victims_by_guid=victims)
+        self.assertEqual(rules_mod._packet_victim(victims, MOB, 13.38, 42, by_guid), (None, False))
         self.assertTrue(rules_mod._matches(row, where("$player"), by_guid, c, {}))
         self.assertFalse(rules_mod._matches(row, where("$extra1"), by_guid, c, {}))
 

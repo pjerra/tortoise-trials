@@ -126,9 +126,10 @@ A trial is one JSON file in `trials/<group>/`. Unknown keys are rejected by `val
   An `ooc_buffs` window starts with `.unaura all` on the player, and on the hire only when no
   Drink/Food aura is up: a meal aura is waited out (bounded, 30 s) with the hire's auras left
   untouched, and when the meal ends and the trial sets `bot.mana_pct`, that mana is put back
-  (`.modify mana`) so the window still starts at the trial's level. A hire whose aura list cannot
-  be read keeps its auras too (`ooc_meal_unaura_skipped` marks either case): a strip over a meal can
-  cut it and leave the AI asleep in it.
+  (`.modify mana`) so the window still starts at the trial's level. A meal still up after the wait
+  makes the repeat INVALID (`meal still active`) and no window opens: the hire's Drink would keep
+  restoring mana through the scored seconds. A hire whose aura list cannot be read keeps its auras
+  too (`ooc_meal_unaura_skipped`): a strip over a meal can cut it and leave the AI asleep in it.
 - `opportunity` (besides `unit`, `hp_lt`/`hp_gt`, `in_combat`): `has_aura` (a non-empty list of aura
   ids; a sample counts only when its auras intersect the list).
 - `setup_checks`: facts that must hold before a repeat counts (the guards below).
@@ -293,9 +294,11 @@ itself or a hire (the runner resets the hire's cooldowns before the first summon
   unchanged.
 - `check.where.party_under_attack` (a non-empty list of party unit aliases, e.g.
   `["$player", "$extras"]`; any metric, default off): the event counts only while one of those
-  party members has a hostile mob on it. The attacker's victim comes from its last `attack_start`
-  packet (the `src_target_of` rule: a packet at the event's own t is the echo, not the cause), and
-  from the mob's own sample `target` when no packet is fresh. A sample older than 1 s still decides
+  party members has a hostile mob on it. The attacker's victim comes from its last attack packet
+  (the `src_target_of` rule: a packet at the event's own t is the echo, not the cause), and from
+  the mob's own sample `target` when no packet is fresh. The newest event wins: an `attack_stop`
+  after the last sample decides "not attacking" (the mob dropped its target), while a stop older
+  than the sample loses to it like any older packet. A sample older than 1 s still decides
   while it is inside the 5 s liveness window: every target switch emits an `attack_start` packet, so
   with no newer packet the last read target is the current one (bench-1113: a Drink at 155.9 with
   the mob last sampled 1.7 s earlier was INCONCLUSIVE under the old 1 s rule). Only `mob:` units

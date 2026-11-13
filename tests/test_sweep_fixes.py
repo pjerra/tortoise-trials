@@ -283,6 +283,14 @@ class NoFightReasonTest(unittest.TestCase):
         self.assertEqual(doc["invalid_reason"], "prepull unaura 15473 refused: not in view")
         self.assertNotIn("player_visible", [c["id"] for c in doc["checks"]])
 
+    def test_a_meal_still_active_keeps_its_reason_and_skips_player_visible(self):
+        # Round-1 HIGH: a meal still up after MEAL_WAIT_S opens no window, so the rep must say
+        # "meal still active" (the thinnest in-fight visibility row could only fail here).
+        doc = self.rep({"ok": False, "ended": "meal", "invalid_reason": "meal still active"})
+        self.assertEqual(doc["invalid_reason"], "meal still active")
+        self.assertFalse(doc["ok"])
+        self.assertNotIn("player_visible", [c["id"] for c in doc["checks"]])
+
 
 class UnclaimedSummonTest(unittest.TestCase):
     """Five `.npc summon` in a row (one refill, five entries) all went unclaimed and stood in the arena."""

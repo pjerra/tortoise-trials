@@ -2,8 +2,9 @@
 
 A low-mana hire can be mid-meal when the window opens; `.unaura all` cuts the meal and a cut meal can
 leave the AI asleep in it. When a Drink aura is up the hire keeps its auras: the runner waits (bounded,
-MEAL_WAIT_S) for the meal to end and opens the window on it, or opens with the auras untouched when
-the meal outlasts the wait. A trial that starts the window at a mana level gets that level back after
+MEAL_WAIT_S) for the meal to end and opens the window on it. A meal still up after the wait makes the
+repeat INVALID (`meal still active`) and no window is opened: its Drink would still be restoring mana
+through the scored seconds. A trial that starts the window at a mana level gets that level back after
 the meal. Offline: a scripted agent, a recording guard and a fake clock drive Situation.run_ooc on the
 real drinks trial. No server is touched.
 
@@ -146,17 +147,24 @@ class OocWindowMealTest(unittest.TestCase):
         self.assertGreaterEqual(clock.t, 8.0 + 20.0)
         self.assertLess(clock.t, situations_mod.MEAL_WAIT_S + 20.0)
 
-    def test_a_meal_that_outlasts_the_wait_is_left_alone(self):
+    def test_a_meal_that_outlasts_the_wait_invalidates_the_repeat(self):
+        # Round-1 HIGH: a meal still up after MEAL_WAIT_S must not open the window. The hire's Drink
+        # keeps restoring mana, so a window opened on it scores a bot that has nothing to drink for:
+        # the repeat is INVALID and no fight_start is recorded (no window, no fight_end).
         sit, clock, guard, marks, logs = make(meal_ends_at=None, sit_over={"ooc_wait_s": 20})
         out = run(sit, clock)
-        self.assertTrue(out["ok"])
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["invalid_reason"], "meal still active")
+        self.assertEqual(out["ended"], "meal")
         self.assertNotIn(("unaura", HIRE, "all"), guard.sent)
-        skipped = marks.kinds("ooc_meal_unaura_skipped")
-        self.assertEqual(len(skipped), 1)
-        self.assertIn(DRINK, skipped[0]["auras"])
-        self.assertEqual(len(marks.kinds("ooc_mana_reset")), 1)
-        self.assertGreaterEqual(clock.t, situations_mod.MEAL_WAIT_S + 20.0)
-        self.assertTrue(any("leaving the hire" in line for line in logs), logs)
+        self.assertEqual(marks.kinds("fight_start"), [])
+        self.assertEqual(marks.kinds("fight_end"), [])
+        self.assertEqual(marks.kinds("ooc_mana_reset"), [])
+        self.assertFalse([row for row in guard.sent if row[0] == "modify_mana"])
+        # the whole ooc_wait_s grace is not burned on a window that will not open
+        self.assertGreaterEqual(clock.t, situations_mod.MEAL_WAIT_S)
+        self.assertLess(clock.t, situations_mod.MEAL_WAIT_S + 20.0)
+        self.assertTrue(any("no scoring window" in line for line in logs), logs)
 
     def test_an_unreadable_aura_list_leaves_the_hire_alone(self):
         # `hire_aura_ids()` returning None (a missing/malformed unit read) is not "no meal": the hire

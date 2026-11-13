@@ -152,21 +152,21 @@ def _at(samples_by_guid, guid, t):
     return best
 
 def _packet_victim(victims_by_guid, guid, t, seq=None, samples_by_guid=None):
-    """(victim, decided): the attacker's victim from its last attack_start packet.
+    """(victim, decided): the attacker's victim from its last attack packet.
 
-    Reads the per-attacker (seq, t, victim) table (attack_victims in trl/events.py).
+    Reads the per-attacker (seq, t, victim) table (attack_victims in trl/events.py):
+    an attack_start carries the victim, an attack_stop carries none.
     On the seq path (the scored event carries a seq) the winner is the latest
-    attack_start packet with seq below the cast's seq — never the taunt's own
+    attack packet with seq below the cast's seq — never the taunt's own
     switch, which the server sends above the cast's seq on the same mono_ms. On
-    the time path (no seq) only attack_start packets strictly earlier than the
+    the time path (no seq) only attack packets strictly earlier than the
     cast (vt < t) are eligible, for the same reason: a packet at the cast's own
     t is the cast's echo, not its cause. Either way only a packet within the
     last 5 s decides: anything older is no fresher than the 1 Hz sample it
-    replaces, so the caller falls back to the sample. An attack_stop entry
-    (victim None) decides nothing on its own: the caller falls back to the
-    latest eligible sample. And the packet only decides when it is at least as
-    new as the latest sample at or before the cast: a newer sample is the
-    fresher observation, so the caller uses the sample instead.
+    replaces, so the caller falls back to the sample. The newest event wins: a packet
+    only decides when it is at least as new as the latest sample at or before the
+    cast, and an attack_stop (victim None) that is newer than that sample decides too
+    — "not attacking" — instead of handing the decision back to a stale target read.
     """
     rows = (victims_by_guid or {}).get(str(guid or "").lower()) or []
     try:
@@ -199,10 +199,6 @@ def _packet_victim(victims_by_guid, guid, t, seq=None, samples_by_guid=None):
     if best is None:
         return None, False
     _rank, victim, vt = best
-    if victim is None:
-        # A standalone attack_stop decides nothing: the mob's victim is
-        # unknown from packets, so the caller uses the latest sample.
-        return None, False
     if samples_by_guid is not None:
         latest = None
         for st, _sample in samples_by_guid.get(str(guid or "").lower()) or []:
@@ -213,6 +209,8 @@ def _packet_victim(victims_by_guid, guid, t, seq=None, samples_by_guid=None):
             if st <= t and (latest is None or st > latest):
                 latest = st
         if latest is not None and latest > vt:
+            # A sample newer than the packet is the fresher observation (even over an
+            # attack_stop): the caller uses the sample.
             return None, False
     return victim, True
 
@@ -288,7 +286,9 @@ def _party_attack_state(victims_by_guid, samples_by_guid, party_guids, t, seq=No
 
     Packets first (src_target_of's rule: a packet at the cast's own t is the cast's echo, not its
     cause), the mob's own sample target as the fallback. Only mobs count as attackers; a party
-    member's own target says nothing about who is hitting it.
+    member's own target says nothing about who is hitting it. The newest event wins: an
+    attack_stop that is newer than the latest sample decides "not on anyone" (an older stop, like an
+    older attack_start, is no fresher than the sample and loses to it).
 
     A sample older than 1 s still decides while it is inside the liveness window: every target
     switch emits an attack_start packet, so with no newer packet the last read target is the current

@@ -18,17 +18,20 @@ debounce; 0.4 is the honest number and the bot side (`InterruptCastingPolicy.h` 
 **The ooc window never `.unaura all` over a Drink/Food aura.** `.unaura all` over a live meal is what
 left the low-mana priest asleep in it (33-35 s of nothing after the setup drink was stripped in
 reps 1 and 4). The window now waits (bounded, `MEAL_WAIT_S` 30 s) for the meal aura to end with the
-hire's auras untouched, or opens with them untouched when the meal outlasts the wait
-(`ooc_meal_unaura_skipped`). Because a meal ending refills mana, a trial that sets `bot.mana_pct`
-gets that level put back (`.modify mana`, `ooc_mana_reset`) so the window still tests a low-mana bot.
-An unreadable aura list keeps the hire's auras too: a strip on a guess is the bug this removes. The
-old strip-and-wait-for-a-re-drink flow (`ooc_drink_settled`, `DRINK_SETTLE_S`) is gone.
+hire's auras untouched. A meal still up after the wait does not open the window at all: its Drink
+keeps restoring mana, so the repeat is INVALID (`meal still active`, no `fight_start`). Because a
+meal ending refills mana, a trial that sets `bot.mana_pct` gets that level put back (`.modify mana`,
+`ooc_mana_reset`) so the window still tests a low-mana bot. An unreadable aura list keeps the hire's
+auras too (`ooc_meal_unaura_skipped`): a strip on a guess is the bug this removes. The old
+strip-and-wait-for-a-re-drink flow (`ooc_drink_settled`, `DRINK_SETTLE_S`) is gone.
 
-**The attack state at every Drink is recorded, and a stale sample decides.** `TNK-PAL-NO-DRINK-
+**The attack state at every Drink is recorded, and the newest event decides.** `TNK-PAL-NO-DRINK-
 UNDER-ATTACK` was INCONCLUSIVE for one repeat (paladin add-pickup rep3, Drink at 155.9) because no
-sample fell inside 1 s and the mob's last `attack_start` was an `attack_stop`. A sample up to 5 s old
-now decides when no newer packet exists — every target switch emits an `attack_start`, so with none
-the last read target is current — and each Drink's state goes into the verdict evidence
+sample fell inside 1 s and the mob's last packet was an `attack_stop`. A sample up to 5 s old now
+decides when no newer event exists — every target switch emits an `attack_start` packet, so with
+none the last read target is current — and an `attack_stop` newer than the last sample decides
+"not attacking" instead of handing the decision back to that older sample (round 1: the stop used to
+be discarded). Each Drink's state goes into the verdict evidence
 (`0xf130…d6c -> $bot (sample t=154.2)`). Rescored 0/4 PASS at `== 0`.
 
 **The add-pickup refill add cannot be made to open on the player or the healer, and was left alone.**

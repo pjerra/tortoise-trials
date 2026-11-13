@@ -272,11 +272,20 @@ class DrinkUnderAttackTest(unittest.TestCase):
         self.assertIn("not under attack", " ".join(res["evidence"]))
         self.assertIn("-> $bot (sample t=29.0)", " ".join(res["evidence"]))
 
+    def test_an_attack_stop_after_the_sample_is_not_attacking(self):
+        # Round-1 MEDIUM: the newest event wins. The mob's last sample (29, on the tank) is older
+        # than its stop at 30: the stop says it dropped its target, so the Drink is clean.
+        victims = {MOB.lower(): [(None, 30.0, None)]}
+        res = rules_mod.evaluate(self.rule, [_bot_cast(32.0)], self.samples, [], self._ctx(victims))
+        self.assertEqual((res["k"], res["verdict"]), (0, "PASS"))
+        self.assertIn("not under attack", " ".join(res["evidence"]))
+
     def test_unknown_attack_state_is_inconclusive_not_a_pass(self):
         # A mob that was live (an attack packet inside the window) with no sample at all saying who it
-        # is on at the cast is still unknown: missing attack-state evidence is not "not under attack".
+        # is on at the cast is still unknown: a switch on the cast's own t is its echo, not its cause,
+        # and missing attack-state evidence is not "not under attack".
         samples = [_sample(float(t), PLAYER, "player") for t in range(0, 60)]
-        victims = {MOB.lower(): [(None, 29.0, None)]}
+        victims = {MOB.lower(): [(None, 32.0, BOT)]}
         rows = [_bot_cast(32.0)]
         res = rules_mod.evaluate(self.rule, rows, samples, [], self._ctx(victims))
         self.assertEqual((res["k"], res["verdict"]), (0, "INCONCLUSIVE"))
