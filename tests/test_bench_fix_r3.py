@@ -3,7 +3,9 @@
 The old `_window_overlaps_cooldown` returned INCONCLUSIVE for any overlap: a potion cooldown
 that ran out 10 s into a 30 s window still hid the bot's remaining 20 s, so a real miss read as
 no opportunity. The rule's whole response window must be covered before the rep is INCONCLUSIVE;
-a partial overlap falls through to the normal no-match scoring.
+a partial overlap falls through to the normal no-match scoring. Round 4: a match stamped inside a
+cooldown span is dropped from the hits first (a cast there is impossible, or a proc row), so it
+cannot make a partially covered window INCONCLUSIVE either.
 """
 
 import os
@@ -72,6 +74,20 @@ class CrossRepCooldownCoverageTest(unittest.TestCase):
     def test_adjacent_spans_merging_to_the_whole_window_are_no_opportunity(self):
         # neither span alone covers (-2, 30); merged they do, so it is still no chance
         got = score([cooldown(-2, 10), cooldown(10, 30)])
+        self.assertEqual(got["verdict"], "INCONCLUSIVE", got)
+
+    def test_a_match_inside_a_partial_cooldown_is_dropped_for_the_real_cast(self):
+        # t=5 is stamped inside the cooldown (impossible, or a proc row); only the t=20 cast answers
+        got = score([cooldown(-2, 10), cast(5), cast(20)])
+        self.assertEqual((got["verdict"], got["value"]), ("PASS", 20.0), got)
+
+    def test_a_match_inside_a_partial_cooldown_alone_is_a_miss(self):
+        got = score([cooldown(-2, 10), cast(5)])
+        self.assertEqual(got["verdict"], "FAIL", got)
+        self.assertEqual(got["evidence"], ["no match"], got)
+
+    def test_a_match_inside_full_coverage_is_still_no_opportunity(self):
+        got = score([cooldown(-2, 118), cast(5)])
         self.assertEqual(got["verdict"], "INCONCLUSIVE", got)
 
 

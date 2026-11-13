@@ -1089,39 +1089,37 @@ def evaluate(rule, rows, samples, marks, ctx):
                 "evidence": ["%d/%d samples" % (up, len(rows_s))], "guard": guard_note}
 
     if metric == "first":
-        hits = sorted(scored([r for r in rows if _matches(r, where, samples_by_guid, ctx, trial)]),
-                      key=lambda r: r.get("t", 0.0))
+        cool = []
+        if check.get("debounce_responder_across_reps"):
+            for r in rows:
+                if r.get("kind") != "excluded" or r.get("why") != "prior rep responder cooldown":
+                    continue
+                try:
+                    a, b = float(r.get("from")), float(r.get("to"))
+                except (TypeError, ValueError):
+                    continue
+                if b > a:
+                    cool.append((a, b))
+        matches = [r for r in rows if _matches(r, where, samples_by_guid, ctx, trial)]
+        if cool:
+            # A cast stamped inside an earlier rep's item cooldown is impossible (or a proc row):
+            # drop it from the hits, like `scored` drops every excluded span. A rep whose only
+            # "match" sits in the cooldown is not answered by it.
+            matches = [r for r in matches
+                       if not any(a <= float(r.get("t", 0.0) or 0.0) <= b for (a, b) in cool)]
+        hits = sorted(scored(matches), key=lambda r: r.get("t", 0.0))
         if not hits:
             # A responder cooldown carried across reps (bench-fix-1112: the 120 s potion item cooldown
             # survives `.cooldown`): a rep left with no chance is INCONCLUSIVE (no opportunity), never a
-            # miss — a match only inside such a span, or no match at all while the spans cover the
-            # rule's whole response window. A partial overlap still leaves a chance, so it is scored.
+            # miss — only when the spans cover the rule's whole response window. A partial overlap
+            # still leaves a chance, so the no-match scoring below applies.
             # The +inf path below stays for a clean window with no match.
-            if check.get("debounce_responder_across_reps"):
-                cool = []
-                for r in rows:
-                    if r.get("kind") != "excluded" or r.get("why") != "prior rep responder cooldown":
-                        continue
-                    try:
-                        a, b = float(r.get("from")), float(r.get("to"))
-                    except (TypeError, ValueError):
-                        continue
-                    if b > a:
-                        cool.append((a, b))
-                covered = [r for r in rows if _matches(r, where, samples_by_guid, ctx, trial)
-                           and any(a <= float(r.get("t", 0.0) or 0.0) <= b for (a, b) in cool)]
-                if covered:
-                    return {"value": None, "no_match": True, "k": 0, "n": 0,
-                            "verdict": "INCONCLUSIVE",
-                            "evidence": ["only match inside an earlier rep's responder cooldown"],
-                            "reason": "no opportunity (item on cooldown from an earlier rep)",
-                            "guard": guard_note}
-                if _window_covered_by_cooldown(rule, window, cool):
-                    return {"value": None, "no_match": True, "k": 0, "n": 0,
-                            "verdict": "INCONCLUSIVE",
-                            "evidence": ["response window fully covered by an earlier rep's responder cooldown"],
-                            "reason": "no opportunity (item on cooldown from an earlier rep)",
-                            "guard": guard_note}
+            if cool and _window_covered_by_cooldown(rule, window, cool):
+                return {"value": None, "no_match": True, "k": 0, "n": 0,
+                        "verdict": "INCONCLUSIVE",
+                        "evidence": ["response window fully covered by an earlier rep's responder cooldown"],
+                        "reason": "no opportunity (item on cooldown from an earlier rep)",
+                        "guard": guard_note}
             # No match: pass_if still decides, as +inf (e.g. "< 30" FAILs, "> 30"
             # PASSes). The +inf stays internal; the stored value is null (JSON-safe).
             return {"value": None, "no_match": True, "k": 0, "n": 1,

@@ -402,8 +402,20 @@ class PotionCrossRepCooldownTest(unittest.TestCase):
             trial = load(self.TID)
             return score_mod.score_trial(tdir, trial)["verdicts"][0]
 
-    def test_a_potion_inside_the_earlier_reps_cooldown_is_no_chance(self):
+    def test_a_potion_inside_a_partially_covering_cooldown_is_a_miss(self):
+        # bench-fix-1112 round 4: at the nightly 122 s spacing rep 2's cooldown is -112..8, so the
+        # t=5 potion stamped inside it is impossible (or a proc row) and is dropped; rep 2 had 8..30
+        # left to drink, so the empty hit list is a miss, not no-opportunity.
         got = self.score([10, 5])
+        self.assertEqual((got["verdict"], got["k"], got["n"]), ("FAIL", 1, 2), got)
+        rep2 = [d for d in got["detail"] if d["rep"] == "rep2"][0]
+        self.assertEqual(rep2["verdict"], "FAIL")
+        self.assertEqual(rep2["reason"], "")
+
+    def test_a_potion_inside_a_fully_covered_window_is_no_chance(self):
+        # 80 s spacing leaves rep 2's cooldown at -70..50, which covers its whole -2..30 window:
+        # the potion at t=5 sits in it, so the rep is no-opportunity, never a miss.
+        got = self.score([10, 5], spacing=80.0)
         self.assertEqual((got["verdict"], got["k"], got["n"]), ("PASS", 1, 1), got)
         rep2 = [d for d in got["detail"] if d["rep"] == "rep2"][0]
         self.assertEqual(rep2["verdict"], "INCONCLUSIVE")

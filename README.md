@@ -251,14 +251,14 @@ itself or a hire (the runner resets the hire's cooldowns before the first summon
   triggers per source before anything is answered. `check.debounce_responder_across_reps: true` (needs
   `debounce_responder_s`) carries that cooldown over the repeat boundary: a latency trigger less
   than N s after the bot's last matching response in ANY earlier repeat of the trial is skipped as
-  well, and a `first` rule whose only match falls inside an earlier repeat's cooldown scores the
-  repeat INCONCLUSIVE (no opportunity), never a miss. With no match, only a cooldown that covers the
-  rule's whole response window is no opportunity (INCONCLUSIVE); a partial overlap still leaves a
-  chance, so the repeat is scored (a `< 30` miss FAILs). Use it when the runner cannot reset the
-  cooldown (bench-fix-1111: `.cooldown` does not clear Thistle Tea's 5-minute item cooldown, so a
-  rep starting soon after the last tea has no chance at its drains; bench-fix-1112: the 120 s
-  Greater Mana Potion cooldown works the same way, and the bench also accepts the potion from
-  t −2, since a ready bot answers during the pull).
+  well. On a `first` rule a match stamped inside an earlier repeat's cooldown is dropped (a cast
+  there is impossible, or a proc row), and the remaining hits score. With no hit left, only
+  cooldowns that cover the rule's whole response window are no opportunity (INCONCLUSIVE); a
+  partial overlap still leaves a chance, so the repeat is scored (a `< 30` miss FAILs).
+  Use it when the runner cannot reset the cooldown (bench-fix-1111: `.cooldown` does not clear
+  Thistle Tea's 5-minute item cooldown, so a rep starting soon after the last tea has no chance at
+  its drains; bench-fix-1112: the 120 s Greater Mana Potion cooldown works the same way, and the
+  bench also accepts the potion from t −2, since a ready bot answers during the pull).
 - `check.skip_trigger_while` (`{"unit": <alias>, "power_below_pct": N, "skip_when_dead": true}`;
   latency rules with a cross trigger only): triggers while the answering unit reads under N percent
   power or dead (the sample's `dead` flag, or the Spirit of Redemption aura) carry no chance and are
