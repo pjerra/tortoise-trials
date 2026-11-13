@@ -1207,31 +1207,34 @@ class Situation:
         return "unknown"
 
     def restore_window_mana(self):
-        """Put the hire back on the trial's `bot.mana_pct` after a meal restored it.
+        """Put the hire back on the trial's `bot.mana_pct` after a meal restored it; True on success.
 
         A trial that starts the window at a mana level (priest-holy-low-mana-drinks) is meaningless
         once the setup meal has refilled the hire: the window would test a bot that has no reason to
         drink. `bot.mana_pct` is re-applied through the same `.modify mana` line the setup check
-        uses (`check_mana`). No `mana_pct` -> nothing to do.
+        uses (`check_mana`). No `mana_pct` -> True (nothing to restore). An unreadable max mana, no
+        max mana at all, or a refused line returns False: the hire may still sit far above the
+        trial's level, and the caller must not score the window on that guess.
         """
         pct = (self.trial.get("bot") or {}).get("mana_pct")
         if pct is None or not self.ctx.hire_guid:
-            return
+            return True
         try:
             unit = self.agent.unit(guid=self.ctx.hire_guid) or {}
             maxp = int(unit.get("max_power") or unit.get("max_mana") or 0)
-        except Exception as exc:  # noqa: BLE001 - the window still opens
-            self.log("ooc mana reset skipped: %s" % str(exc)[:120])
-            return
+        except Exception as exc:  # noqa: BLE001 - reported as a failed reset
+            self.log("ooc mana reset failed: max mana unreadable (%s)" % str(exc)[:120])
+            return False
         if maxp <= 0:
-            self.log("ooc mana reset skipped: the hire's max mana is unknown")
-            return
+            self.log("ooc mana reset failed: the hire's max mana is unknown")
+            return False
         try:
             self.guard.send("modify_mana", self.ctx.hire_guid, int(maxp * float(pct) / 100), maxp)
-        except Exception as exc:  # noqa: BLE001 - the window still opens
-            self.log("ooc mana reset refused: %s" % str(exc)[:120])
-            return
+        except Exception as exc:  # noqa: BLE001 - reported as a failed reset
+            self.log("ooc mana reset failed: %s" % str(exc)[:120])
+            return False
         self.marks.add({"kind": "ooc_mana_reset", "pct": float(pct)})
+        return True
 
     def run_ooc(self):
         wait = float(self.sit.get("ooc_wait_s") or 60)
@@ -1271,7 +1274,11 @@ class Situation:
             return {"ok": False, "ended": "meal",
                     "invalid_reason": "meal still active" if meal == "timeout" else "meal state unknown"}
         if meal != "none":
-            self.restore_window_mana()
+            reset_ok = self.restore_window_mana()
+            if meal == "ended" and not reset_ok:
+                # A meal was waited out and the hire could not be put back on the trial's level: the
+                # scored seconds would test a bot far above `bot.mana_pct`, so there is no window.
+                return {"ok": False, "ended": "meal", "invalid_reason": "mana reset failed"}
         self.marks.add({"kind": "fight_start", "mobs": [], "ooc": True})
         deadline = time.time() + wait
         invalid = ""

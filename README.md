@@ -126,7 +126,9 @@ A trial is one JSON file in `trials/<group>/`. Unknown keys are rejected by `val
   An `ooc_buffs` window starts with `.unaura all` on the player, and on the hire only when no
   Drink/Food aura is up: a meal aura is waited out (bounded, 30 s) with the hire's auras left
   untouched, and when the meal ends and the trial sets `bot.mana_pct`, that mana is put back
-  (`.modify mana`) so the window still starts at the trial's level. A meal still up after the wait
+  (`.modify mana`) so the window still starts at the trial's level; a reset that cannot land (an
+  unreadable max mana, or a refused line) makes the repeat INVALID (`mana reset failed`) instead of
+  scoring a hire a meal left above the trial's level. A meal still up after the wait
   makes the repeat INVALID (`meal still active`) and no window opens: the hire's Drink would keep
   restoring mana through the scored seconds. An unreadable aura list is unknown, not "no meal": it
   is retried inside the same 30 s wait with the hire's auras left alone, and a list that never reads

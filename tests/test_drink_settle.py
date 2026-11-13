@@ -148,6 +148,44 @@ class OocWindowMealTest(unittest.TestCase):
         self.assertGreaterEqual(clock.t, 8.0 + 20.0)
         self.assertLess(clock.t, situations_mod.MEAL_WAIT_S + 20.0)
 
+    def test_a_refused_mana_reset_after_a_meal_makes_the_repeat_invalid(self):
+        # Round-3 HIGH: a meal refilled the hire and the `.modify mana` never lands, so the hire may
+        # sit far above bot.mana_pct: the scored seconds would test the wrong bot. No window.
+        sit, clock, guard, marks, logs = make(meal_ends_at=8.0, sit_over={"ooc_wait_s": 20})
+        guard.refuse = {"modify_mana"}
+        out = run(sit, clock)
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["invalid_reason"], "mana reset failed")
+        self.assertEqual(out["ended"], "meal")
+        self.assertEqual(marks.kinds("fight_start"), [])
+        self.assertEqual(marks.kinds("fight_end"), [])
+        self.assertEqual(marks.kinds("ooc_mana_reset"), [])
+        self.assertTrue(any("ooc mana reset failed" in line for line in logs), logs)
+        # the meal was waited out first (the reset runs after it ends)
+        self.assertGreaterEqual(clock.t, 8.0)
+        self.assertLess(clock.t, situations_mod.MEAL_WAIT_S + 20.0)
+
+    def test_an_unreadable_max_mana_after_a_meal_makes_the_repeat_invalid(self):
+        # The reset cannot compute the trial's level without max mana: guessing 0 would leave the
+        # hire where the meal put it, so the repeat is invalid instead of scored.
+        clock = FakeClock()
+
+        class NoMax(ScriptedAgent):
+            def unit(self, guid=None, **kw):
+                row = super().unit(guid=guid, **kw)
+                row.pop("max_power", None)
+                return row
+
+        agent = NoMax(FakeClock(), meal_ends_at=8.0)
+        sit, clock, guard, marks, logs = make(agent=agent, sit_over={"ooc_wait_s": 20})
+        agent.clock = clock  # the fake clock run_ooc is driven by decides when the meal ends
+        out = run(sit, clock)
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["invalid_reason"], "mana reset failed")
+        self.assertEqual(marks.kinds("fight_start"), [])
+        self.assertFalse([row for row in guard.sent if row[0] == "modify_mana"])
+        self.assertTrue(any("max mana is unknown" in line for line in logs), logs)
+
     def test_a_meal_that_outlasts_the_wait_invalidates_the_repeat(self):
         # Round-1 HIGH: a meal still up after MEAL_WAIT_S must not open the window. The hire's Drink
         # keeps restoring mana, so a window opened on it scores a bot that has nothing to drink for:
