@@ -2,6 +2,27 @@
 
 Short, dated notes on choices that are not obvious from the code.
 
+## 2026-11-14: DPS-MAG-COUNTERSPELL scores pooled (a scoring flip, not a regression)
+
+`DPS-MAG-COUNTERSPELL` (`dps-mage-counterspell-caster`) now carries `pool: true` with
+`expect_today` FAIL ("the arcane mage idles while its target attacks the healer, bot ticket T15").
+The Counterspell 30 s responder debounce leaves 4-6 triggers per repeat, so per-repeat `min_n 5`
+dropped the two t1113 repeats that missed by one trigger and the 1-1 tie among the two valid
+repeats scored FAIL at 6/10. Pooled, both images FAIL at the same rate, so the rule never held.
+Rescored from the frozen snapshots (copies in `/tmp`, the originals are untouched; the run's own
+snapshot patched with `pool: true`, never today's trial files):
+
+| run | before | after (pooled) |
+|---|---|---|
+| t1113 (`20261113-141949-t1113`) | FAIL 6/10 | **FAIL 10/18 = 0.556** (rep 2/5, 2/4, 4/5, 2/4) |
+| t1112 (`20261112-063822-t1112`) | PASS 3-1, 12/21 = 0.571 | **FAIL 12/21 = 0.571** (rep 3/5, 2/5, 4/6, 3/5) |
+
+The new `tests/test_counterspell_pooled.py` pins the t1113 numbers at a pooled FAIL of 10/18 and
+checks the flip on a synthetic repeat (pooled, 4 triggers is 4/4 PASS; unpooled, the per-repeat
+`min_n` makes it INCONCLUSIVE). The pre-pool JSON fails it. The bot bug itself is separate (bot ticket T15):
+the arcane mage idles while its target attacks the healer; re-run with 6 reps after any fix to
+compare BEFORE and AFTER.
+
 ## 2026-11-13: pooled stun interrupts, meal-safe ooc window, recorded attack state, no add direction
 
 Bench round 1113, from `after-t1113/OPEN-3.md`.

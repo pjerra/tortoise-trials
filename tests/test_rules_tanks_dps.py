@@ -46,7 +46,7 @@ EXPECT = {
     "DPS-MAG-THREAT-NO-AGGRO": "?", "DPS-MAG-THREAT-TANK-HELD": "PASS",
     "DPS-MAG-THREAT-TANK-FOUGHT": "PASS", "DPS-MAG-THREAT-DAMAGE": "PASS", "DPS-MAG-THREAT-STANCE": "PASS",
     "DPS-ROG-KICK": "?", "DPS-ROG-KICK-STANCE": "PASS",
-    "DPS-MAG-COUNTERSPELL": "?", "DPS-MAG-CS-STANCE": "PASS",
+    "DPS-MAG-COUNTERSPELL": "FAIL", "DPS-MAG-CS-STANCE": "PASS",
     "DPS-MAG-CC-RESPECT": "PASS", "DPS-MAG-CC-POLYMORPH": "PASS",
     "TNK-DRU-GROWL": "?", "TNK-DRU-MAUL": "PASS", "TNK-DRU-FORM": "PASS",
     "TNK-DRU-GROWL-STANCE": "PASS",
@@ -492,7 +492,7 @@ class DpsRulesTest(RepMixin, unittest.TestCase):
             sample(t, BOT, combat=False) for t in range(0, 201)]
         self.assertEqual(self.verdict(tid, "DPS-MAG-THREAT-NO-AGGRO", nukes, idle), "INCONCLUSIVE")
 
-    def _interrupt(self, tid, rid, spell_id, gap):
+    def _interrupt(self, tid, rid, spell_id, gap, pooled=False):
         samples = series(200, player=(71,))
         casts = [event(10 + gap * i, "cast_start", MOB, PLAYER, LIGHTNING_BOLT) for i in range(5)]
         answers = [event(11.5 + gap * i, "cast", BOT, MOB, spell_id) for i in range(5)]
@@ -501,8 +501,10 @@ class DpsRulesTest(RepMixin, unittest.TestCase):
         # an instant (not interruptible) cast is no trigger: no triggers at all -> INCONCLUSIVE
         instants = [event(10 + gap * i, "cast_start", MOB, PLAYER, 355) for i in range(5)]
         self.assertEqual(self.verdict(tid, rid, instants, samples), "INCONCLUSIVE")
-        # fewer than min_n 5 triggers is INCONCLUSIVE, not a pass
-        self.assertEqual(self.verdict(tid, rid, casts[:4] + answers[:4], samples), "INCONCLUSIVE")
+        # fewer than min_n 5 triggers is INCONCLUSIVE, not a pass; a pooled rule skips the
+        # per-repeat guard (min_n reads the pooled n), so 4 answered of 4 passes the repeat
+        self.assertEqual(self.verdict(tid, rid, casts[:4] + answers[:4], samples),
+                         "PASS" if pooled else "INCONCLUSIVE")
         return casts, samples
 
     def test_kick(self):
@@ -512,7 +514,7 @@ class DpsRulesTest(RepMixin, unittest.TestCase):
         self.assertEqual(self.verdict("dps-rogue-kick-caster", "DPS-ROG-KICK", casts + kidney, samples), "FAIL")
 
     def test_counterspell(self):
-        self._interrupt("dps-mage-counterspell-caster", "DPS-MAG-COUNTERSPELL", 2139, 40)
+        self._interrupt("dps-mage-counterspell-caster", "DPS-MAG-COUNTERSPELL", 2139, 40, pooled=True)
 
     def test_interrupt_stance_preconditions(self):
         for tid, rid in (("dps-rogue-kick-caster", "DPS-ROG-KICK-STANCE"),

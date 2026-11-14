@@ -96,8 +96,8 @@
       "id": "DPS-MAG-COUNTERSPELL",
       "desc": "The mage casts Counterspell on the mob within 3 s of an interruptible cast start, at least 60 percent of the time (one trigger per mob per 30 s, one counted answer per 30 s: Counterspell's cooldown)",
       "source": "ai/playerbot/strategy/mage/MageStrategy.cpp:428-455 (MageCcStrategy), :443-444 (counterspell at ACTION_INTERRUPT + 1); ai/playerbot/strategy/mage/MageTriggers.h:113; ai/playerbot/strategy/mage/MageActions.h:153-154 (BEGIN_INTERRUPT_SPELL_ACTION); ai/playerbot/AiFactory.cpp:704-721 (mages get 'cc'); ai/playerbot/strategy/generic/ThreatStrategy.cpp:68-83 (the high-threat veto); ai/playerbot/strategy/triggers/GenericTriggers.cpp:1072-1075 (InterruptSpellTrigger); ai/playerbot/PlayerbotAISpells.cpp:1799-1847 (IsInterruptableSpellCasting); ai/playerbot/strategy/actions/GenericSpellActions.h:131-152 (CastInterruptSpellAction / CastMeleeInterruptSpellAction: 'interrupt target', still the CastSpellAction threat type), :39 (ACTION_THREAT_SINGLE); ai/playerbot/strategy/actions/GenericSpellActions.h:501-505 (Shoot is threat type NONE); TortoiseBots upstream/dev abb91ff62",
-      "expect_today": "?",
-      "why_expect": "the counterspell row is in every mage's cc strategy and outranks the nukes, so with no threat back-off this passes. But CastCounterspellAction is a CastInterruptSpellAction (MageActions.h:153-154), which still carries ACTION_THREAT_SINGLE (GenericSpellActions.h:39), so ThreatMultiplier vetoes it while 'high threat' is active (ThreatStrategy.cpp:68-83). The vetoed nukes fall back to the wand (#922), which is threat type NONE (GenericSpellActions.h:501-505) and keeps the mage at the cap, so the counterspell may be vetoed exactly when the mage has been fighting longest",
+      "expect_today": "FAIL",
+      "why_expect": "the arcane mage idles while its target attacks the healer, bot ticket T15",
       "check": {
         "metric": "latency",
         "trigger": {
@@ -116,7 +116,8 @@
         "debounce_responder_s": 30
       },
       "pass_if": ">= 0.6",
-      "min_n": 5
+      "min_n": 5,
+      "pool": true
     },
     {
       "id": "DPS-MAG-CS-STANCE",
